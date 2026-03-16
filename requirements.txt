@@ -1,0 +1,5 @@
+flet==0.82.2
+flet-desktop-light==0.82.2
+httpx==0.28.1
+pydantic==2.6.4
+comicbox==2.2.1

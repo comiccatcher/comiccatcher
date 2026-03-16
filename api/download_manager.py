@@ -1,0 +1,198 @@
+import asyncio
+import os
+import re
+from pathlib import Path
+from typing import Dict, Optional, Callable
+from urllib.parse import unquote_plus, urlsplit
+import httpx
+from api.client import APIClient
+from logger import get_logger
+
+logger = get_logger("api.download_manager")
+
+_FILENAME_MAX = 180
+
+
+def _iterative_unquote_plus(s: str, max_rounds: int = 3) -> str:
+    """
+    Decode strings that may be encoded multiple times (e.g. %2523 -> %23 -> #).
+    Also treats '+' as space (like browsers do for form-style encodings).
+    """
+    out = s or ""
+    for _ in range(max_rounds):
+        new = unquote_plus(out)
+        if new == out:
+            break
+        out = new
+    return out
+
+
+def _filename_from_content_disposition(cd: str) -> Optional[str]:
+    """
+    Parse Content-Disposition and return a decoded filename if present.
+
+    Supports:
+    - filename="x.cbz"
+    - filename*=UTF-8''x%20y.cbz
+    """
+    if not cd:
+        return None
+
+    # Prefer RFC 5987 filename*
+    m = re.search(r"filename\*\s*=\s*([^;]+)", cd, flags=re.IGNORECASE)
+    if m:
+        raw = m.group(1).strip().strip("\"'")
+        if "''" in raw:
+            _, _, rest = raw.partition("''")
+            return _iterative_unquote_plus(rest)
+        return _iterative_unquote_plus(raw)
+
+    m = re.search(r"filename\s*=\s*([^;]+)", cd, flags=re.IGNORECASE)
+    if m:
+        raw = m.group(1).strip().strip("\"'")
+        return _iterative_unquote_plus(raw)
+    return None
+
+
+def _filename_from_url(url: str) -> Optional[str]:
+    try:
+        leaf = Path(urlsplit(url).path).name
+        if not leaf:
+            return None
+        return _iterative_unquote_plus(leaf)
+    except Exception:
+        return None
+
+
+def _sanitize_filename(name: str) -> str:
+    """
+    Keep names user-friendly while being safe across OSes.
+
+    Allows: alnum, space, dot, underscore, dash, #, parentheses, brackets.
+    """
+    if not name:
+        name = "download.cbz"
+
+    name = Path(str(name)).name
+    name = re.sub(r"\s+", " ", name).strip()
+
+    allowed = set(" ._-#()[]")
+    cleaned = "".join(c for c in name if c.isalnum() or c in allowed).strip(" .")
+    if not cleaned:
+        cleaned = "download"
+
+    if not cleaned.lower().endswith(".cbz"):
+        cleaned = f"{cleaned}.cbz"
+
+    if len(cleaned) > _FILENAME_MAX:
+        stem = Path(cleaned).stem[: _FILENAME_MAX - 4]
+        cleaned = f"{stem}.cbz"
+
+    return cleaned
+
+
+def _collision_free_path(dir_path: Path, filename: str) -> Path:
+    p = dir_path / filename
+    if not p.exists():
+        return p
+    stem = p.stem
+    suffix = p.suffix
+    n = 2
+    while True:
+        candidate = dir_path / f"{stem} ({n}){suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+class DownloadTask:
+    def __init__(self, book_id: str, title: str, url: str):
+        self.book_id = book_id
+        self.title = title
+        self.url = url
+        self.progress = 0.0 # 0 to 1.0
+        self.status = "Pending" # Pending, Downloading, Completed, Failed
+        self.error = None
+        self.file_path = None
+
+class DownloadManager:
+    def __init__(self, api_client: APIClient, download_dir: Optional[Path] = None):
+        self.api_client = api_client
+        # Default to the app's library folder ("~/ComicCatcher" unless configured).
+        # UI layer can also override by passing download_dir explicitly.
+        if download_dir is None:
+            self.download_dir = Path.home() / "ComicCatcher"
+        else:
+            self.download_dir = Path(download_dir)
+        self.tasks: Dict[str, DownloadTask] = {}
+        self._on_update_callback: Optional[Callable] = None
+
+    def set_callback(self, callback: Callable):
+        self._on_update_callback = callback
+
+    async def start_download(self, book_id: str, title: str, url: str):
+        if book_id in self.tasks and self.tasks[book_id].status == "Completed":
+            logger.info(f"Book {title} already downloaded.")
+            return
+
+        task = DownloadTask(book_id, title, url)
+        self.tasks[book_id] = task
+        try:
+            self.download_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            # If CWD isn't usable for some reason, fall back to current CWD anyway.
+            self.download_dir = Path.cwd()
+
+        # Provisional path shown in UI until response headers arrive.
+        task.file_path = _collision_free_path(self.download_dir, _sanitize_filename(title))
+        
+        asyncio.create_task(self._download_worker(task))
+
+    async def _download_worker(self, task: DownloadTask):
+        task.status = "Downloading"
+        self._notify()
+        
+        try:
+            async with self.api_client.client.stream("GET", task.url) as response:
+                if response.status_code != 200:
+                    raise Exception(f"Server returned status {response.status_code}")
+
+                # Choose filename like browsers do: Content-Disposition first, then URL leaf, then title.
+                cd = response.headers.get("Content-Disposition") or response.headers.get("content-disposition") or ""
+                suggested = _filename_from_content_disposition(cd) or _filename_from_url(task.url) or task.title
+                task.file_path = _collision_free_path(self.download_dir, _sanitize_filename(suggested))
+                self._notify()
+                
+                total_bytes = int(response.headers.get("Content-Length", 0))
+                downloaded_bytes = 0
+                
+                with open(task.file_path, "wb") as f:
+                    async for chunk in response.aiter_bytes():
+                        f.write(chunk)
+                        downloaded_bytes += len(chunk)
+                        if total_bytes > 0:
+                            task.progress = downloaded_bytes / total_bytes
+                            self._notify()
+                
+            task.status = "Completed"
+            task.progress = 1.0
+            logger.info(f"Download completed: {task.title} -> {task.file_path}")
+        except Exception as e:
+            task.status = "Failed"
+            task.error = str(e)
+            logger.error(f"Download failed for {task.title}: {e}")
+            if task.file_path.exists():
+                os.remove(task.file_path)
+        
+        self._notify()
+
+    def _notify(self):
+        if self._on_update_callback:
+            self._on_update_callback()
+
+    def get_task(self, book_id: str) -> Optional[DownloadTask]:
+        return self.tasks.get(book_id)
+
+    def remove_task(self, book_id: str):
+        if book_id in self.tasks:
+            del self.tasks[book_id]
+            self._notify()
