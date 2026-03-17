@@ -21,6 +21,8 @@ class APIClient:
             self.client.auth = httpx.BasicAuth(self.profile.username, self.profile.password)
 
     async def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> httpx.Response:
+        if self.client is None:
+            print(f"CRITICAL: self.client is None in APIClient.get for {endpoint}!")
         return await self.client.get(endpoint, params=params)
 
     async def post(self, endpoint: str, json: Optional[Dict[str, Any]] = None) -> httpx.Response:

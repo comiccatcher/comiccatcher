@@ -1,228 +1,180 @@
 import asyncio
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import flet as ft
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+    QScrollArea, QFrame, QSizePolicy
+)
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QPixmap, QFont
 
 from logger import get_logger
-from ui.snack import show_snack
 from api.image_manager import ImageManager
-from ui.image_data import TRANSPARENT_DATA_URL
 from ui.local_archive import read_first_image
 from ui.local_comicbox import flatten_comicbox, read_comicbox_dict, read_comicbox_cover
 
-
 logger = get_logger("ui.library_detail")
-COLORS = getattr(ft, "colors", ft.Colors)
-SURFACE_VARIANT = getattr(COLORS, "SURFACE_VARIANT", getattr(COLORS, "SURFACE_CONTAINER", COLORS.SURFACE))
-
-
-@dataclass
-class LocalComicInfo:
-    path: Path
-    meta: Dict[str, Any]
-
-    @property
-    def title(self) -> str:
-        return (
-            str(self.meta.get("title") or "")
-            or self.path.stem
-        )
-
 
 def _read_comicbox_meta(path: Path) -> Dict[str, Any]:
-    """
-    Returns metadata via comicbox if available; otherwise returns minimal metadata.
-    """
     raw = read_comicbox_dict(path)
     return flatten_comicbox(raw)
 
-
-class LocalComicDetailView(ft.Column):
-    def __init__(self, page: ft.Page, on_back, on_read_local=None):
+class LocalComicDetailView(QWidget):
+    def __init__(self, on_back, on_read_local=None):
         super().__init__()
-        self._page = page
         self.on_back = on_back
         self.on_read_local = on_read_local
-
-        self.expand = True
-        self.spacing = 10
-
         self._path: Optional[Path] = None
         self.image_manager = ImageManager(None)
 
-        self.spinner = ft.ProgressRing(visible=False)
-        self.title_text = ft.Text("", size=22, weight=ft.FontWeight.BOLD)
-        self.path_text = ft.Text("", size=12, color=COLORS.GREY_500)
-        self.read_btn = ft.FilledButton("Read", icon=ft.Icons.MENU_BOOK, disabled=True, on_click=self._on_read)
+        self.layout = QVBoxLayout(self)
 
-        self.cover_img = ft.Image(
-            src=TRANSPARENT_DATA_URL,
-            width=200,
-            height=300,
-            fit=ft.BoxFit.CONTAIN,
-            border_radius=8
-        )
+        # Header
+        self.header = QHBoxLayout()
+        self.btn_back = QPushButton("Back")
+        self.btn_back.clicked.connect(self.on_back)
+        
+        self.title_label = QLabel("Comic Title")
+        self.title_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        self.title_label.setWordWrap(True)
+        
+        self.btn_read = QPushButton("Read")
+        self.btn_read.setStyleSheet("background-color: #2e7d32; color: white; padding: 8px 16px;")
+        self.btn_read.clicked.connect(self._on_read_clicked)
+        self.btn_read.setEnabled(False)
 
-        self.kv = ft.Column(spacing=6, expand=True)
+        self.header.addWidget(self.btn_back)
+        self.header.addWidget(self.title_label, 1)
+        self.header.addWidget(self.btn_read)
+        self.layout.addLayout(self.header)
 
-        self.controls = [
-            ft.Container(
-                content=ft.Row(
-                    [
-                        ft.TextButton("Back", on_click=lambda e: self.on_back()),
-                        ft.VerticalDivider(width=1, color=COLORS.GREY_800),
-                        ft.Container(content=self.title_text, expand=True),
-                        self.read_btn,
-                        self.spinner,
-                    ],
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                bgcolor=SURFACE_VARIANT,
-                padding=ft.padding.symmetric(horizontal=12, vertical=10),
-            ),
-            ft.Container(content=self.path_text, padding=ft.padding.only(left=12, right=12)),
-            ft.Divider(height=1),
-            ft.Container(
-                content=ft.Row(
-                    [
-                        ft.Container(content=self.cover_img, width=200, alignment=ft.Alignment.TOP_CENTER),
-                        ft.VerticalDivider(width=20, color=COLORS.TRANSPARENT),
-                        self.kv
-                    ],
-                    vertical_alignment=ft.CrossAxisAlignment.START,
-                    expand=True
-                ),
-                expand=True,
-                padding=ft.padding.symmetric(horizontal=12, vertical=6)
-            ),
-        ]
+        # Path Label
+        self.path_label = QLabel("")
+        self.path_label.setStyleSheet("color: gray; font-size: 10px;")
+        self.layout.addWidget(self.path_label)
+
+        self.line = QFrame()
+        self.line.setFrameShape(QFrame.Shape.HLine)
+        self.line.setFrameShadow(QFrame.Shadow.Sunken)
+        self.layout.addWidget(self.line)
+
+        # Content (Cover + Metadata)
+        self.content_layout = QHBoxLayout()
+        
+        # Cover
+        self.cover_label = QLabel()
+        self.cover_label.setFixedSize(300, 450)
+        self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cover_label.setStyleSheet("border: 1px solid #444; background-color: #111;")
+        self.cover_label.setScaledContents(True)
+        self.content_layout.addWidget(self.cover_label, 0, Qt.AlignmentFlag.AlignTop)
+
+        # Metadata Scroll Area
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        
+        self.meta_container = QWidget()
+        self.meta_layout = QVBoxLayout(self.meta_container)
+        self.meta_layout.setSpacing(10)
+        self.meta_layout.addStretch()
+        
+        self.scroll.setWidget(self.meta_container)
+        self.content_layout.addWidget(self.scroll, 1)
+
+        self.layout.addLayout(self.content_layout)
 
     def load_path(self, path: Path):
-        self._path = path
-        self.title_text.value = path.stem
-        self.path_text.value = str(path)
-        is_cbz = Path(path).suffix.lower() == ".cbz"
-        self.read_btn.disabled = (not bool(self.on_read_local)) or (not is_cbz)
+        self._path = Path(path)
+        self.title_label.setText(self._path.stem)
+        self.path_label.setText(str(self._path))
         
-        self.cover_img.src = TRANSPARENT_DATA_URL
-        self.kv.controls.clear()
-        self.spinner.visible = True
-        try:
-            if self.page: self.update()
-        except Exception:
-            pass
+        is_cbz = self._path.suffix.lower() == ".cbz"
+        self.btn_read.setEnabled(is_cbz)
         
-        self._page.run_task(self._load_meta, path)
+        # Clear existing meta
+        for i in reversed(range(self.meta_layout.count())): 
+            item = self.meta_layout.itemAt(i)
+            if item.widget():
+                item.widget().setParent(None)
+        
+        self.cover_label.clear()
+        
+        # Load data
+        asyncio.create_task(self._load_meta(self._path))
         if is_cbz:
-            self._page.run_task(self._load_cover, path)
-
-    def _on_read(self, e):
-        if self.on_read_local and self._path:
-            self.on_read_local(self._path)
+            asyncio.create_task(self._load_cover(self._path))
 
     async def _load_meta(self, path: Path):
         try:
             meta = await asyncio.to_thread(_read_comicbox_meta, path)
-            if path != self._path:
-                return
+            if path != self._path: return
             self._render_meta(meta)
         except Exception as e:
-            logger.error(f"Failed reading local comic metadata: {e}")
-            show_snack(self._page, f"Failed reading metadata: {e}", text_color=COLORS.ERROR)
-        finally:
-            self.spinner.visible = False
-            try:
-                if self.page: self.update()
-            except Exception:
-                pass
+            logger.error(f"Error loading meta: {e}")
 
     async def _load_cover(self, path: Path):
         url = f"local-cbz://{path.absolute()}/_cover"
-        asset_path = await self.image_manager.get_image_asset_path(url)
+        cache_path = self.image_manager._get_cache_path(url)
         
-        if not asset_path:
+        if not cache_path.exists():
             try:
-                # Try comicbox first
                 data = await asyncio.to_thread(read_comicbox_cover, path)
-                
                 if not data:
-                    # Fallback to first image
                     res = await asyncio.to_thread(read_first_image, path)
-                    if res:
-                        name, data = res
-                
+                    if res: _, data = res
                 if data:
-                    cache_path = self.image_manager._get_cache_path(url)
                     with open(cache_path, "wb") as f:
                         f.write(data)
-                    asset_path = await self.image_manager.get_image_asset_path(url)
             except Exception:
                 pass
         
-        if asset_path and path == self._path:
-            try:
-                self.cover_img.src = asset_path
-                self.cover_img.update()
-            except:
-                pass
+        if cache_path.exists() and path == self._path:
+            pixmap = QPixmap(str(cache_path))
+            if not pixmap.isNull():
+                self.cover_label.setPixmap(pixmap)
 
     def _render_meta(self, meta: Dict[str, Any]):
-        self.kv.controls.clear()
+        # Clear stretch
+        self.meta_layout.takeAt(self.meta_layout.count()-1)
 
-        def add(label: str, value: Any):
-            if value is None:
-                return
-            s = str(value).strip()
-            if not s:
-                return
-            self.kv.controls.append(
-                ft.Row(
-                    [
-                        ft.Text(label, width=140, color=COLORS.GREY_500),
-                        ft.Text(s, expand=True, selectable=True),
-                    ],
-                    vertical_alignment=ft.CrossAxisAlignment.START,
-                )
-            )
+        def add_row(label, value):
+            if not value: return
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            
+            l = QLabel(f"{label}:")
+            l.setFixedWidth(120)
+            l.setStyleSheet("color: gray; font-weight: bold;")
+            
+            v = QLabel(str(value))
+            v.setWordWrap(True)
+            v.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            
+            row_layout.addWidget(l)
+            row_layout.addWidget(v, 1)
+            self.meta_layout.addWidget(row)
 
-        add("Title", meta.get("title"))
-        add("Series", meta.get("series"))
-        add("Issue", meta.get("issue"))
-        add("Volume", meta.get("volume"))
-        add("Year", meta.get("year") or meta.get("published"))
-        add("Writer", meta.get("writer"))
-        add("Penciller", meta.get("penciller"))
-        add("Inker", meta.get("inker"))
-        add("Colorist", meta.get("colorist"))
-        add("Letterer", meta.get("letterer"))
-        add("Editor", meta.get("editor"))
-        add("Cover artist", meta.get("cover_artist"))
-        add("Publisher", meta.get("publisher"))
-        add("Page count", meta.get("page_count"))
-        add("Summary", meta.get("summary") or meta.get("description"))
-
-        if not self.kv.controls:
-            status = (meta or {}).get("_comicbox_status")
-            err = (meta or {}).get("_comicbox_error")
-            if status == "missing":
-                msg = "comicbox is not installed in this venv. Install it to extract ComicInfo metadata."
-            elif status == "error":
-                msg = f"comicbox couldn't read metadata for this file: {err or 'unknown error'}"
-            else:
-                msg = "No metadata found in this file."
-            self.kv.controls.append(
-                ft.Container(
-                    content=ft.Text(
-                        msg,
-                        color=COLORS.GREY_500,
-                    ),
-                    padding=20,
-                )
-            )
+        fields = [
+            ("Title", "title"), ("Series", "series"), ("Issue", "issue"),
+            ("Volume", "volume"), ("Year", "year"), ("Writer", "writer"),
+            ("Penciller", "penciller"), ("Inker", "inker"), ("Colorist", "colorist"),
+            ("Letterer", "letterer"), ("Editor", "editor"), ("Publisher", "publisher"),
+            ("Page Count", "page_count")
+        ]
         
-        try:
-            if self.page: self.update()
-        except:
-            pass
+        for label, key in fields:
+            add_row(label, meta.get(key))
+            
+        if meta.get("summary"):
+            add_row("Summary", meta.get("summary"))
+        elif meta.get("description"):
+            add_row("Summary", meta.get("description"))
+
+        self.meta_layout.addStretch()
+
+    def _on_read_clicked(self):
+        if self.on_read_local and self._path:
+            self.on_read_local(self._path)

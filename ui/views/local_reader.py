@@ -3,34 +3,26 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-import flet as ft
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+    QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QFrame
+)
+from PyQt6.QtCore import Qt, QSize, QEvent
+from PyQt6.QtGui import QPixmap, QKeyEvent, QImage, QPainter
 
 from logger import get_logger
 from api.image_manager import ImageManager
-from ui.image_data import TRANSPARENT_DATA_URL
 from ui.local_archive import LocalPage, list_cbz_pages, read_cbz_entry_bytes
-from ui.snack import show_snack
-
 
 logger = get_logger("ui.local_reader")
-COLORS = getattr(ft, "colors", ft.Colors)
 
-
-class LocalReaderView(ft.Container):
+class LocalReaderView(QWidget):
     """
-    Minimal local reader for CBZ (zip of images).
-    Uses disk-based asset paths to avoid large base64 websocket payloads.
+    High-performance local CBZ reader using QGraphicsView.
     """
-
-    def __init__(self, page: ft.Page, on_exit):
+    def __init__(self, on_exit):
         super().__init__()
-        self._page = page
         self.on_exit = on_exit
-
-        self.expand = True
-        self.bgcolor = COLORS.BLACK
-        self.visible = False
-
         self._path: Optional[Path] = None
         self._pages: List[LocalPage] = []
         self._index = 0
@@ -38,152 +30,143 @@ class LocalReaderView(ft.Container):
         self._prefetch_tasks: set[int] = set()
         self._sem = asyncio.Semaphore(2)
 
-        self.image = ft.Image(src=TRANSPARENT_DATA_URL, fit=ft.BoxFit.CONTAIN)
+        self.setStyleSheet("background-color: black; color: white;")
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
 
-        self.title_text = ft.Text("", color=COLORS.WHITE, weight=ft.FontWeight.BOLD, overflow=ft.TextOverflow.ELLIPSIS)
-        self.counter_text = ft.Text("0 / 0", color=COLORS.WHITE)
-        self.spinner = ft.ProgressRing(visible=False)
+        # Header
+        self.header = QFrame()
+        self.header.setStyleSheet("background-color: rgba(0, 0, 0, 180);")
+        self.header_layout = QHBoxLayout(self.header)
+        
+        self.btn_back = QPushButton("Back")
+        self.btn_back.clicked.connect(self.on_exit)
+        
+        self.title_label = QLabel("")
+        self.title_label.setStyleSheet("font-weight: bold;")
+        
+        self.counter_label = QLabel("0 / 0")
+        
+        self.header_layout.addWidget(self.btn_back)
+        self.header_layout.addWidget(self.title_label, 1)
+        self.header_layout.addWidget(self.counter_label)
+        self.layout.addWidget(self.header)
 
-        self.prev_btn = ft.TextButton("Prev", on_click=lambda e: self.prev_page())
-        self.next_btn = ft.TextButton("Next", on_click=lambda e: self.next_page())
+        # Graphics View for Image
+        self.scene = QGraphicsScene()
+        self.view = QGraphicsView(self.scene)
+        self.view.setFrameShape(QFrame.Shape.NoFrame)
+        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        self.view.setStyleSheet("border: none; background-color: black;")
+        
+        self.pixmap_item = QGraphicsPixmapItem()
+        self.scene.addItem(self.pixmap_item)
+        
+        self.layout.addWidget(self.view, 1)
 
-        self.content = ft.Column(
-            [
-                ft.Container(
-                    content=ft.Row(
-                        [
-                            ft.TextButton("Back", on_click=lambda e: self.on_exit()),
-                            ft.VerticalDivider(width=1, color=COLORS.GREY_800),
-                            ft.Container(content=self.title_text, expand=True, padding=ft.padding.only(left=10)),
-                            self.counter_text,
-                            self.spinner,
-                        ],
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    bgcolor=COLORS.with_opacity(0.85, COLORS.BLACK),
-                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
-                ),
-                ft.Container(content=self.image, expand=True, alignment=ft.Alignment.CENTER),
-                ft.Container(
-                    content=ft.Row([self.prev_btn, self.next_btn], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    bgcolor=COLORS.with_opacity(0.85, COLORS.BLACK),
-                    padding=ft.padding.symmetric(horizontal=10, vertical=10),
-                ),
-            ],
-            expand=True,
-            spacing=0,
-        )
+        # Footer
+        self.footer = QFrame()
+        self.footer.setStyleSheet("background-color: rgba(0, 0, 0, 180);")
+        self.footer_layout = QHBoxLayout(self.footer)
+        
+        self.btn_prev = QPushButton("Previous")
+        self.btn_prev.clicked.connect(self.prev_page)
+        
+        self.btn_next = QPushButton("Next")
+        self.btn_next.clicked.connect(self.next_page)
+        
+        self.footer_layout.addWidget(self.btn_prev)
+        self.footer_layout.addStretch()
+        self.footer_layout.addWidget(self.btn_next)
+        self.layout.addWidget(self.footer)
+
+        # Handle resize to fit image
+        self.view.viewport().installEventFilter(self)
+
+    def eventFilter(self, source, event):
+        if event.type() == QEvent.Type.Resize and source is self.view.viewport():
+            self._fit_image()
+        return super().eventFilter(source, event)
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if event.key() in (Qt.Key.Key_Right, Qt.Key.Key_Space, Qt.Key.Key_PageDown):
+            self.next_page()
+        elif event.key() in (Qt.Key.Key_Left, Qt.Key.Key_PageUp):
+            self.prev_page()
+        elif event.key() == Qt.Key.Key_Escape:
+            self.on_exit()
+        super().keyPressEvent(event)
 
     def load_cbz(self, path: Path):
-        self.visible = True
         self._path = Path(path)
-        self.title_text.value = self._path.stem
-        self.image.src = TRANSPARENT_DATA_URL
+        self.title_label.setText(self._path.stem)
         self._pages = []
         self._index = 0
         self._prefetch_tasks.clear()
-        self.spinner.visible = True
-        try:
-            if self.page: self.update()
-        except Exception:
-            pass
-
-        self._page.run_task(self._load_pages)
+        
+        asyncio.create_task(self._load_pages())
 
     async def _load_pages(self):
-        assert self._path is not None
         try:
             pages = await asyncio.to_thread(list_cbz_pages, self._path)
             self._pages = pages
             if not pages:
-                show_snack(self._page, "No readable images found in this CBZ.", text_color=COLORS.ERROR)
-                self.spinner.visible = False
-                try:
-                    if self.page: self.update()
-                except Exception:
-                    pass
+                logger.error("No pages found")
                 return
-            self._index = 0
             await self._show_page()
         except Exception as e:
-            logger.error(f"Failed loading CBZ pages: {e}")
-            show_snack(self._page, f"Failed to open CBZ: {e}", text_color=COLORS.ERROR)
-        finally:
-            self.spinner.visible = False
-            try:
-                if self.page: self.update()
-            except Exception:
-                pass
-
-    def handle_keyboard(self, e: ft.KeyboardEvent):
-        if not self.visible:
-            return
-        if e.key in ("Arrow Right", " "):
-            self.next_page()
-        elif e.key == "Arrow Left":
-            self.prev_page()
-        elif e.key == "Escape":
-            self.on_exit()
+            logger.error(f"Failed to load pages: {e}")
 
     def next_page(self):
         if self._index < len(self._pages) - 1:
             self._index += 1
-            self._page.run_task(self._show_page)
+            asyncio.create_task(self._show_page())
 
     def prev_page(self):
         if self._index > 0:
             self._index -= 1
-            self._page.run_task(self._show_page)
+            asyncio.create_task(self._show_page())
 
     async def _show_page(self):
-        if not self._path or not self._pages:
-            return
+        if not self._path or not self._pages: return
+        
         idx = self._index
         total = len(self._pages)
-        self.counter_text.value = f"{idx + 1} / {total}"
-        self.prev_btn.disabled = idx <= 0
-        self.next_btn.disabled = idx >= (total - 1)
-        self.spinner.visible = True
-        try:
-            if self.page: self.update()
-        except Exception:
-            pass
+        self.counter_label.setText(f"{idx + 1} / {total}")
+        self.btn_prev.setEnabled(idx > 0)
+        self.btn_next.setEnabled(idx < total - 1)
 
         page = self._pages[idx]
-        asset_path = await self._get_page_asset_path(idx, page.name)
-
+        asset_path = await self._get_page_cache_path(idx, page.name)
+        
         if asset_path and idx == self._index:
-            self.image.src = asset_path
-            try:
-                self.image.update()
-            except: pass
+            pixmap = QPixmap(str(asset_path))
+            if not pixmap.isNull():
+                self.pixmap_item.setPixmap(pixmap)
+                self.scene.setSceneRect(self.pixmap_item.boundingRect())
+                self._fit_image()
 
-        # prefetch next two
+        # Prefetch next 2
         for j in (idx + 1, idx + 2):
             if j < total and j not in self._prefetch_tasks:
                 self._prefetch_tasks.add(j)
-                self._page.run_task(self._prefetch_page, j, self._pages[j].name)
+                asyncio.create_task(self._prefetch_page(j, self._pages[j].name))
 
-        self.spinner.visible = False
-        try:
-            self.spinner.update()
-            self.counter_text.update()
-            self.prev_btn.update()
-            self.next_btn.update()
-        except Exception:
-            pass
+    def _fit_image(self):
+        if self.pixmap_item.pixmap().isNull(): return
+        self.view.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
     async def _prefetch_page(self, idx: int, name: str):
         try:
-            await self._get_page_asset_path(idx, name)
+            await self._get_page_cache_path(idx, name)
         finally:
             self._prefetch_tasks.discard(idx)
 
-    async def _get_page_asset_path(self, idx: int, name: str) -> Optional[str]:
-        if not self._path:
-            return None
-        
-        # Unique key for CBZ path + entry name
+    async def _get_page_cache_path(self, idx: int, name: str) -> Optional[Path]:
+        if not self._path: return None
         url = f"local-cbz://{self._path.absolute()}/{name}"
         cache_path = self.image_manager._get_cache_path(url)
         
@@ -195,7 +178,6 @@ class LocalReaderView(ft.Container):
                         with open(cache_path, "wb") as f:
                             f.write(data)
                 except Exception as e:
-                    logger.error(f"Failed to extract {name} from {self._path}: {e}")
+                    logger.error(f"Extraction error: {e}")
                     return None
-        
-        return await self.image_manager.get_image_asset_path(url)
+        return cache_path if cache_path.exists() else None

@@ -8,6 +8,7 @@ class ServerProfile(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     bearer_token: Optional[str] = None
+    icon_url: Optional[str] = None
 
     def get_base_url(self) -> str:
         return self.url.rstrip('/')
