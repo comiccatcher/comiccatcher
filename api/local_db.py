@@ -43,16 +43,20 @@ class LocalLibraryDB:
                     cover_artist TEXT,
                     current_page INTEGER DEFAULT 0,
                     last_read REAL,
+                    source_url TEXT,
                     _status TEXT
                 )
             """)
+            
+            self.conn.commit()
+            self._migrate_db()
             
             # Create indexes for fast sorting/grouping
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_series ON comics(series)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_publisher ON comics(publisher)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_title ON comics(title)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_url ON comics(source_url)")
             self.conn.commit()
-            self._migrate_db()
 
     def _migrate_db(self):
         with self._lock:
@@ -62,6 +66,10 @@ class LocalLibraryDB:
             except: pass
             try:
                 cursor.execute("ALTER TABLE comics ADD COLUMN last_read REAL")
+            except: pass
+            try:
+                cursor.execute("ALTER TABLE comics ADD COLUMN source_url TEXT")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_url ON comics(source_url)")
             except: pass
             self.conn.commit()
 
@@ -85,21 +93,43 @@ class LocalLibraryDB:
             cursor.execute("SELECT * FROM comics WHERE file_path = ?", (file_path,))
             return cursor.fetchone()
 
+    def get_comic_by_url(self, url: str) -> Optional[sqlite3.Row]:
+        if not url: return None
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM comics WHERE source_url = ?", (url,))
+            return cursor.fetchone()
+
+    def set_source_url(self, file_path: str, url: str):
+        if not url: return
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("UPDATE comics SET source_url = ? WHERE file_path = ?", (url, file_path))
+            self.conn.commit()
+
     def get_all_comics_mtimes(self) -> Dict[str, float]:
         with self._lock:
             cursor = self.conn.cursor()
             cursor.execute("SELECT file_path, file_mtime FROM comics")
             return {row["file_path"]: row["file_mtime"] for row in cursor.fetchall()}
 
-    def upsert_comic(self, file_path: str, mtime: float, meta: Dict[str, Any]):
+    def upsert_comic(self, file_path: str, mtime: float, meta: Dict[str, Any], source_url: Optional[str] = None):
         with self._lock:
             cursor = self.conn.cursor()
+            
+            # If source_url is NOT provided, we want to PRESERVE any existing source_url
+            if source_url is None:
+                cursor.execute("SELECT source_url FROM comics WHERE file_path = ?", (file_path,))
+                row = cursor.fetchone()
+                if row:
+                    source_url = row["source_url"]
+
             cursor.execute("""
                 INSERT INTO comics (
                     file_path, file_mtime, title, series, issue, volume, year,
                     publisher, summary, page_count, writer, penciller, inker,
-                    colorist, letterer, editor, cover_artist, _status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    colorist, letterer, editor, cover_artist, source_url, _status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(file_path) DO UPDATE SET
                     file_mtime=excluded.file_mtime,
                     title=excluded.title,
@@ -117,6 +147,7 @@ class LocalLibraryDB:
                     letterer=excluded.letterer,
                     editor=excluded.editor,
                     cover_artist=excluded.cover_artist,
+                    source_url=excluded.source_url,
                     _status=excluded._status
             """, (
                 file_path,
@@ -136,8 +167,15 @@ class LocalLibraryDB:
                 meta.get("letterer"),
                 meta.get("editor"),
                 meta.get("cover_artist"),
+                source_url,
                 meta.get("_comicbox_status", "ok")
             ))
+            self.conn.commit()
+
+    def remove_comic(self, file_path: str):
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM comics WHERE file_path = ?", (file_path,))
             self.conn.commit()
 
     def remove_missing_comics(self, current_paths: List[str]) -> int:

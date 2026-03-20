@@ -291,7 +291,7 @@ class MainWindow(QMainWindow):
         self.local_detail_view = LocalComicDetailView(self.on_back_to_local_library, self.on_read_local_comic, self.local_db)
         self.local_reader_view = LocalReaderView(self.on_exit_reader, self.local_db)
         
-        self.detail_view = DetailView(self.config_manager, self.on_back_to_browser, self.on_read_book, self.on_navigate_to_url, self.on_start_download, self.on_open_detail)
+        self.detail_view = DetailView(self.config_manager, self.on_back_to_browser, self.on_read_book, self.on_navigate_to_url, self.on_start_download, self.on_open_detail, self.local_db)
         self.reader_view = ReaderView(self.config_manager, self.on_exit_reader)
         
         # Global Download Manager
@@ -382,9 +382,18 @@ class MainWindow(QMainWindow):
             self.download_badge.hide()
 
         # Check for new completions to refresh library
-        completed_count = sum(1 for t in self.download_manager.tasks.values() if t.status == "Completed")
+        completed_tasks = [t for t in self.download_manager.tasks.values() if t.status == "Completed"]
+        completed_count = len(completed_tasks)
         if completed_count > self._last_completed_count:
             logger.info(f"Download completion detected: {completed_count} total. Refreshing library.")
+            # Record source_urls for all completed tasks in the DB
+            for t in completed_tasks:
+                if t.file_path:
+                    try:
+                        self.local_db.set_source_url(str(t.file_path.absolute()), t.url)
+                    except Exception as e:
+                        logger.error(f"Error linking source_url: {e}")
+            
             self.local_library_view.set_dirty()
         self._last_completed_count = completed_count
 
@@ -868,9 +877,11 @@ class MainWindow(QMainWindow):
     def on_open_local_comic(self, path):
         self.local_detail_view.load_path(path)
         self.content_stack.setCurrentIndex(4)
+        self.update_header()
 
     def on_back_to_local_library(self):
         self.content_stack.setCurrentIndex(1)
+        self.update_header()
 
     def on_back_to_browser(self):
         hist, idx = self.get_current_history()
@@ -895,3 +906,4 @@ class MainWindow(QMainWindow):
         else:
             self.content_stack.setCurrentIndex(6)
             self.on_manual_refresh()
+        self.update_header()

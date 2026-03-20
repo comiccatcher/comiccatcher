@@ -159,11 +159,50 @@ class BaseDetailView(QWidget):
         self.btn_read.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_read.clicked.connect(on_click)
         
-        self.actions_layout = QHBoxLayout()
+        if not hasattr(self, 'actions_layout'):
+            self.actions_layout = QHBoxLayout()
+            self.info_layout.addLayout(self.actions_layout)
+
         self.actions_layout.addWidget(self.btn_read)
         self.actions_layout.addStretch()
-        self.info_layout.addLayout(self.actions_layout)
         return self.btn_read
+
+    def _add_delete_button(self, on_click):
+        from PyQt6.QtWidgets import QMessageBox
+        
+        def on_delete_clicked():
+            reply = QMessageBox.question(
+                self, "Confirm Delete",
+                "Are you sure you want to delete this comic from your local library?\nThis action cannot be undone.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                on_click()
+
+        self.btn_delete = QPushButton("Delete")
+        self.btn_delete.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #bb2d3b;
+            }
+        """)
+        self.btn_delete.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_delete.clicked.connect(on_delete_clicked)
+
+        if not hasattr(self, 'actions_layout'):
+            self.actions_layout = QHBoxLayout()
+            self.info_layout.addLayout(self.actions_layout)
+        
+        # Add to the far end if the stretch already exists
+        self.actions_layout.addWidget(self.btn_delete)
+        return self.btn_delete
 
     def _add_progression_label(self):
         self.progression_label = QLabel("")

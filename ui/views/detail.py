@@ -38,13 +38,14 @@ class ClickableBadge(QFrame):
         super().mousePressEvent(event)
 
 class DetailView(BaseDetailView):
-    def __init__(self, config_manager, on_back, on_read, on_navigate, on_start_download, on_open_detail):
+    def __init__(self, config_manager, on_back, on_read, on_navigate, on_start_download, on_open_detail, local_db=None):
         super().__init__(on_back)
         self.config_manager = config_manager
         self.on_read = on_read
         self.on_navigate = on_navigate
         self.on_start_download = on_start_download
         self.on_open_detail = on_open_detail
+        self.db = local_db
         
         self.api_client = None
         self.opds_client = None
@@ -157,6 +158,31 @@ class DetailView(BaseDetailView):
                 if pct > 0.01:
                     self.btn_read.setText("Resume Reading")
 
+    async def _check_and_add_delete(self, pub: Publication, download_url: str):
+        # We search by URL in the local DB
+        row = await asyncio.to_thread(self.db.get_comic_by_url, download_url)
+        if row:
+            # We have a local copy! Add the delete button
+            path = row["file_path"]
+            if path:
+                self._add_delete_button(lambda: self._on_delete_local(path))
+
+    def _on_delete_local(self, path: str):
+        try:
+            p = Path(path)
+            if p.exists():
+                p.unlink()
+                logger.info(f"Deleted local file from detail view: {p}")
+            
+            if self.db:
+                self.db.remove_comic(str(p))
+                logger.info(f"Removed from local DB: {p}")
+            
+            # Refresh view (remove delete button/update UI) or go back
+            self.on_back() 
+        except Exception as e:
+            logger.error(f"Error during online detail delete: {e}")
+
     def _render_details(self, pub: Publication, base_url: str):
         info_layout = self._setup_main_info_layout()
         m = pub.metadata
@@ -174,6 +200,10 @@ class DetailView(BaseDetailView):
             btn_down.setMinimumHeight(40)
             btn_down.clicked.connect(lambda: self.on_start_download(pub, download_url))
             self.actions_layout.insertWidget(1, btn_down)
+            
+            # Check if already downloaded
+            if self.db:
+                asyncio.create_task(self._check_and_add_delete(pub, download_url))
 
         # Progression & Page Count
         self._add_progression_label()

@@ -41,6 +41,9 @@ class LocalComicDetailView(BaseDetailView):
         is_cbz = self._path.suffix.lower() == ".cbz"
         self.btn_read.setEnabled(is_cbz)
         
+        # Delete Button (At the other end of the row)
+        self._add_delete_button(self._on_delete_clicked)
+        
         # Progression
         self._add_progression_label()
         
@@ -135,6 +138,23 @@ class LocalComicDetailView(BaseDetailView):
         self._add_metadata_row("File", str(self._path))
 
         self.info_layout.addStretch()
+
+    def _on_delete_clicked(self):
+        if not self._path: return
+        
+        try:
+            p = self._path.absolute()
+            if p.exists():
+                p.unlink()
+                logger.info(f"Deleted file: {p}")
+            
+            if self.db:
+                self.db.remove_comic(str(p))
+                logger.info(f"Removed from DB: {p}")
+                
+            self.on_back()
+        except Exception as e:
+            logger.error(f"Error during delete: {e}")
 
     def _on_read_clicked(self):
         if self.on_read_local and self._path:
