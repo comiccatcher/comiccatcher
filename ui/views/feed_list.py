@@ -67,10 +67,23 @@ class FeedListView(QWidget):
             item = QListWidgetItem(f"{f.name}\n{f.url}")
             item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             item.setData(Qt.ItemDataRole.UserRole, f)
-            item.setIcon(default_icon)
+            
+            # Check for cached icon synchronously to avoid flash
+            icon_set = False
+            if f.icon_url:
+                cache_path = self.shared_image_manager._get_cache_path(f.icon_url)
+                if cache_path.exists():
+                    pixmap = QPixmap(str(cache_path))
+                    if not pixmap.isNull():
+                        item.setIcon(QIcon(pixmap))
+                        icon_set = True
+            
+            if not icon_set:
+                item.setIcon(default_icon)
+                
             self.feeds_list.addItem(item)
             
-            if f.icon_url:
+            if f.icon_url and not icon_set:
                 asyncio.create_task(self._load_cached_icon(f, item))
 
     async def _load_cached_icon(self, feed: FeedProfile, item: QListWidgetItem):

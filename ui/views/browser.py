@@ -73,7 +73,17 @@ class PublicationCard(QFrame):
         img_url = pub.images[0].href if (pub.images and len(pub.images) > 0) else None
         if img_url:
             full_img_url = urljoin(base_url, img_url)
-            asyncio.create_task(self._load_thumb(full_img_url))
+            # Try to load from cache synchronously to avoid flash
+            cache_path = self.image_manager._get_cache_path(full_img_url)
+            if cache_path.exists():
+                pixmap = QPixmap(str(cache_path))
+                if not pixmap.isNull():
+                    self.cover_label.setText("")
+                    self.cover_label.setPixmap(pixmap)
+                else:
+                    asyncio.create_task(self._load_thumb(full_img_url))
+            else:
+                asyncio.create_task(self._load_thumb(full_img_url))
 
     async def _load_thumb(self, url: str):
         await self.image_manager.get_image_b64(url)
