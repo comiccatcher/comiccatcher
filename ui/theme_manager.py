@@ -14,7 +14,7 @@ THEMES = {
         "bg_item_selected": "#c8ddf8",
         "text_main": "#1a1d21",
         "text_dim": "#5a6270",
-        "accent": "#0052a3",
+        "accent": "#004bb0",
         "border": "#c8cdd4",
         "card_bg": "#ffffff"
     },
@@ -102,11 +102,8 @@ class ThemeManager:
                 color: {theme['text_main']};
             }}
             
-            QWidget {{
-                color: {theme['text_main']};
-            }}
-            
-            QLabel {{
+            /* Broad text settings */
+            QLabel, QRadioButton, QCheckBox, QGroupBox {{
                 color: {theme['text_main']};
             }}
             
@@ -242,27 +239,6 @@ class ThemeManager:
                 background-color: {theme['accent']};
             }}
             
-            QPushButton#primary_button {{
-                background-color: {theme['accent']};
-                color: white;
-                font-weight: bold;
-                border: 1px solid {theme['accent']};
-                border-radius: 4px;
-                padding: 10px 24px;
-            }}
-
-            QPushButton#primary_button:hover {{
-                background-color: white;
-                color: {theme['accent']};
-                border: 1px solid {theme['accent']};
-            }}
-
-            QPushButton#primary_button:disabled {{
-                background-color: {theme['border']};
-                color: {theme['text_dim']};
-                border: none;
-            }}
-            
             QFrame#badge {{
                 background-color: rgba(128, 128, 128, 30);
                 border-radius: 10px;
@@ -306,6 +282,32 @@ class ThemeManager:
             QLabel#breadcrumb_sep {{
                 color: {theme['border']};
                 font-weight: bold;
+            }}
+
+            /* EXTREMELY SPECIFIC PRIMARY BUTTON RULES - FORCED OVERRIDE */
+            /* Using background: to ensure it overrides all sub-properties */
+            QPushButton#primary_button {{
+                background: {theme['accent']};
+                background-color: {theme['accent']};
+                color: #ffffff;
+                font-weight: bold;
+                border: 1px solid {theme['accent']};
+                border-radius: 4px;
+                padding: 10px 24px;
+            }}
+
+            QPushButton#primary_button:hover {{
+                background: #ffffff;
+                background-color: #ffffff;
+                color: {theme['accent']};
+                border: 2px solid {theme['accent']};
+            }}
+
+            QPushButton#primary_button:disabled {{
+                background: {theme['border']};
+                background-color: {theme['border']};
+                color: {theme['text_dim']};
+                border: none;
             }}
         """
         app.setStyleSheet(stylesheet)

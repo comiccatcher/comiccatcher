@@ -388,9 +388,9 @@ class LocalLibraryView(QWidget):
         self.path_label.setObjectName("path_label")
         
         self.header_layout.addWidget(self.btn_up)
+        self.header_layout.addWidget(self.path_label, 1)
         self.header_layout.addWidget(self.btn_refresh)
         self.header_layout.addWidget(self.btn_view_options)
-        self.header_layout.addWidget(self.path_label, 1)
         self.layout.addLayout(self.header_layout)
 
         # Progress bar & Scan label

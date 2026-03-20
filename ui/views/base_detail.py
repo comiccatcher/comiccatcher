@@ -132,6 +132,26 @@ class BaseDetailView(QWidget):
 
     def _add_read_button(self, on_click, label="Read Now"):
         self.btn_read = QPushButton(label)
+        self.btn_read.setObjectName("primary_button")
+        
+        # Explicitly set colors from the current theme to avoid inheritance/native issues
+        from ui.theme_manager import ThemeManager, THEMES
+        theme = THEMES.get(ThemeManager._current_theme, THEMES["dark"])
+        self.btn_read.setStyleSheet(f"""
+            QPushButton#primary_button {{
+                background-color: {theme['accent']};
+                color: #ffffff;
+                border: 1px solid {theme['accent']};
+                font-weight: bold;
+                border-radius: 4px;
+            }}
+            QPushButton#primary_button:hover {{
+                background-color: #ffffff;
+                color: {theme['accent']};
+                border: 1px solid {theme['accent']};
+            }}
+        """)
+        
         self.btn_read.setMinimumHeight(40)
         self.btn_read.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_read.clicked.connect(on_click)
