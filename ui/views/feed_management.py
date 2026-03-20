@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import Optional
 from urllib.parse import urljoin, urlparse
 
@@ -87,10 +88,13 @@ class FeedEditDialog(QDialog):
         self.name_input = QLineEdit()
         self.url_input = QLineEdit()
         self.user_input = QLineEdit()
+        self.user_input.setPlaceholderText("(optional)")
         self.pass_input = QLineEdit()
         self.pass_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.pass_input.setPlaceholderText("(optional)")
         self.token_input = QLineEdit()
         self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.token_input.setPlaceholderText("(optional)")
 
         if feed:
             self.name_input.setText(feed.name)
@@ -154,7 +158,10 @@ class FeedEditDialog(QDialog):
                         if full_path.exists():
                             pixmap = QPixmap(str(full_path))
                     
-                    msg = f"Connected successfully to {url}.\nStatus Code: {response.status_code}\n\nIcon found via: {source}"
+                    msg = f"Connected successfully to {url}.\nStatus Code: {response.status_code}"
+                    if os.getenv("DEBUG") == "1":
+                        msg += f"\n\nIcon found via: {source}"
+                        
                     dialog = ConnectionTestResultDialog(self, True, msg, pixmap)
                     dialog.exec()
                 else:
