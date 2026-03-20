@@ -257,8 +257,8 @@ class MainWindow(QMainWindow):
         self.settings_view.theme_changed.connect(self._apply_theme)
         
         # Dual Browser Views
-        self.feed_browser_view = BrowserView(self.config_manager, self.on_open_detail, self.on_navigate_to_url, on_offset_change=self._on_browser_offset_changed)
-        self.search_browser_view = BrowserView(self.config_manager, self.on_open_detail, self.on_navigate_to_url, on_offset_change=self._on_browser_offset_changed)
+        self.feed_browser_view = BrowserView(self.config_manager, self.on_open_detail, self.on_navigate_to_url, self.on_start_download, on_offset_change=self._on_browser_offset_changed)
+        self.search_browser_view = BrowserView(self.config_manager, self.on_open_detail, self.on_navigate_to_url, self.on_start_download, on_offset_change=self._on_browser_offset_changed)
         self.search_root_view = SearchRootView(
             on_search=lambda q: asyncio.create_task(self._execute_search(q)),
             on_pin=self._on_pin_search,
@@ -803,8 +803,9 @@ class MainWindow(QMainWindow):
     def on_start_download(self, pub, url):
         if self.download_manager:
             asyncio.create_task(self.download_manager.start_download(pub.identifier, pub.metadata.title, url))
-            # Instead of switching tab, we show the popover to show progress
-            self._toggle_downloads_popover()
+            # Show popover if not already visible
+            if not self.downloads_popover or not self.downloads_popover.isVisible():
+                self._toggle_downloads_popover()
 
     def on_open_local_comic(self, path):
         self.local_detail_view.load_path(path)

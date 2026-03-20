@@ -6,10 +6,11 @@ from typing import Callable, List, Optional, Any
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QPushButton, QProgressBar, QComboBox, QStackedWidget,
-    QScrollArea, QApplication, QStyledItemDelegate, QStyleOptionViewItem, QStyle
+    QScrollArea, QApplication, QStyledItemDelegate, QStyle,
+    QAbstractItemView
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QPen, QImage, QPixmapCache
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QPen, QImage, QPixmapCache, QKeyEvent
 
 from config import ConfigManager, CONFIG_DIR
 from logger import get_logger
@@ -387,8 +388,13 @@ class LocalLibraryView(QWidget):
         self.path_label = QLabel("")
         self.path_label.setObjectName("path_label")
         
+        self.btn_select = QPushButton("Select")
+        self.btn_select.setCheckable(True)
+        self.btn_select.clicked.connect(self.toggle_selection_mode)
+        
         self.header_layout.addWidget(self.btn_up)
         self.header_layout.addWidget(self.path_label, 1)
+        self.header_layout.addWidget(self.btn_select)
         self.header_layout.addWidget(self.btn_refresh)
         self.header_layout.addWidget(self.btn_view_options)
         self.layout.addLayout(self.header_layout)
@@ -418,6 +424,8 @@ class LocalLibraryView(QWidget):
         self.list_widget.setSpacing(10)
         self.list_widget.setIconSize(QSize(120, 180))
         self.list_widget.itemDoubleClicked.connect(self._on_folder_item_double_clicked)
+        self.list_widget.itemClicked.connect(self._on_item_clicked_override)
+        self.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
         self.stack.addWidget(self.list_widget)
         
         # 1: Grouped View (Series)
@@ -441,7 +449,36 @@ class LocalLibraryView(QWidget):
         self.alpha_list.setIconSize(QSize(120, 180))
         self.alpha_list.setWordWrap(True)
         self.alpha_list.itemDoubleClicked.connect(self._on_db_item_double_clicked)
+        self.alpha_list.itemClicked.connect(self._on_item_clicked_override)
+        self.alpha_list.itemSelectionChanged.connect(self._update_selection_ui)
         self.stack.addWidget(self.alpha_list)
+
+        # Selection Action Bar
+        self.selection_bar = QWidget()
+        self.selection_bar.setObjectName("top_header")
+        self.selection_bar.setFixedHeight(50)
+        sel_layout = QHBoxLayout(self.selection_bar)
+        
+        self.btn_sel_cancel = QPushButton("Cancel")
+        self.btn_sel_cancel.clicked.connect(lambda: self.toggle_selection_mode(False))
+        self.label_sel_count = QLabel("0 items selected")
+        self.label_sel_count.setStyleSheet("font-weight: bold;")
+        self.btn_sel_action = QPushButton("Delete Selected")
+        self.btn_sel_action.setObjectName("primary_button")
+        self.btn_sel_action.setStyleSheet("background-color: #d32f2f; color: white; border-color: #b71c1c;") # Make it red for delete
+        self.btn_sel_action.clicked.connect(self._on_bulk_delete)
+        self.btn_sel_action.setEnabled(False)
+        
+        sel_layout.addWidget(self.btn_sel_cancel)
+        sel_layout.addStretch()
+        sel_layout.addWidget(self.label_sel_count)
+        sel_layout.addStretch()
+        sel_layout.addWidget(self.btn_sel_action)
+        
+        self.selection_bar.setVisible(False)
+        self.layout.addWidget(self.selection_bar)
+        
+        self._selection_mode = False
 
         self.refresh()
         # Initial scan is triggered by refresh_and_scan() logic if needed
@@ -449,7 +486,113 @@ class LocalLibraryView(QWidget):
         # We also want to trigger a scan on startup to pick up new files.
         if not self.scanner.is_scanning:
             asyncio.create_task(self.scanner.scan())
-        # self._on_view_mode_changed(initial_view_mode) # Removed: refresh() already calls _reload_current_view() which handles it
+
+    def toggle_selection_mode(self, enabled: Optional[bool] = None):
+        if enabled is None:
+            enabled = not self._selection_mode
+            
+        self._selection_mode = enabled
+        self.btn_select.setChecked(enabled)
+        self.btn_select.setText("Done" if enabled else "Select")
+        self.selection_bar.setVisible(enabled)
+        
+        mode = QAbstractItemView.SelectionMode.MultiSelection if enabled else QAbstractItemView.SelectionMode.SingleSelection
+        self.list_widget.setSelectionMode(mode)
+        self.alpha_list.setSelectionMode(mode)
+        
+        # Also update all SeriesSections in grouped view
+        for i in range(self.grouped_layout.count()):
+            item = self.grouped_layout.itemAt(i)
+            if item and item.widget() and isinstance(item.widget(), SeriesSection):
+                item.widget().list_widget.setSelectionMode(mode)
+                if not enabled:
+                    item.widget().list_widget.clearSelection()
+        
+        if not enabled:
+            self.list_widget.clearSelection()
+            self.alpha_list.clearSelection()
+            self._update_selection_ui()
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if event.key() == Qt.Key.Key_Escape and self._selection_mode:
+            self.toggle_selection_mode(False)
+        else:
+            super().keyPressEvent(event)
+
+    def _on_item_clicked_override(self, item):
+        pass
+
+    def _get_all_selected_items(self):
+        selected_items = []
+        if self.stack.currentIndex() == 0:
+            selected_items.extend(self.list_widget.selectedItems())
+        elif self.stack.currentIndex() == 2:
+            selected_items.extend(self.alpha_list.selectedItems())
+        elif self.stack.currentIndex() == 1:
+            for i in range(self.grouped_layout.count()):
+                item = self.grouped_layout.itemAt(i)
+                if item and item.widget() and isinstance(item.widget(), SeriesSection):
+                    selected_items.extend(item.widget().list_widget.selectedItems())
+        return selected_items
+
+    def _update_selection_ui(self):
+        if not self._selection_mode: return
+        
+        selected_items = self._get_all_selected_items()
+        
+        # Filter out directories
+        valid_selections = []
+        for item in selected_items:
+            path_or_db = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(path_or_db, Path):
+                if not path_or_db.is_dir():
+                    valid_selections.append(item)
+            elif isinstance(path_or_db, dict) or isinstance(path_or_db, str): 
+                valid_selections.append(item)
+
+        count = len(valid_selections)
+        self.label_sel_count.setText(f"{count} item{'s' if count != 1 else ''} selected")
+        self.btn_sel_action.setEnabled(count > 0)
+        self.btn_sel_action.setText(f"Delete {count} Item{'s' if count != 1 else ''}")
+
+    def _on_bulk_delete(self):
+        from PyQt6.QtWidgets import QMessageBox
+        
+        selected_items = self._get_all_selected_items()
+        
+        paths_to_delete = []
+        for item in selected_items:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, Path) and not data.is_dir():
+                paths_to_delete.append(data)
+            elif isinstance(data, dict):
+                paths_to_delete.append(Path(data["file_path"]))
+            elif isinstance(data, str) and Path(data).exists():
+                paths_to_delete.append(Path(data))
+                
+        if not paths_to_delete: return
+        
+        reply = QMessageBox.question(
+            self, "Confirm Bulk Delete",
+            f"Are you sure you want to permanently delete {len(paths_to_delete)} comic{'s' if len(paths_to_delete) != 1 else ''}?\nThis action cannot be undone and will delete the files from your disk.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.toggle_selection_mode(False)
+            import os
+            deleted_count = 0
+            for p in paths_to_delete:
+                try:
+                    if p.exists():
+                        os.remove(p)
+                    self.db.remove_comic(str(p))
+                    deleted_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to delete {p}: {e}")
+            
+            logger.info(f"Bulk deleted {deleted_count} files.")
+            self.refresh_and_scan()
 
     def _save_cover_to_cache(self, path: Path, cover_bytes: bytes) -> None:
         """Called from scanner worker thread to save a resized thumbnail to disk cache."""
@@ -544,6 +687,7 @@ class LocalLibraryView(QWidget):
             self.refresh_and_scan()
 
     def refresh(self):
+        self.toggle_selection_mode(False)
         self.root_dir = self.config_manager.get_library_dir()
         if not self.current_dir or not self.current_dir.exists() or not str(self.current_dir).startswith(str(self.root_dir)):
             self.current_dir = self.root_dir
@@ -558,34 +702,39 @@ class LocalLibraryView(QWidget):
 
     async def _load_dir(self, path: Path):
         self.path_label.setText(f"Folder: {path}")
-        self.list_widget.clear()
 
-        self.config_manager.set_last_folder_path(str(path.absolute()))
+        # Fetch data FIRST
         entries = await asyncio.to_thread(_list_dir, path)
-        self.current_dir = path
-
         # Single query for all comics under this directory
         dir_rows = await asyncio.to_thread(self.db.get_comics_in_dir, str(path.absolute()))
 
-        for entry in entries:
-            item = QListWidgetItem(entry.name)
-            item.setData(Qt.ItemDataRole.UserRole, entry.path)
+        self.list_widget.setUpdatesEnabled(False)
+        try:
+            self.list_widget.clear()
+            self.config_manager.set_last_folder_path(str(path.absolute()))
+            self.current_dir = path
 
-            if entry.is_dir:
-                item.setIcon(ThemeManager.get_icon("folder"))
-            else:
-                row = dir_rows.get(str(entry.path.absolute()))
-                if row:
-                    r = dict(row)
-                    item.setData(Qt.ItemDataRole.UserRole + 1, (r.get("current_page") or 0, r.get("page_count") or 0))
+            for entry in entries:
+                item = QListWidgetItem(entry.name)
+                item.setData(Qt.ItemDataRole.UserRole, entry.path)
 
-                item.setIcon(ThemeManager.get_icon("book"))
-                try:
-                    asyncio.create_task(self._load_thumb_for_item(entry.path, item))
-                except RuntimeError:
-                    pass
+                if entry.is_dir:
+                    item.setIcon(ThemeManager.get_icon("folder"))
+                else:
+                    row = dir_rows.get(str(entry.path.absolute()))
+                    if row:
+                        r = dict(row)
+                        item.setData(Qt.ItemDataRole.UserRole + 1, (r.get("current_page") or 0, r.get("page_count") or 0))
 
-            self.list_widget.addItem(item)
+                    item.setIcon(ThemeManager.get_icon("book"))
+                    try:
+                        asyncio.create_task(self._load_thumb_for_item(entry.path, item))
+                    except RuntimeError:
+                        pass
+
+                self.list_widget.addItem(item)
+        finally:
+            self.list_widget.setUpdatesEnabled(True)
 
     async def _load_grouped(self, field="series"):
         self.path_label.setText(f"Library > Grouped by {field.replace('_', ' ').capitalize()}")
@@ -631,12 +780,18 @@ class LocalLibraryView(QWidget):
                 title = f"{group_name}{range_str}".upper()
                 
                 section = SeriesSection(title, rows, self._on_db_item_double_clicked, is_grid=False, image_manager=self.image_manager, meta_sem=self._meta_sem, show_labels=self._show_labels)
+                section.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
+                if self._selection_mode:
+                    section.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
                 self.grouped_layout.addWidget(section)
                 
             if one_offs:
                 title = f"{len(one_offs)} MISCELLANEOUS"
                 one_offs.sort(key=lambda x: ( (x.get("series") or "").lower(), (x.get("title") or "").lower() ))
                 section = SeriesSection(title, one_offs, self._on_db_item_double_clicked, is_grid=True, image_manager=self.image_manager, meta_sem=self._meta_sem, show_labels=self._show_labels)
+                section.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
+                if self._selection_mode:
+                    section.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
                 
                 count = len(one_offs)
                 cols = 6 
@@ -651,24 +806,32 @@ class LocalLibraryView(QWidget):
 
     async def _load_alphabetical(self):
         self.path_label.setText("Library > Alphabetical")
-        self.alpha_list.clear()
         
+        # 1. Fetch data FIRST
         rows = await asyncio.to_thread(self.db.get_all_comics_alphabetical)
-        for row in rows:
-            r = dict(row)
-            title = r["title"] or Path(r["file_path"]).name
-            
-            item = QListWidgetItem(title)
-            item.setData(Qt.ItemDataRole.UserRole, Path(r["file_path"]))
-            item.setData(Qt.ItemDataRole.UserRole + 1, (r.get("current_page") or 0, r.get("page_count") or 0))
-            
-            item.setIcon(ThemeManager.get_icon("book"))
-            item.setToolTip(str(Path(r["file_path"]).name))
-            self.alpha_list.addItem(item)
-            try:
-                asyncio.create_task(self._load_thumb_for_item(Path(r["file_path"]), item))
-            except RuntimeError:
-                pass
+        
+        # 2. Rebuild UI efficiently
+        self.alpha_list.setUpdatesEnabled(False)
+        try:
+            self.alpha_list.clear()
+
+            for row in rows:
+                r = dict(row)
+                title = r["title"] or Path(r["file_path"]).name
+                
+                item = QListWidgetItem(title)
+                item.setData(Qt.ItemDataRole.UserRole, Path(r["file_path"]))
+                item.setData(Qt.ItemDataRole.UserRole + 1, (r.get("current_page") or 0, r.get("page_count") or 0))
+                
+                item.setIcon(ThemeManager.get_icon("book"))
+                item.setToolTip(str(Path(r["file_path"]).name))
+                self.alpha_list.addItem(item)
+                try:
+                    asyncio.create_task(self._load_thumb_for_item(Path(r["file_path"]), item))
+                except RuntimeError:
+                    pass
+        finally:
+            self.alpha_list.setUpdatesEnabled(True)
 
     async def _load_thumb_for_item(self, path: Path, item: QListWidgetItem):
         if path.suffix.lower() in (".cbz", ".cbr", ".cb7"):
@@ -704,13 +867,19 @@ class LocalLibraryView(QWidget):
                     pass
 
     def _on_folder_item_double_clicked(self, item):
+        if self._selection_mode:
+            return
+
         path = item.data(Qt.ItemDataRole.UserRole)
         if path.is_dir():
             asyncio.create_task(self._load_dir(path))
         else:
             self.on_open_comic(path)
-            
+
     def _on_db_item_double_clicked(self, item):
+        if self._selection_mode:
+            return
+
         path = item.data(Qt.ItemDataRole.UserRole)
         if path.exists():
             self.on_open_comic(path)

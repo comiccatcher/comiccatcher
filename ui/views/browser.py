@@ -25,12 +25,16 @@ logger = get_logger("ui.browser")
 
 class PublicationCard(QFrame):
     clicked = pyqtSignal(object, str) # pub, self_url
+    selection_toggled = pyqtSignal(object, str, bool) # pub, key, is_selected
 
     def __init__(self, pub: Publication, base_url: str, image_manager: ImageManager):
         super().__init__()
         self.pub = pub
         self.base_url = base_url
         self.image_manager = image_manager
+        
+        self._selection_mode = False
+        self._is_selected = False
         
         self.setFixedWidth(160)
         self.setFixedHeight(260)
@@ -51,6 +55,7 @@ class PublicationCard(QFrame):
             padding: 10px;
         """)
         self.cover_label.setScaledContents(True)
+        self.cover_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout.addWidget(self.cover_label)
 
         self.title_label = QLabel(pub.metadata.title)
@@ -58,16 +63,38 @@ class PublicationCard(QFrame):
         self.title_label.setWordWrap(True)
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setFixedHeight(40)
+        self.title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout.addWidget(self.title_label)
+
+        # Selection overlay
+        self.selection_overlay = QLabel(self)
+        self.selection_overlay.setFixedSize(160, 260)
+        
+        # We use a theme-aware accent color by relying on the global stylesheet
+        self.selection_overlay.setObjectName("selection_overlay")
+        self.selection_overlay.setStyleSheet("background-color: rgba(0, 122, 204, 100); border: 4px solid #007acc; border-radius: 5px;")
+        self.selection_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.selection_overlay.hide()
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        # Determine self URL
-        self.self_url = base_url
+        # Determine a unique identity key for this publication
+        # Prefer the 'self' URL if available, but fall back to identifier or title hash
+        self.self_url = None
         for l in (pub.links or []):
             if l.rel == "self" or (isinstance(l.rel, list) and "self" in l.rel):
                 self.self_url = urljoin(base_url, l.href)
                 break
+        
+        if self.self_url:
+            self.identity_key = self.self_url
+        elif pub.identifier:
+            self.identity_key = pub.identifier
+        else:
+            # Fallback to title hash to ensure uniqueness in the grid
+            import hashlib
+            raw = f"{pub.metadata.title}{base_url}"
+            self.identity_key = hashlib.md5(raw.encode()).hexdigest()
 
         # Start loading thumb
         img_url = pub.images[0].href if (pub.images and len(pub.images) > 0) else None
@@ -104,8 +131,22 @@ class PublicationCard(QFrame):
                 except RuntimeError:
                     pass  # Widget was deleted while we were processing the pixmap
 
+    def set_selection_mode(self, enabled: bool):
+        self._selection_mode = enabled
+        if not enabled:
+            self.set_selected(False)
+
+    def set_selected(self, selected: bool):
+        self._is_selected = selected
+        self.selection_overlay.setVisible(selected)
+
     def mousePressEvent(self, event):
-        self.clicked.emit(self.pub, self.self_url)
+        if self._selection_mode:
+            self.set_selected(not self._is_selected)
+            self.selection_toggled.emit(self.pub, self.identity_key, self._is_selected)
+        else:
+            # Use self.self_url (or identity_key if None) for navigation
+            self.clicked.emit(self.pub, self.self_url or self.identity_key)
         super().mousePressEvent(event)
 
 class PagingBar(QFrame):
@@ -195,12 +236,13 @@ class PagingBar(QFrame):
         return has_any
 
 class BrowserView(QWidget):
-    def __init__(self, config_manager: ConfigManager, on_open_detail, on_navigate, on_offset_change=None):
+    def __init__(self, config_manager: ConfigManager, on_open_detail, on_navigate, on_start_download, on_offset_change=None):
         super().__init__()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.config_manager = config_manager
         self.on_open_detail_callback = on_open_detail
         self.on_navigate = on_navigate
+        self.on_start_download = on_start_download
         self.on_offset_change = on_offset_change
         
         self.api_client = None
@@ -235,6 +277,11 @@ class BrowserView(QWidget):
         self._rendered_widgets = {} # global_index -> QWidget
         self._is_updating_continuous = False
 
+        # Selection State
+        self._selection_mode = False
+        self._selected_items = set() # Set of self_urls
+        self._selected_pubs = {} # self_url -> pub object
+
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
@@ -244,6 +291,11 @@ class BrowserView(QWidget):
         self.header = QHBoxLayout(self.header_widget)
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("font-size: 11px;")
+        
+        self.btn_select = QPushButton("Select")
+        self.btn_select.setCheckable(True)
+        self.btn_select.clicked.connect(self.toggle_selection_mode)
+        self.btn_select.setVisible(False) # Only visible when publications are loaded
         
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search...")
@@ -268,6 +320,7 @@ class BrowserView(QWidget):
         
         self.header.addWidget(self.status_label)
         self.header.addStretch()
+        self.header.addWidget(self.btn_select)
         self.header.addWidget(self.paging_mode_combo)
         self.header.addWidget(self.btn_facets)
         self.header.addWidget(self.search_input)
@@ -315,6 +368,30 @@ class BrowserView(QWidget):
         self.layout.addWidget(self.paging_container)
         self.layout.addWidget(self.scroll, 1)
 
+        # Selection Action Bar
+        self.selection_bar = QWidget()
+        self.selection_bar.setObjectName("top_header") # reuse top_header styling for now
+        self.selection_bar.setFixedHeight(50)
+        sel_layout = QHBoxLayout(self.selection_bar)
+        
+        self.btn_sel_cancel = QPushButton("Cancel")
+        self.btn_sel_cancel.clicked.connect(lambda: self.toggle_selection_mode(False))
+        self.label_sel_count = QLabel("0 items selected")
+        self.label_sel_count.setStyleSheet("font-weight: bold;")
+        self.btn_sel_action = QPushButton("Download Selected")
+        self.btn_sel_action.setObjectName("primary_button")
+        self.btn_sel_action.clicked.connect(self._on_bulk_download)
+        self.btn_sel_action.setEnabled(False)
+        
+        sel_layout.addWidget(self.btn_sel_cancel)
+        sel_layout.addStretch()
+        sel_layout.addWidget(self.label_sel_count)
+        sel_layout.addStretch()
+        sel_layout.addWidget(self.btn_sel_action)
+        
+        self.selection_bar.setVisible(False)
+        self.layout.addWidget(self.selection_bar)
+
         # Progress (Floating Overlay)
         self.progress = QProgressBar(self)
         self.progress.setFixedHeight(3)
@@ -322,6 +399,160 @@ class BrowserView(QWidget):
         self.progress.setRange(0, 0)
         self.progress.setStyleSheet("QProgressBar { background: transparent; border: none; }")
         self.progress.setVisible(False)
+
+    def toggle_selection_mode(self, enabled: Optional[bool] = None):
+        if enabled is None:
+            enabled = not self._selection_mode
+            
+        self._selection_mode = enabled
+        self.btn_select.setChecked(enabled)
+        self.btn_select.setText("Done" if enabled else "Select")
+        self.selection_bar.setVisible(enabled)
+        
+        if not enabled:
+            self._selected_items.clear()
+            self._selected_pubs.clear()
+            self._update_selection_ui()
+            
+        # Update all visible cards
+        # We need to traverse the layout to find all PublicationCards
+        def update_cards(widget):
+            if isinstance(widget, PublicationCard):
+                widget.set_selection_mode(enabled)
+                if enabled and widget.identity_key in self._selected_items:
+                    widget.set_selected(True)
+            
+            # Recurse into children
+            if hasattr(widget, "layout") and widget.layout() is not None:
+                for i in range(widget.layout().count()):
+                    item = widget.layout().itemAt(i)
+                    if item.widget():
+                        update_cards(item.widget())
+            
+            # Handle QScrollArea specifically
+            if isinstance(widget, QScrollArea) and widget.widget():
+                update_cards(widget.widget())
+                        
+        update_cards(self.content_container)
+
+    def _on_card_selection_toggled(self, pub, key, is_selected):
+        if is_selected:
+            self._selected_items.add(key)
+            self._selected_pubs[key] = pub
+        else:
+            self._selected_items.discard(key)
+            if key in self._selected_pubs:
+                del self._selected_pubs[key]
+                
+        self._update_selection_ui()
+        
+    def _update_selection_ui(self):
+        count = len(self._selected_items)
+        self.label_sel_count.setText(f"{count} item{'s' if count != 1 else ''} selected")
+        self.btn_sel_action.setEnabled(count > 0)
+        self.btn_sel_action.setText(f"Download {count} Item{'s' if count != 1 else ''}")
+
+    def _on_bulk_download(self):
+        from PyQt6.QtWidgets import QMessageBox
+        count = len(self._selected_items)
+        if count == 0: return
+        
+        reply = QMessageBox.question(
+            self, "Confirm Bulk Download",
+            f"Are you sure you want to download {count} publication{'s' if count != 1 else ''}?\nThis will be done sequentially.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            items = list(self._selected_pubs.values())
+            self.toggle_selection_mode(False)
+            asyncio.create_task(self._process_bulk_download(items))
+
+    async def _process_bulk_download(self, pubs):
+        if not self.on_start_download:
+            self.status_label.setText("Error: Download manager not connected.")
+            return
+
+        queued_count = 0
+        total_pubs = len(pubs)
+        logger.info(f"Starting bulk download processing for {total_pubs} items")
+        
+        for i, pub in enumerate(pubs):
+            # Check for existing acquisition link in the summary
+            download_url = self._find_acquisition_link(pub)
+            
+            # If missing, try fetching the full manifest
+            if not download_url:
+                logger.info(f"Acquisition link missing in summary for '{pub.metadata.title}', fetching full manifest...")
+                self.status_label.setText(f"Fetching manifest {i+1}/{total_pubs}: {pub.metadata.title}...")
+                
+                # Robust self-link detection
+                self_url = None
+                for l in (pub.links or []):
+                    rel_list = [l.rel] if isinstance(l.rel, str) else (l.rel or [])
+                    if any(r == "self" or r == "http://opds-spec.org/self" for r in rel_list):
+                        self_url = urljoin(self.api_client.profile.get_base_url(), l.href)
+                        break
+                
+                if self_url:
+                    try:
+                        # Fetch manifest with caching
+                        full_pub = await self.opds_client.get_publication(self_url)
+                        download_url = self._find_acquisition_link(full_pub)
+                        if download_url:
+                            logger.info(f"Found acquisition link in full manifest for '{pub.metadata.title}'")
+                        else:
+                            logger.warning(f"Manifest fetched but still no acquisition link for '{pub.metadata.title}'")
+                    except Exception as e:
+                        logger.error(f"Failed to fetch manifest for {pub.metadata.title} from {self_url}: {e}")
+                else:
+                    logger.warning(f"No 'self' link found in summary for '{pub.metadata.title}', cannot fetch manifest.")
+            
+            if download_url:
+                logger.info(f"Queuing bulk download for '{pub.metadata.title}': {download_url}")
+                self.status_label.setText(f"Queued {queued_count+1}/{total_pubs}: {pub.metadata.title}...")
+                self.on_start_download(pub, download_url)
+                queued_count += 1
+                await asyncio.sleep(0.05) # Small stagger
+            else:
+                logger.warning(f"No download URL found for '{pub.metadata.title}' after all checks. Links: {[l.rel for l in (pub.links or [])]}")
+
+        if queued_count == 0:
+            self.status_label.setText(f"Failed to queue any items. Check logs.")
+        else:
+            self.status_label.setText(f"Successfully queued {queued_count} item{'s' if queued_count != 1 else ''}.")
+            
+        # Auto-exit selection mode after bulk action
+        QTimer.singleShot(2500, lambda: self.toggle_selection_mode(False))
+
+    def _find_acquisition_link(self, pub):
+        """Helper to find an acquisition link in a publication or its manifest."""
+        for l in (pub.links or []):
+            # Normalize rels to a list of lower-case strings
+            rels = l.rel
+            if isinstance(rels, str):
+                rel_list = [rels.lower()]
+            elif isinstance(rels, list):
+                rel_list = [str(r).lower() for r in rels]
+            else:
+                rel_list = []
+                
+            # Aggressive check for acquisition rels
+            is_acq = any("acquisition" in r for r in rel_list)
+            
+            # Type-based detection (CBZ, CBR, PDF, EPUB, etc.)
+            l_type = (l.type or "").lower()
+            l_href = (l.href or "").lower()
+            is_comic = any(t in l_type for t in ["cbz", "cbr", "cb7", "pdf", "octet-stream"]) or \
+                       any(l_href.endswith(ext) for ext in [".cbz", ".cbr", ".cb7", ".pdf"])
+            
+            # If it's explicitly an acquisition link, or looks like a comic file, take it
+            if is_acq or is_comic:
+                # Avoid links that are clearly not downloads (like search, self, etc. if mislabeled)
+                if any(r in rel_list for r in ["self", "search", "alternate"]) and not is_acq:
+                    continue
+                return urljoin(self.api_client.profile.get_base_url(), l.href)
+        return None
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -345,6 +576,10 @@ class BrowserView(QWidget):
             asyncio.create_task(self._update_continuous_data())
 
     def keyPressEvent(self, event: QKeyEvent):
+        if event.key() == Qt.Key.Key_Escape and self._selection_mode:
+            self.toggle_selection_mode(False)
+            return
+
         method = self.config_manager.get_scroll_method()
         if method == "refit":
             if event.key() == Qt.Key.Key_Right or event.key() == Qt.Key.Key_PageDown:
@@ -438,6 +673,11 @@ class BrowserView(QWidget):
             has_nav = bool(feed.navigation)
             self.is_pub_mode = has_pubs
             
+            if is_dashboard or has_pubs:
+                self.btn_select.setVisible(True)
+            else:
+                self.btn_select.setVisible(False)
+            
             if is_dashboard:
                 logger.debug("Rendering Dashboard")
                 self._render_dashboard(feed)
@@ -485,6 +725,8 @@ class BrowserView(QWidget):
                 self.progress.setVisible(False)
 
     def _clear_all_content(self):
+        self.toggle_selection_mode(False)
+        
         # 1. Clear layout
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
@@ -1112,6 +1354,10 @@ class BrowserView(QWidget):
         if isinstance(item, Publication):
             card = PublicationCard(item, self.api_client.profile.get_base_url(), self.image_manager)
             card.clicked.connect(self.on_open_detail_callback)
+            card.selection_toggled.connect(self._on_card_selection_toggled)
+            card.set_selection_mode(self._selection_mode)
+            if card.self_url in self._selected_items:
+                card.set_selected(True)
             return card
         else:
             # Navigation
@@ -1231,6 +1477,10 @@ class BrowserView(QWidget):
                     for pub in group.publications:
                         card = PublicationCard(pub, self.api_client.profile.get_base_url(), self.image_manager)
                         card.clicked.connect(self.on_open_detail_callback)
+                        card.selection_toggled.connect(self._on_card_selection_toggled)
+                        card.set_selection_mode(self._selection_mode)
+                        if card.self_url in self._selected_items:
+                            card.set_selected(True)
                         h_layout.addWidget(card)
                     
                     scroll.setWidget(inner)
@@ -1265,6 +1515,10 @@ class BrowserView(QWidget):
         for i, pub in enumerate(publications):
             card = PublicationCard(pub, self.api_client.profile.get_base_url(), self.image_manager)
             card.clicked.connect(self.on_open_detail_callback)
+            card.selection_toggled.connect(self._on_card_selection_toggled)
+            card.set_selection_mode(self._selection_mode)
+            if card.self_url in self._selected_items:
+                card.set_selected(True)
             grid_layout.addWidget(card, i // cols, i % cols)
             
         self.content_layout.addWidget(grid_widget)

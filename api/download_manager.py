@@ -1,8 +1,9 @@
 import asyncio
 import os
 import re
+import hashlib
 from pathlib import Path
-from typing import Dict, Optional, Callable
+from typing import Dict, Optional, Callable, List
 from urllib.parse import unquote_plus, urlsplit
 import httpx
 from api.client import APIClient
@@ -113,7 +114,7 @@ class DownloadTask:
         self.status = "Pending" # Pending, Downloading, Completed, Failed, Cancelled
         self.error = None
         self.file_path = None
-        self._asyncio_task: Optional[asyncio.Task] = None
+        self._active_task: Optional[asyncio.Task] = None
 
 class DownloadManager:
     def __init__(self, api_client: APIClient, download_dir: Optional[Path] = None):
@@ -126,6 +127,22 @@ class DownloadManager:
             self.download_dir = Path(download_dir)
         self.tasks: Dict[str, DownloadTask] = {}
         self._callbacks: List[Callable] = []
+        self._queue = asyncio.Queue()
+        self._worker_task: Optional[asyncio.Task] = None
+
+    def _ensure_worker(self):
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._queue_worker())
+
+    async def _queue_worker(self):
+        while True:
+            task = await self._queue.get()
+            try:
+                await self._download_worker(task)
+            except Exception as e:
+                logger.error(f"Error in download worker: {e}")
+            finally:
+                self._queue.task_done()
 
     def set_callback(self, callback: Callable):
         """Deprecated: use add_callback instead."""
@@ -140,12 +157,46 @@ class DownloadManager:
             self._callbacks.remove(callback)
 
     async def start_download(self, book_id: str, title: str, url: str):
-        if book_id in self.tasks and self.tasks[book_id].status in ("Completed", "Downloading"):
-            logger.info(f"Book {title} already downloading or downloaded.")
+        # Ensure we have a unique ID for the task list
+        if not book_id:
+            # Fallback to a hash of the URL if identifier is missing
+            import hashlib
+            book_id = hashlib.md5(url.encode()).hexdigest()
+
+        if book_id in self.tasks and self.tasks[book_id].status in ("Completed", "Downloading", "Pending"):
+            logger.info(f"Book {title} already queued or downloading.")
             return
 
         task = DownloadTask(book_id, title, url)
+        task.status = "Pending"
         self.tasks[book_id] = task
+        self._notify()
+        
+        await self._queue.put(task)
+        self._ensure_worker()
+
+    def cancel_download(self, book_id: str):
+        if book_id in self.tasks:
+            task = self.tasks[book_id]
+            # Since we are using a sequential queue, we need to know if the task is currently downloading
+            if task.status == "Downloading":
+                if hasattr(task, "_active_task") and task._active_task and not task._active_task.done():
+                    task._active_task.cancel()
+            elif task.status == "Pending":
+                # Removing from queue is hard in asyncio.Queue, we just mark it as cancelled
+                pass
+
+            task.status = "Cancelled"
+            self._notify()
+
+    async def _download_worker(self, task: DownloadTask):
+        if task.status == "Cancelled":
+            return
+            
+        task.status = "Downloading"
+        task._active_task = asyncio.current_task()
+        self._notify()
+        
         try:
             self.download_dir.mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -153,21 +204,7 @@ class DownloadManager:
             self.download_dir = Path.cwd()
 
         # Provisional path shown in UI until response headers arrive.
-        task.file_path = _collision_free_path(self.download_dir, _sanitize_filename(title))
-        
-        task._asyncio_task = asyncio.create_task(self._download_worker(task))
-
-    def cancel_download(self, book_id: str):
-        if book_id in self.tasks:
-            task = self.tasks[book_id]
-            if task._asyncio_task and not task._asyncio_task.done():
-                task._asyncio_task.cancel()
-            task.status = "Cancelled"
-            self._notify()
-
-    async def _download_worker(self, task: DownloadTask):
-        task.status = "Downloading"
-        self._notify()
+        task.file_path = _collision_free_path(self.download_dir, _sanitize_filename(task.title))
         
         try:
             async with self.api_client.client.stream("GET", task.url) as response:
