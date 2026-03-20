@@ -87,6 +87,27 @@ class LocalLibraryDB:
                 """, (current_page, time.time(), file_path))
             self.conn.commit()
 
+    def mark_as_read(self, file_path: str):
+        import time
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT page_count FROM comics WHERE file_path = ?", (file_path,))
+            row = cursor.fetchone()
+            if row:
+                page_count = row["page_count"] or 9999  # Fallback high number if unknown
+                cursor.execute("""
+                    UPDATE comics SET current_page = ?, last_read = ? WHERE file_path = ?
+                """, (page_count, time.time(), file_path))
+                self.conn.commit()
+
+    def mark_as_unread(self, file_path: str):
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                UPDATE comics SET current_page = 0 WHERE file_path = ?
+            """, (file_path,))
+            self.conn.commit()
+
     def get_comic(self, file_path: str) -> Optional[sqlite3.Row]:
         with self._lock:
             cursor = self.conn.cursor()

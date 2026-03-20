@@ -82,8 +82,9 @@ class ComicDelegate(QStyledItemDelegate):
             else:
                 painter.drawPixmap(icon_rect, pixmap)
             
-            # Progress bar just BELOW the cover
-            if total_pages > 0 and curr_page > 0:
+            # Progress bar just BELOW the cover (only if NOT fully read)
+            is_read = total_pages > 0 and curr_page >= total_pages - 1
+            if total_pages > 0 and curr_page > 0 and not is_read:
                 prog_pct = curr_page / total_pages
                 bar_h = 3
                 bar_rect = QRect(icon_rect.left() + 2, icon_rect.bottom() + 2, icon_rect.width() - 4, bar_h)
@@ -229,14 +230,16 @@ class SeriesSection(QWidget):
         layout.addWidget(self.list_widget)
         self.btn_toggle.clicked.connect(self.toggle)
 
-    def toggle(self):
-        visible = not self.list_widget.isVisible()
-        self.list_widget.setVisible(visible)
+    def set_expanded(self, expanded: bool):
+        self.list_widget.setVisible(expanded)
         text = self.btn_toggle.text()
-        if visible:
+        if expanded:
             self.btn_toggle.setText(text.replace("▶", "▼"))
         else:
             self.btn_toggle.setText(text.replace("▼", "▶"))
+
+    def toggle(self):
+        self.set_expanded(not self.list_widget.isVisible())
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -438,6 +441,8 @@ class LocalLibraryView(QWidget):
         self.list_widget.itemDoubleClicked.connect(self._on_folder_item_double_clicked)
         self.list_widget.itemClicked.connect(self._on_item_clicked_override)
         self.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
+        self.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_widget.customContextMenuRequested.connect(lambda pos: self._on_item_context_menu(pos, self.list_widget))
         self.stack.addWidget(self.list_widget)
         
         # 1: Grouped View (Series)
@@ -463,6 +468,8 @@ class LocalLibraryView(QWidget):
         self.alpha_list.itemDoubleClicked.connect(self._on_db_item_double_clicked)
         self.alpha_list.itemClicked.connect(self._on_item_clicked_override)
         self.alpha_list.itemSelectionChanged.connect(self._update_selection_ui)
+        self.alpha_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.alpha_list.customContextMenuRequested.connect(lambda pos: self._on_item_context_menu(pos, self.alpha_list))
         self.stack.addWidget(self.alpha_list)
 
         # Selection Action Bar
@@ -475,17 +482,28 @@ class LocalLibraryView(QWidget):
         self.btn_sel_cancel.clicked.connect(lambda: self.toggle_selection_mode(False))
         self.label_sel_count = QLabel("0 items selected")
         self.label_sel_count.setStyleSheet("font-weight: bold;")
-        self.btn_sel_action = QPushButton("Delete Selected")
-        self.btn_sel_action.setObjectName("primary_button")
-        self.btn_sel_action.setStyleSheet("background-color: #d32f2f; color: white; border-color: #b71c1c;") # Make it red for delete
-        self.btn_sel_action.clicked.connect(self._on_bulk_delete)
-        self.btn_sel_action.setEnabled(False)
+
+        self.btn_sel_mark_read = QPushButton("Mark Read")
+        self.btn_sel_mark_read.clicked.connect(self._on_bulk_mark_read)
+        self.btn_sel_mark_read.setEnabled(False)
+
+        self.btn_sel_mark_unread = QPushButton("Mark Unread")
+        self.btn_sel_mark_unread.clicked.connect(self._on_bulk_mark_unread)
+        self.btn_sel_mark_unread.setEnabled(False)
+
+        self.btn_sel_delete = QPushButton("Delete Selected")
+        self.btn_sel_delete.setObjectName("primary_button")
+        self.btn_sel_delete.setStyleSheet("background-color: #d32f2f; color: white; border-color: #b71c1c;") # Make it red for delete
+        self.btn_sel_delete.clicked.connect(self._on_bulk_delete)
+        self.btn_sel_delete.setEnabled(False)
         
         sel_layout.addWidget(self.btn_sel_cancel)
         sel_layout.addStretch()
         sel_layout.addWidget(self.label_sel_count)
         sel_layout.addStretch()
-        sel_layout.addWidget(self.btn_sel_action)
+        sel_layout.addWidget(self.btn_sel_mark_read)
+        sel_layout.addWidget(self.btn_sel_mark_unread)
+        sel_layout.addWidget(self.btn_sel_delete)
         
         self.selection_bar.setVisible(False)
         self.layout.addWidget(self.selection_bar)
@@ -564,8 +582,10 @@ class LocalLibraryView(QWidget):
 
         count = len(valid_selections)
         self.label_sel_count.setText(f"{count} item{'s' if count != 1 else ''} selected")
-        self.btn_sel_action.setEnabled(count > 0)
-        self.btn_sel_action.setText(f"Delete {count} Item{'s' if count != 1 else ''}")
+        self.btn_sel_delete.setEnabled(count > 0)
+        self.btn_sel_delete.setText(f"Delete {count} Item{'s' if count != 1 else ''}")
+        self.btn_sel_mark_read.setEnabled(count > 0)
+        self.btn_sel_mark_unread.setEnabled(count > 0)
 
     def _on_bulk_delete(self):
         from PyQt6.QtWidgets import QMessageBox
@@ -605,6 +625,46 @@ class LocalLibraryView(QWidget):
             
             logger.info(f"Bulk deleted {deleted_count} files.")
             self.refresh_and_scan()
+
+    def _on_bulk_mark_read(self):
+        selected_items = self._get_all_selected_items()
+        paths = []
+        for item in selected_items:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, Path) and not data.is_dir():
+                paths.append(str(data))
+            elif isinstance(data, dict):
+                paths.append(data.get("file_path"))
+            elif isinstance(data, str):
+                paths.append(data)
+                
+        if not paths: return
+        
+        for p in paths:
+            if p: self.db.mark_as_read(p)
+            
+        self.toggle_selection_mode(False)
+        self._reload_current_view()
+
+    def _on_bulk_mark_unread(self):
+        selected_items = self._get_all_selected_items()
+        paths = []
+        for item in selected_items:
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, Path) and not data.is_dir():
+                paths.append(str(data))
+            elif isinstance(data, dict):
+                paths.append(data.get("file_path"))
+            elif isinstance(data, str):
+                paths.append(data)
+                
+        if not paths: return
+        
+        for p in paths:
+            if p: self.db.mark_as_unread(p)
+            
+        self.toggle_selection_mode(False)
+        self._reload_current_view()
 
     def _save_cover_to_cache(self, path: Path, cover_bytes: bytes) -> None:
         """Called from scanner worker thread to save a resized thumbnail to disk cache."""
@@ -799,6 +859,12 @@ class LocalLibraryView(QWidget):
                 section.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
                 if self._selection_mode:
                     section.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+                    
+                section.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                section.list_widget.customContextMenuRequested.connect(lambda pos, w=section.list_widget: self._on_item_context_menu(pos, w))
+                section.btn_toggle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                section.btn_toggle.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
+                
                 self.grouped_layout.addWidget(section)
                 
             if one_offs:
@@ -808,6 +874,11 @@ class LocalLibraryView(QWidget):
                 section.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
                 if self._selection_mode:
                     section.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+                    
+                section.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                section.list_widget.customContextMenuRequested.connect(lambda pos, w=section.list_widget: self._on_item_context_menu(pos, w))
+                section.btn_toggle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                section.btn_toggle.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
                 
                 count = len(one_offs)
                 cols = 6 
@@ -924,3 +995,115 @@ class LocalLibraryView(QWidget):
 
     def _go_up(self):
         self.go_up()
+
+    def _on_item_context_menu(self, pos, list_widget):
+        item = list_widget.itemAt(pos)
+        if not item: return
+        
+        path_or_data = item.data(Qt.ItemDataRole.UserRole)
+        # If it's a folder, ignore for now
+        if isinstance(path_or_data, Path) and path_or_data.is_dir():
+            return
+            
+        file_path = None
+        if isinstance(path_or_data, Path):
+            file_path = str(path_or_data)
+        elif isinstance(path_or_data, dict):
+            file_path = str(path_or_data.get("file_path"))
+        elif isinstance(path_or_data, str):
+            file_path = path_or_data
+            
+        if not file_path: return
+        
+        from PyQt6.QtWidgets import QMenu, QMessageBox
+        import os
+        
+        menu = QMenu(self)
+        action_read = menu.addAction("Mark as Read")
+        action_unread = menu.addAction("Mark as Unread")
+        menu.addSeparator()
+        
+        # Style delete button red in context menu or just use text
+        action_delete = menu.addAction("Delete")
+        
+        action = menu.exec(list_widget.viewport().mapToGlobal(pos))
+        
+        if action == action_read:
+            self.db.mark_as_read(file_path)
+            self._reload_current_view()
+        elif action == action_unread:
+            self.db.mark_as_unread(file_path)
+            self._reload_current_view()
+        elif action == action_delete:
+            reply = QMessageBox.question(
+                self, "Confirm Delete",
+                f"Are you sure you want to delete this comic?\nThis action cannot be undone.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                try:
+                    p = Path(file_path)
+                    if p.exists(): os.remove(p)
+                    self.db.remove_comic(file_path)
+                    self.refresh_and_scan()
+                except Exception as e:
+                    logger.error(f"Failed to delete {file_path}: {e}")
+
+    def _on_group_context_menu(self, pos, section):
+        from PyQt6.QtWidgets import QMenu, QMessageBox
+        import os
+        
+        menu = QMenu(self)
+        action_read = menu.addAction("Mark Group as Read")
+        action_unread = menu.addAction("Mark Group as Unread")
+        menu.addSeparator()
+        action_expand_all = menu.addAction("Expand All")
+        action_collapse_all = menu.addAction("Collapse All")
+        menu.addSeparator()
+        action_delete = menu.addAction("Delete Group")
+        
+        # Map from btn_toggle
+        action = menu.exec(section.btn_toggle.mapToGlobal(pos))
+        if not action: return
+        
+        if action == action_expand_all or action == action_collapse_all:
+            expanded = (action == action_expand_all)
+            for i in range(self.grouped_layout.count()):
+                item = self.grouped_layout.itemAt(i)
+                if item and item.widget() and isinstance(item.widget(), SeriesSection):
+                    item.widget().set_expanded(expanded)
+            return
+
+        paths = []
+        for row in section.rows:
+            r = dict(row)
+            if r.get("file_path"): paths.append(r["file_path"])
+            
+        if not paths: return
+
+        if action == action_read:
+            for p in paths:
+                self.db.mark_as_read(p)
+            self._reload_current_view()
+        elif action == action_unread:
+            for p in paths:
+                self.db.mark_as_unread(p)
+            self._reload_current_view()
+        elif action == action_delete:
+            reply = QMessageBox.question(
+                self, "Confirm Group Delete",
+                f"Are you sure you want to delete all {len(paths)} comics in this group?\nThis action cannot be undone.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                deleted = 0
+                for p_str in paths:
+                    try:
+                        p = Path(p_str)
+                        if p.exists(): os.remove(p)
+                        self.db.remove_comic(p_str)
+                        deleted += 1
+                    except Exception as e:
+                        logger.error(f"Failed to delete {p_str}: {e}")
+                logger.info(f"Group deleted {deleted} items.")
+                self.refresh_and_scan()

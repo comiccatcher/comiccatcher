@@ -26,6 +26,7 @@ logger = get_logger("ui.browser")
 class PublicationCard(QFrame):
     clicked = pyqtSignal(object, str) # pub, self_url
     selection_toggled = pyqtSignal(object, str, bool) # pub, key, is_selected
+    download_requested = pyqtSignal(object, str) # pub, download_url
 
     def __init__(self, pub: Publication, base_url: str, image_manager: ImageManager):
         super().__init__()
@@ -77,8 +78,11 @@ class PublicationCard(QFrame):
         self.selection_overlay.hide()
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
         
         # Determine a unique identity key for this publication
+
         # Prefer the 'self' URL if available, but fall back to identifier or title hash
         self.self_url = None
         for l in (pub.links or []):
@@ -148,6 +152,21 @@ class PublicationCard(QFrame):
             # Use self.self_url (or identity_key if None) for navigation
             self.clicked.emit(self.pub, self.self_url or self.identity_key)
         super().mousePressEvent(event)
+
+    def _on_context_menu(self, pos):
+        from PyQt6.QtWidgets import QMenu
+        download_url = next(
+            (urljoin(self.base_url, l.href) 
+             for l in (self.pub.links or [])
+             if l.rel == "http://opds-spec.org/acquisition" or (l.type and "cbz" in l.type)), 
+            None
+        )
+        if download_url:
+            menu = QMenu(self)
+            action_download = menu.addAction("Download")
+            action = menu.exec(self.mapToGlobal(pos))
+            if action == action_download:
+                self.download_requested.emit(self.pub, download_url)
 
 class PagingBar(QFrame):
     def __init__(self, on_navigate):
@@ -1355,6 +1374,7 @@ class BrowserView(QWidget):
             card = PublicationCard(item, self.api_client.profile.get_base_url(), self.image_manager)
             card.clicked.connect(self.on_open_detail_callback)
             card.selection_toggled.connect(self._on_card_selection_toggled)
+            card.download_requested.connect(self.on_start_download)
             card.set_selection_mode(self._selection_mode)
             if card.self_url in self._selected_items:
                 card.set_selected(True)
@@ -1478,6 +1498,7 @@ class BrowserView(QWidget):
                         card = PublicationCard(pub, self.api_client.profile.get_base_url(), self.image_manager)
                         card.clicked.connect(self.on_open_detail_callback)
                         card.selection_toggled.connect(self._on_card_selection_toggled)
+                        card.download_requested.connect(self.on_start_download)
                         card.set_selection_mode(self._selection_mode)
                         if card.self_url in self._selected_items:
                             card.set_selected(True)
@@ -1516,6 +1537,7 @@ class BrowserView(QWidget):
             card = PublicationCard(pub, self.api_client.profile.get_base_url(), self.image_manager)
             card.clicked.connect(self.on_open_detail_callback)
             card.selection_toggled.connect(self._on_card_selection_toggled)
+            card.download_requested.connect(self.on_start_download)
             card.set_selection_mode(self._selection_mode)
             if card.self_url in self._selected_items:
                 card.set_selected(True)
