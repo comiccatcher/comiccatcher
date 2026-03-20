@@ -72,12 +72,12 @@ class ThemeManager:
     _current_theme: str = "dark"
 
     @classmethod
-    def get_icon(cls, name: str) -> QIcon:
+    def get_icon(cls, name: str, color_key: str = "text_main") -> QIcon:
         path = ICON_DIR / f"{name}.svg"
         if not path.exists():
             return QIcon()
         theme = THEMES.get(cls._current_theme, THEMES["dark"])
-        color = theme["text_main"]
+        color = theme.get(color_key, theme["text_main"])
         try:
             from PyQt6.QtCore import QByteArray
             from PyQt6.QtGui import QPixmap
@@ -155,24 +155,25 @@ class ThemeManager:
             }}
 
             QPushButton#tab_button {{
-                background-color: {theme['bg_item_hover']};
+                background-color: transparent;
                 color: {theme['text_dim']};
-                border: 1px solid {theme['border']};
-                border-radius: 4px;
-                padding: 3px 12px;
+                border: none;
+                border-bottom: 2px solid transparent;
+                border-radius: 0px;
+                padding: 6px 15px;
+                font-weight: bold;
                 font-size: 13px;
             }}
 
             QPushButton#tab_button:hover {{
-                background-color: {theme['bg_item_selected']};
+                background-color: {theme['bg_item_hover']};
                 color: {theme['text_main']};
             }}
 
             QPushButton#tab_button:checked {{
-                background-color: {theme['accent']};
-                color: white;
-                border-color: {theme['accent']};
-                font-weight: bold;
+                background-color: {theme['bg_item_hover']};
+                color: {theme['accent']};
+                border-bottom: 2px solid {theme['accent']};
             }}
             
             QComboBox {{

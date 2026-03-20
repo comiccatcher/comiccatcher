@@ -179,7 +179,7 @@ class MainWindow(QMainWindow):
         
         self.btn_tab_feed = QPushButton("Browse")
         self.btn_tab_feed.setObjectName("tab_button")
-        self.btn_tab_feed.setIcon(ThemeManager.get_icon("home"))
+        self.btn_tab_feed.setIcon(ThemeManager.get_icon("home", "accent"))
         self.btn_tab_feed.setCheckable(True)
         self.btn_tab_feed.setChecked(True)
         self.btn_tab_feed.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -187,7 +187,7 @@ class MainWindow(QMainWindow):
 
         self.btn_tab_search = QPushButton("Search")
         self.btn_tab_search.setObjectName("tab_button")
-        self.btn_tab_search.setIcon(ThemeManager.get_icon("search"))
+        self.btn_tab_search.setIcon(ThemeManager.get_icon("search", "text_dim"))
         self.btn_tab_search.setCheckable(True)
         self.btn_tab_search.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_tab_search.clicked.connect(lambda: self._on_tab_clicked("search"))
@@ -417,6 +417,10 @@ class MainWindow(QMainWindow):
         self.btn_tab_feed.setChecked(tab_name == "feed")
         self.btn_tab_search.setChecked(tab_name == "search")
         
+        # Colorize icons to match the text (accent if active, text_dim if inactive)
+        self.btn_tab_feed.setIcon(ThemeManager.get_icon("home", "accent" if tab_name == "feed" else "text_dim"))
+        self.btn_tab_search.setIcon(ThemeManager.get_icon("search", "accent" if tab_name == "search" else "text_dim"))
+
         hist, idx = self.get_current_history()
         
         if tab_name == "search" and (not hist or hist[idx]["type"] == "search_root"):
