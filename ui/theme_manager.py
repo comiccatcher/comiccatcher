@@ -212,6 +212,21 @@ class ThemeManager:
                 padding: 0 3px 0 3px;
             }}
             
+            QPushButton#see_all_button {{
+                background-color: transparent;
+                color: {theme['accent']};
+                border: none;
+                padding: 4px 8px;
+                font-weight: bold;
+                margin-top: 15px;
+            }}
+            
+            QPushButton#see_all_button:hover {{
+                text-decoration: underline;
+                background-color: {theme['bg_item_hover']};
+                border-radius: 4px;
+            }}
+
             QScrollBar:vertical {{
                 border: none;
                 background: {theme['bg_main']};
@@ -228,6 +243,28 @@ class ThemeManager:
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
                 height: 0px;
             }}
+
+            QScrollBar:horizontal {{
+                border: none;
+                background: {theme['bg_main']};
+                height: 10px;
+                margin: 0px;
+            }}
+            
+            QScrollBar::handle:horizontal {{
+                background: {theme['border']};
+                min-width: 20px;
+                border-radius: 5px;
+            }}
+            
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
+            }}
+
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                background: none;
+            }}
             
             QScrollArea {{
                 border: none;
@@ -239,10 +276,12 @@ class ThemeManager:
                 background-color: {theme['bg_item_hover']};
                 height: 4px;
                 text-align: center;
+                border-radius: 2px;
             }}
             
             QProgressBar::chunk {{
                 background-color: {theme['accent']};
+                border-radius: 2px;
             }}
             
             QFrame#badge {{

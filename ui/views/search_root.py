@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, 
-    QGroupBox, QListWidget, QListWidgetItem, QStyle, QApplication
+    QGroupBox, QListWidget, QListWidgetItem, QStyle, QApplication, QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from ui.theme_manager import ThemeManager
@@ -120,6 +120,18 @@ class SearchRootView(QWidget):
         h_layout.addWidget(recent_group, 1)
         h_layout.addWidget(pinned_group, 1)
         self.layout.addLayout(h_layout)
+
+        # Progress Indicator
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0) # Indeterminate
+        self.progress.setFixedHeight(4)
+        self.progress.setTextVisible(False)
+        self.progress.setVisible(False)
+        self.layout.addWidget(self.progress)
+
+    def set_loading(self, loading: bool):
+        self.progress.setVisible(loading)
+        self.search_input.setEnabled(not loading)
 
     def update_data(self, history, pinned):
         """Re-populate the history and pinned lists."""

@@ -345,12 +345,6 @@ class BrowserView(QWidget):
         self.header.addWidget(self.search_input)
         self.layout.addWidget(self.header_widget)
 
-        # Progress
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 0)
-        self.progress.setVisible(False)
-        self.layout.addWidget(self.progress)
-
         # Scroll Area
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -413,10 +407,9 @@ class BrowserView(QWidget):
 
         # Progress (Floating Overlay)
         self.progress = QProgressBar(self)
-        self.progress.setFixedHeight(3)
+        self.progress.setFixedHeight(4)
         self.progress.setTextVisible(False)
         self.progress.setRange(0, 0)
-        self.progress.setStyleSheet("QProgressBar { background: transparent; border: none; }")
         self.progress.setVisible(False)
 
     def toggle_selection_mode(self, enabled: Optional[bool] = None):
@@ -579,7 +572,7 @@ class BrowserView(QWidget):
         y = self.header_widget.y() + self.header_widget.height()
         if self.paging_container.isVisible():
             y = max(y, self.paging_container.y() + self.paging_container.height())
-        self.progress.setGeometry(0, y, self.width(), 3)
+        self.progress.setGeometry(0, y, self.width(), 4)
         
         method = self.config_manager.get_scroll_method()
         if method == "refit" and self.items_buffer:
@@ -1479,9 +1472,25 @@ class BrowserView(QWidget):
         if feed.groups:
             for group in feed.groups:
                 title = group.metadata.title if (hasattr(group, 'metadata') and group.metadata) else "Group"
+                
+                header = QHBoxLayout()
                 label = QLabel(title)
                 label.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 10px;")
-                self.content_layout.addWidget(label)
+                header.addWidget(label)
+                header.addStretch()
+                
+                # Add "See All" link if a self link exists for the group
+                self_link = next((l for l in (group.links or []) if l.rel == "self"), None)
+                if self_link:
+                    btn_all = QPushButton("See All")
+                    btn_all.setFlat(True)
+                    btn_all.setCursor(Qt.CursorShape.PointingHandCursor)
+                    btn_all.setObjectName("see_all_button")
+                    url = urljoin(self.api_client.profile.get_base_url(), self_link.href)
+                    btn_all.clicked.connect(lambda _, u=url, t=title: self.on_navigate(u, t))
+                    header.addWidget(btn_all)
+                
+                self.content_layout.addLayout(header)
                 
                 if group.publications:
                     scroll = QScrollArea()

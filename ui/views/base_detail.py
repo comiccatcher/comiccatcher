@@ -97,9 +97,6 @@ class BaseDetailView(QWidget):
         self.cover_progress = QProgressBar()
         self.cover_progress.setFixedHeight(4)
         self.cover_progress.setTextVisible(False)
-        self.cover_progress.setStyleSheet("""
-            QProgressBar { border: none; background: rgba(128, 128, 128, 30); border-radius: 2px; }
-        """)
         self.cover_progress.setVisible(False)
         self.cover_layout.addWidget(self.cover_progress)
         

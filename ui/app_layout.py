@@ -704,6 +704,7 @@ class MainWindow(QMainWindow):
         if not self.feed_history: return
         start_url = self.feed_history[0]["url"]
         
+        self.search_root_view.set_loading(True)
         try:
             feed = await self.opds_client.get_feed(start_url)
             search_link = None
@@ -731,6 +732,8 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             QMessageBox.warning(self, "Search Error", f"Could not perform search: {e}")
+        finally:
+            self.search_root_view.set_loading(False)
 
     def _on_pin_search(self, query):
         if not self.api_client: return
