@@ -632,10 +632,10 @@ class BrowserView(QWidget):
         if hasattr(self, '_last_loaded_url') and self._last_loaded_url:
             asyncio.create_task(self.load_feed(self._last_loaded_url, force_refresh=True))
 
-    def set_feed_context(self, profile):
+    def set_feed_context(self, profile, opds_client: OPDS2Client, image_manager: ImageManager):
         self.api_client = APIClient(profile)
-        self.opds_client = OPDS2Client(self.api_client)
-        self.image_manager = ImageManager(self.api_client)
+        self.opds_client = opds_client
+        self.image_manager = image_manager
 
     async def load_feed(self, url: str, title: str = None, force_refresh: bool = False, initial_offset: int = 0):
         self._load_token += 1

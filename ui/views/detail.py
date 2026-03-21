@@ -38,8 +38,8 @@ class ClickableBadge(QFrame):
         super().mousePressEvent(event)
 
 class DetailView(BaseDetailView):
-    def __init__(self, config_manager, on_back, on_read, on_navigate, on_start_download, on_open_detail, local_db=None):
-        super().__init__(on_back)
+    def __init__(self, config_manager, on_back, on_read, on_navigate, on_start_download, on_open_detail, image_manager: ImageManager, local_db=None):
+        super().__init__(on_back, image_manager)
         self.config_manager = config_manager
         self.on_read = on_read
         self.on_navigate = on_navigate

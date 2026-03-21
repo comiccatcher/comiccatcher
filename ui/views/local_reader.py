@@ -20,14 +20,14 @@ class LocalReaderView(BaseReaderView):
     to disk via ImageManager's cache layout.
     """
 
-    def __init__(self, on_exit, local_db=None):
+    def __init__(self, on_exit, image_manager: ImageManager, local_db=None):
         super().__init__(on_exit)
         self.local_db = local_db
         self._path: Optional[Path] = None
         self._pages: list[LocalPage] = []
         self._sem = asyncio.Semaphore(2)
-        # Reuse ImageManager's disk-cache infra without a server client
-        self._img_mgr = ImageManager(None)
+        # Reuse ImageManager's disk-cache infra
+        self._img_mgr = image_manager
 
         self.thumb_slider.set_thumb_loader(self._load_page_pixmap)
 

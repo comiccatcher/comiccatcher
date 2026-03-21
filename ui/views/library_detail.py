@@ -23,8 +23,8 @@ def _read_comicbox_meta(path: Path) -> Dict[str, Any]:
     return flatten_comicbox(raw)
 
 class LocalComicDetailView(BaseDetailView):
-    def __init__(self, on_back, on_read_local=None, local_db: Optional[LocalLibraryDB] = None):
-        super().__init__(on_back)
+    def __init__(self, on_back, image_manager: ImageManager, on_read_local=None, local_db: Optional[LocalLibraryDB] = None):
+        super().__init__(on_back, image_manager)
         self.on_read_local = on_read_local
         self.db = local_db
         self._path: Optional[Path] = None

@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 import os
 from typing import Optional
@@ -68,11 +69,11 @@ class ConnectionTestResultDialog(QDialog):
         layout.addLayout(btn_row)
 
 class FeedEditDialog(QDialog):
-    def __init__(self, parent, config_manager: ConfigManager, feed: Optional[FeedProfile] = None):
+    def __init__(self, parent, config_manager: ConfigManager, image_manager: ImageManager, feed: Optional[FeedProfile] = None):
         super().__init__(parent)
         self.config_manager = config_manager
         self.feed = feed
-        self.shared_image_manager = ImageManager(None)
+        self.shared_image_manager = image_manager
         
         self.setWindowTitle("Edit Feed" if feed else "Add New Feed")
         self.setFixedWidth(500)
@@ -303,10 +304,10 @@ class FeedEditDialog(QDialog):
 class FeedManagementView(QWidget):
     icon_loaded = pyqtSignal(str, object) # feed_id, pixmap
 
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(self, config_manager: ConfigManager, image_manager: ImageManager):
         super().__init__()
         self.config_manager = config_manager
-        self.shared_image_manager = ImageManager(None)
+        self.shared_image_manager = image_manager
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -382,7 +383,7 @@ class FeedManagementView(QWidget):
         except: pass
 
     def add_feed(self):
-        dialog = FeedEditDialog(self, self.config_manager)
+        dialog = FeedEditDialog(self, self.config_manager, self.shared_image_manager)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.refresh_feeds()
 
@@ -390,7 +391,7 @@ class FeedManagementView(QWidget):
         item = self.feeds_list.currentItem()
         if item:
             feed = item.data(Qt.ItemDataRole.UserRole)
-            dialog = FeedEditDialog(self, self.config_manager, feed)
+            dialog = FeedEditDialog(self, self.config_manager, self.shared_image_manager, feed)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.refresh_feeds()
 

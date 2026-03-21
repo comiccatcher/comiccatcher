@@ -15,11 +15,11 @@ from ui.views.feed_management import FeedEditDialog
 class FeedListView(QWidget):
     icon_loaded = pyqtSignal(str, object) # feed_id, pixmap
 
-    def __init__(self, config_manager: ConfigManager, on_feed_selected):
+    def __init__(self, config_manager: ConfigManager, image_manager: ImageManager, on_feed_selected):
         super().__init__()
         self.config_manager = config_manager
         self.on_feed_selected = on_feed_selected
-        self.shared_image_manager = ImageManager(None)
+        self.shared_image_manager = image_manager
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(20, 20, 20, 20)
@@ -36,7 +36,7 @@ class FeedListView(QWidget):
         self.btn_add.setText(" + Add Feed")
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add.setObjectName("primary_button")
-        self.btn_add.clicked.connect(self.add_new_feed)
+        self.btn_add.clicked.connect(self.add_feed)
         header.addWidget(self.btn_add)
         
         self.layout.addLayout(header)
@@ -105,8 +105,9 @@ class FeedListView(QWidget):
         except:
             pass
 
-    def add_new_feed(self):
-        dialog = FeedEditDialog(self, self.config_manager)
+    def add_feed(self):
+        dialog = FeedEditDialog(self, self.config_manager, self.shared_image_manager)
+
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.refresh_feeds()
 

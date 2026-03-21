@@ -71,17 +71,18 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(icon_path)))
         
         self.api_client = None
-        self.opds_client = None
-        self.image_manager = None
+        self.opds_client = OPDS2Client(None) # persistent cache
+        self.image_manager = ImageManager(None) # persistent cache
         self.download_manager = None
         self.local_db = LocalLibraryDB(CONFIG_DIR / "library.db")
         
-        # Tabbed History State
+        # Tabbed History State (Per-Feed)
         self.active_tab = "feed" # "feed" or "search"
-        self.feed_history = []
-        self.feed_index = -1
-        self.search_history = []
-        self.search_index = -1
+        self.current_feed_id = None
+        self.feed_histories = {}    # {feed_id: [history_list]}
+        self.feed_indices = {}      # {feed_id: index}
+        self.search_histories = {}  # {feed_id: [history_list]}
+        self.search_indices = {}    # {feed_id: index}
 
         # Main horizontal layout (Sidebar | Content)
         self.central_widget = QWidget()
@@ -250,7 +251,7 @@ class MainWindow(QMainWindow):
         self.breadcrumb_row.setSpacing(10)
         
         self.breadcrumb_inner = QWidget()
-        self.breadcrumb_items_layout = FlowLayout(self.breadcrumb_inner, spacing=5)
+        self.breadcrumb_items_layout = FlowLayout(self.breadcrumb_inner, spacing=8)
         
         self.btn_refresh = QPushButton()
         self.btn_refresh.setProperty("flat", "true")
@@ -272,8 +273,8 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.content_stack)
 
         # Initialize Views
-        self.feed_list_view = FeedListView(self.config_manager, self.on_feed_selected)
-        self.settings_view = SettingsView(self.config_manager)
+        self.feed_list_view = FeedListView(self.config_manager, self.image_manager, self.on_feed_selected)
+        self.settings_view = SettingsView(self.config_manager, self.image_manager)
         self.settings_view.theme_changed.connect(self._apply_theme)
         
         # Dual Browser Views
@@ -286,13 +287,13 @@ class MainWindow(QMainWindow):
             on_clear=self._on_clear_search
         )
         
-        self.local_library_view = LocalLibraryView(self.config_manager, self.on_open_local_comic, self.local_db)
+        self.local_library_view = LocalLibraryView(self.config_manager, self.on_open_local_comic, self.image_manager, self.local_db)
         self.local_library_view.nav_changed.connect(self.update_header)
-        self.local_detail_view = LocalComicDetailView(self.on_back_to_local_library, self.on_read_local_comic, self.local_db)
-        self.local_reader_view = LocalReaderView(self.on_exit_reader, self.local_db)
+        self.local_detail_view = LocalComicDetailView(self.on_back_to_local_library, self.image_manager, self.on_read_local_comic, self.local_db)
+        self.local_reader_view = LocalReaderView(self.on_exit_reader, self.image_manager, self.local_db)
         
-        self.detail_view = DetailView(self.config_manager, self.on_back_to_browser, self.on_read_book, self.on_navigate_to_url, self.on_start_download, self.on_open_detail, self.local_db)
-        self.reader_view = ReaderView(self.config_manager, self.on_exit_reader)
+        self.detail_view = DetailView(self.config_manager, self.on_back_to_browser, self.on_read_book, self.on_navigate_to_url, self.on_start_download, self.on_open_detail, self.image_manager, self.local_db)
+        self.reader_view = ReaderView(self.config_manager, self.on_exit_reader, self.image_manager)
         
         # Global Download Manager
         self.download_manager = DownloadManager(None, self.config_manager.get_library_dir())
@@ -418,17 +419,25 @@ class MainWindow(QMainWindow):
             self.back_to_feed_list()
 
     def get_current_history(self):
+        fid = self.current_feed_id
+        if not fid:
+            return [], -1
+            
         if self.active_tab == "search":
-            return self.search_history, self.search_index
-        return self.feed_history, self.feed_index
+            return self.search_histories.get(fid, []), self.search_indices.get(fid, -1)
+        return self.feed_histories.get(fid, []), self.feed_indices.get(fid, -1)
 
     def set_current_history(self, history, index):
+        fid = self.current_feed_id
+        if not fid:
+            return
+            
         if self.active_tab == "search":
-            self.search_history = history
-            self.search_index = index
+            self.search_histories[fid] = history
+            self.search_indices[fid] = index
         else:
-            self.feed_history = history
-            self.feed_index = index
+            self.feed_histories[fid] = history
+            self.feed_indices[fid] = index
 
     def _on_sidebar_changed(self, index):
         # Sidebar mapping:
@@ -637,44 +646,56 @@ class MainWindow(QMainWindow):
 
     def back_to_feed_list(self):
         self.api_client = None
-        self.opds_client = None
-        self.image_manager = None
+        # opds_client and image_manager are kept to maintain in-memory cache
+        self.current_feed_id = None
         # Keep download_manager alive if downloads are running
-        self.feed_history = []
-        self.feed_index = -1
-        self.search_history = []
-        self.search_index = -1
+        # feed_histories / search_histories are NOT cleared to maintain runtime session
         self.content_stack.setCurrentIndex(0)
         self.update_header()
 
     def on_feed_selected(self, feed):
         self.config_manager.set_last_view_type("feed")
         self.config_manager.set_last_feed_id(feed.id)
+        self.current_feed_id = feed.id
         
         self.api_client = APIClient(feed)
-        self.opds_client = OPDS2Client(self.api_client)
-        self.image_manager = ImageManager(self.api_client)
+        self.opds_client.api = self.api_client
+        self.image_manager.api_client = self.api_client
         
         # Update Download Manager's client
         self.download_manager.api_client = self.api_client
             
-        self.feed_browser_view.set_feed_context(feed)
-        self.search_browser_view.set_feed_context(feed)
+        self.feed_browser_view.set_feed_context(feed, self.opds_client, self.image_manager)
+        self.search_browser_view.set_feed_context(feed, self.opds_client, self.image_manager)
         self.reader_view.api_client = self.api_client
         
         base_url = feed.url
         start_url = base_url if "opds" in base_url.lower() else urljoin(base_url, "/codex/opds/v2.0/")
         
-        self.feed_history = [{"type": "browser", "title": "Home", "url": start_url, "offset": 0, "feed_id": feed.id}]
-        self.feed_index = 0
-        self.search_history = [{"type": "search_root", "title": "Search", "feed_id": feed.id}]
-        self.search_index = 0
+        # Check if we have history for this feed; if not, initialize
+        if feed.id not in self.feed_histories:
+            self.feed_histories[feed.id] = [{"type": "browser", "title": "Home", "url": start_url, "offset": 0, "feed_id": feed.id}]
+            self.feed_indices[feed.id] = 0
+            self.search_histories[feed.id] = [{"type": "search_root", "title": "Search", "feed_id": feed.id}]
+            self.search_indices[feed.id] = 0
+            
+            # Initial load for a new feed session
+            asyncio.create_task(self.feed_browser_view.load_feed(start_url, "Home"))
+            self.content_stack.setCurrentIndex(3)
+        else:
+            # Resume existing history
+            hist = self.feed_histories[feed.id]
+            idx = self.feed_indices[feed.id]
+            self.on_jump_to_history(idx)
+            
+            entry = hist[idx]
+            if entry["type"] == "detail":
+                self.content_stack.setCurrentIndex(6)
+            else:
+                self.content_stack.setCurrentIndex(3)
+        
         self.active_tab = "feed"
-        
         self.search_root_view.update_data(feed.search_history, feed.pinned_searches)
-        
-        asyncio.create_task(self.feed_browser_view.load_feed(start_url, "Home"))
-        self.content_stack.setCurrentIndex(3)
         self.update_header()
 
     def _toggle_downloads_popover(self):
@@ -867,7 +888,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def on_read_book(self, pub, manifest_url):
-        self.reader_view.load_manifest(pub, manifest_url)
+        self.reader_view.load_manifest(pub, manifest_url, self.image_manager)
         self.content_stack.setCurrentIndex(7)
         self.sidebar.hide()
         self.top_header.hide()
@@ -912,3 +933,23 @@ class MainWindow(QMainWindow):
             self.content_stack.setCurrentIndex(6)
             self.on_manual_refresh()
         self.update_header()
+
+    def closeEvent(self, event):
+        """Purge in-memory histories and caches on application quit."""
+        logger.info("Application closing. Purging runtime histories and in-memory caches.")
+        
+        # Clear histories
+        self.feed_histories.clear()
+        self.feed_indices.clear()
+        self.search_histories.clear()
+        self.search_indices.clear()
+        
+        # Clear OPDS Client cache if available
+        if self.opds_client:
+            self.opds_client.clear_cache()
+            
+        # Clear Image Manager memory cache if available
+        if self.image_manager:
+            self.image_manager._memory_cache.clear()
+            
+        event.accept()

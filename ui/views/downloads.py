@@ -81,9 +81,15 @@ class DownloadTaskWidget(QFrame):
             self.btn_action.clicked.connect(lambda: self.on_remove(task.book_id))
             
             if task.status == "Completed":
-                self.progress_bar.setStyleSheet("QProgressBar::chunk { background-color: #4caf50; }")
+                self.progress_bar.setStyleSheet("""
+                    QProgressBar { height: 4px; border: none; background-color: rgba(128,128,128,20); border-radius: 2px; }
+                    QProgressBar::chunk { background-color: #4caf50; border-radius: 2px; }
+                """)
             elif task.status == "Failed" or task.status == "Cancelled":
-                self.progress_bar.setStyleSheet("QProgressBar::chunk { background-color: #f44336; }")
+                self.progress_bar.setStyleSheet("""
+                    QProgressBar { height: 4px; border: none; background-color: rgba(128,128,128,20); border-radius: 2px; }
+                    QProgressBar::chunk { background-color: #f44336; border-radius: 2px; }
+                """)
 
 class DownloadsView(QWidget):
     refresh_needed = pyqtSignal()

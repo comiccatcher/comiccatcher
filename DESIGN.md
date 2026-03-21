@@ -19,12 +19,14 @@
 9. [Views Reference](#9-views-reference)
 10. [Base Components](#10-base-components)
 11. [Theme System](#11-theme-system)
-12. [Threading & Concurrency](#12-threading--concurrency)
-13. [Caching Strategy](#13-caching-strategy)
-14. [Data Flows](#14-data-flows)
-15. [Navigation & History](#15-navigation--history)
-16. [Testing](#16-testing)
-17. [Known Issues & TODOs](#17-known-issues--todos)
+12. [Multi-Select & Selection Mode](#12-multi-select--selection-mode)
+13. [Context Menus](#13-context-menus)
+14. [Threading & Concurrency](#14-threading--concurrency)
+15. [Caching Strategy](#15-caching-strategy)
+16. [Data Flows](#16-data-flows)
+17. [Navigation & History](#17-navigation--history)
+18. [Testing](#18-testing)
+19. [Known Issues & Future Enhancements](#19-known-issues--future-enhancements)
 
 ---
 
@@ -295,6 +297,7 @@ Streams `.cbz` files from OPDS servers:
 - Filename constraints: max 180 chars, `.cbz` enforced, collision detection with `(N)` suffixes.
 - Callback system: `set_callback(fn)` — called on any task state change for badge/popover updates.
 - Completed downloads trigger `LocalLibraryView.set_dirty()` via `MainWindow._on_downloads_updated`.
+- **Sequential Queue:** Bulk downloads are queued and processed one at a time to prevent server bans and local network congestion.
 
 ### `ProgressionSync` (`api/progression.py`)
 
@@ -358,6 +361,7 @@ SQLite database for library metadata and reading progress:
 | `current_page` | INTEGER | Reading progress |
 | `last_read` | TEXT | ISO 8601 timestamp |
 | `_status` | TEXT | (`unread` / `started` / `completed`) |
+| `source_url` | TEXT | Original OPDS acquisition URL (for sync) |
 
 **Key methods:**
 - `upsert_comic(path, mtime, meta_dict)` — INSERT … ON CONFLICT DO UPDATE
@@ -365,6 +369,7 @@ SQLite database for library metadata and reading progress:
 - `get_comics_grouped_by_series()` — grouped + issue-sorted for the library series view
 - `get_comics_grouped_by_field(field)` — generic grouping (publisher, year, etc.)
 - `remove_missing_comics(known_paths)` — chunked DELETE (500 at a time to respect SQLite variable limits)
+- `mark_as_read` / `mark_as_unread` — Bulk progress management
 - Thread-safety via `RLock` with `check_same_thread=False` connection
 
 ### `local_comicbox.py` (`ui/local_comicbox.py`)
@@ -389,7 +394,7 @@ The root window (`QMainWindow`) containing:
 ```
 QMainWindow
 └── central_widget (QWidget, QHBoxLayout)
-    ├── sidebar (QFrame#sidebar, 70px)
+    ├── sidebar (QFrame#sidebar, 85px)
     │   └── nav_list (QListWidget#nav_list, IconMode, TopToBottom)
     │       ├── [0] Feeds
     │       ├── [1] Library
@@ -398,8 +403,8 @@ QMainWindow
         ├── debug_bar (QFrame#debug_bar, 25px, visible if DEBUG=1)
         │   └── history counter, URL display, Copy/Logs buttons
         ├── top_header (QFrame#top_header)
-        │   ├── Row 1: feed icon, feed name, Browse/Search tabs, Downloads button
-        │   └── Row 2: breadcrumb FlowLayout + Refresh button
+        │   ├── Row 1: Unified Back button, feed icon, feed name, Browse/Search tabs, Downloads button
+        │   └── Row 2: Breadcrumb FlowLayout + Refresh button
         └── content_stack (QStackedWidget)
             ├── [0] FeedListView
             ├── [1] LocalLibraryView
@@ -412,6 +417,11 @@ QMainWindow
             ├── [8] SearchRootView
             └── [9] BrowserView (search)
 ```
+
+**Unified Navigation:**
+- A single global **Back** button in the top header handles all navigation history and internal view transitions.
+- **Breadcrumbs** provide smart context navigation, using a `>` separator to distinguish the feed identity from the navigation path.
+- Internal "Back" buttons in detail and library views are hidden to ensure a unified navigation flow.
 
 **State management:**
 - `active_tab`: `"feed"` | `"search"` — which tab is active
@@ -471,7 +481,7 @@ The primary content browsing widget. Supports three rendering modes selectable v
 - `PagingBar` widget shows `<<`, `<`, page status, `>`, `>>` buttons.
 
 **Dashboard rendering:**
-If the feed contains `groups` with `publications`, each group renders as a horizontally scrollable `QScrollArea` strip of `PublicationCard` widgets.
+If the feed contains `groups` with `publications`, each group renders as a horizontally scrollable `QScrollArea` strip of `PublicationCard` widgets. **"See All"** buttons provide quick navigation to full group feeds.
 
 **Facet / filter menu:**
 Built from `feed.facets` or group navigation links with `rel` containing `facet`. Populates a `QMenu` on the Filters button.
@@ -480,6 +490,8 @@ Built from `feed.facets` or group navigation links with `rel` containing `facet`
 - Fixed 160×260 px `QFrame` (objectName `publication_card`).
 - Async thumbnail load via `ImageManager.get_image_b64`.
 - Click emits `(pub, self_url)` signal.
+- Context menu support for quick downloading.
+- Multi-select support via click interception in selection mode.
 
 ### DetailView (`views/detail.py`)
 
@@ -504,9 +516,10 @@ Local comic library with three grouping modes:
 | `alpha` | All comics alphabetically |
 
 **`SeriesSection` widget** (used in `series` mode):
-- `QPushButton#section_toggle` — collapsible section header (objectName for theme styling, transparent background so it blends with canvas).
+- `QPushButton#section_toggle` — collapsible section header.
 - `QListWidget` — horizontal or grid layout of comic thumbnails.
 - `ComicDelegate` — custom item delegate drawing cover image + progress bar overlay + optional title label.
+- **Dimming:** Read comics are dimmed to 0.5 opacity for a clean "archived" appearance.
 
 **Thumbnail loading:**
 1. Check image cache for `local-cbz://<abs_path>/_cover_thumb`.
@@ -542,7 +555,7 @@ Compact download monitor embedded in `DownloadPopover`:
 
 ### SearchRootView (`views/search_root.py`)
 
-Search interface showing two columns: **History** and **Favorites** (pinned searches). Each entry is a `SearchItemWidget` with a clickable label, a pin/star button, and a remove button. Submitting a query calls `_execute_search()` in the main window, which resolves the server's OpenSearch description and navigates to the results URL.
+Search interface showing two columns: **History** and **Favorites** (pinned searches). Each entry is a `SearchItemWidget` with a clickable label, a pin/star button, and a remove button. Submitting a query calls `_execute_search()` in the main window, which resolves the server's OpenSearch description and navigates to the results URL. **Loading indicators** provide visual feedback during search execution.
 
 ### SettingsView (`views/settings.py`)
 
@@ -656,6 +669,12 @@ Image encoding helpers:
 
 **`ThemeManager`** (`ui/theme_manager.py`)
 
+### "Thin-Bar" Aesthetic
+ComicCatcher employs a modern "thin-bar" design language:
+- **Progress Bars:** All progress indicators (Loading, Cover Reading Progress, Search, Downloads) are standardized to a **4px height** with a 2px border radius.
+- **Scrollbars:** Custom transparent scrollbars with themed, rounded handles and hover states.
+- **Structural Borders:** 1px borders define the sidebar, header, and debug bar, ensuring visual hierarchy across all themes.
+
 ### Colour Tokens
 
 | Token | Light | Dark | OLED | Blue |
@@ -679,49 +698,35 @@ Image encoding helpers:
 3. Loads via `QPixmap.loadFromData(bytes, "SVG")`.
 4. Falls back to `QIcon(str(path))` if the SVG plugin is unavailable.
 
-The class variable `ThemeManager._current_theme` is updated in `apply_theme()`, so icon colour is always consistent with the active theme.
+---
 
-When the theme changes, `MainWindow._apply_theme()` explicitly refreshes:
-- All three nav list item icons.
-- `btn_refresh` and `btn_downloads` icons.
+## 12. Multi-Select & Selection Mode
 
-### Stylesheet Architecture
+ComicCatcher supports **Explicit Selection Mode** for safe bulk operations.
 
-All hardcoded colours have been removed from view code. Instead:
-- Each widget that needs themed styling has a named `objectName`.
-- `apply_theme()` generates a single large f-string stylesheet covering all named objects.
+### Key Components:
+- **`selection_mode`:** A state toggle in `BrowserView` and `LibraryView` that changes click behavior from opening a book to selecting it.
+- **`Tiered Identity Keys`:** Uses a fallback chain (Self URL → Identifier → Hash) to ensure stable selection tracking even in feeds without unique IDs.
+- **`SelectionActionBar`:** A contextual toolbar that appears when items are selected, providing actions like "Download All" or "Delete Selected".
 
-Key named objects:
-
-| objectName | Widget | Styling purpose |
-|------------|--------|-----------------|
-| `sidebar` | QFrame | Sidebar background + right border |
-| `top_header` | QFrame | Header background + bottom border |
-| `nav_list` | QListWidget | Sidebar background (overrides global QListWidget) |
-| `publication_card` | QFrame | Card background + hover accent border |
-| `section_toggle` | QPushButton | Library section header (transparent bg, accent text) |
-| `series_section` | QWidget | Explicit bg_main to blend section headers with canvas |
-| `tab_button` | QPushButton | Browse/Search tabs (idle chip + checked accent fill) |
-| `breadcrumb_dim` | QPushButton | Inactive breadcrumb items |
-| `breadcrumb_active` | QLabel | Active breadcrumb (accent, bold) |
-| `breadcrumb_sep` | QLabel | ">" separators |
-| `nav_link_button` | QPushButton | Navigation list items in browser |
-| `nav_continuous_button` | QPushButton | Continuous mode nav buttons |
-| `placeholder_card` | QFrame | Loading placeholder in continuous mode |
-| `download_popover` | QFrame | Floating download panel background |
-| `download_badge` | QLabel | Active download count badge |
-| `primary_button` | QPushButton | Accent-filled action buttons (e.g. "+ Add Feed") |
-| `reader_slider` | QSlider | Progress slider groove/handle in reader |
-| `path_label` | QLabel | Library path display |
-| `scan_label` | QLabel | Library scan progress message |
-| `search_item_label` | QLabel | Search history/pin item text |
-| `empty_state_label` | QLabel | "No active downloads" empty state |
-| `link_button` | QPushButton | Hotlink badges in detail view |
-| `see_all_button` | QPushButton | "See All" group links in detail view |
+### Bulk Actions:
+- **Sequential Download:** Browser items are queued for sequential download to respect server limits.
+- **Bulk Progress:** Mark multiple local items as Read or Unread simultaneously.
+- **Bulk Deletion:** Securely delete multiple local files with a unified confirmation dialog.
 
 ---
 
-## 12. Threading & Concurrency
+## 13. Context Menus
+
+Right-click context menus are integrated throughout the application for efficiency:
+
+- **Browser:** Quick "Download" without entering the detail view.
+- **Library Items:** Toggle "Read / Unread" status or "Delete" individual comics.
+- **Library Groups:** "Expand All", "Collapse All", or bulk "Mark Group as Read" actions on series sections.
+
+---
+
+## 14. Threading & Concurrency
 
 ```
 Main thread (Qt + asyncio via qasync)
@@ -740,14 +745,9 @@ Main thread (Qt + asyncio via qasync)
     └── download_manager.start_download              ← file streaming
 ```
 
-**Thread safety:**
-- `LocalLibraryDB` uses `threading.RLock` around every DB call; `check_same_thread=False` on the connection.
-- `QImage` is thread-safe and reentrant; `QPixmap` must be created on the main thread. All image resizing uses `QImage` in threads; `QPixmap.fromImage()` or `QPixmap.loadFromData()` is called on the main thread.
-- `asyncio.create_task()` is safe to call from the main thread during the event loop; library scanner and download manager callbacks are dispatched via Qt signals or task creation on the main loop.
-
 ---
 
-## 13. Caching Strategy
+## 15. Caching Strategy
 
 ### Image Cache (three tiers)
 
@@ -761,17 +761,9 @@ Main thread (Qt + asyncio via qasync)
 
 Local library cover images are resized to 240×360px JPEG (quality 85) before disk storage. URL convention: `local-cbz://<abs_path>/_cover_thumb`. This reduces average per-cover load time from ~256 ms (13 MB raw TIFF/PNG) to ~2.5 ms (34 KB JPEG).
 
-### OPDS Feed Cache
-
-`OPDS2Client` keeps an in-memory `Dict[url, dict]` of raw JSON responses. Invalidated per-entry by `force_refresh=True` (manual refresh button) or fully via `clear_cache()`.
-
-### SQLite Library Cache
-
-`LocalLibraryDB` stores extracted metadata and reading progress persistently. Change detection uses file `mtime` — only changed files are re-processed by `LibraryScanner`.
-
 ---
 
-## 14. Data Flows
+## 16. Data Flows
 
 ### Opening a Feed
 
@@ -811,68 +803,26 @@ On page change
       → _do_prefetch(new_idx)
 ```
 
-### Local Library Scan
-
-```
-User opens Library tab (or download completes)
-  → LocalLibraryView._load_dir(path)
-      → db.get_comics_in_dir(path)  [single LIKE query]
-      → render SeriesSection / grid from DB rows
-      → asyncio.create_task(thumbnail load per item)
-
-Background scan (first load or dirty flag)
-  → LibraryScanner.scan()
-      → for each file (batches of 5):
-          asyncio.to_thread(read_comicbox_dict_and_cover)
-          asyncio.to_thread(db.upsert_comic)
-          asyncio.to_thread(on_cover → save_thumbnail)
-      → db.remove_missing_comics(...)
-      → on_finished(has_changes)
-          → if has_changes: _load_dir() re-render
-```
-
 ---
 
-## 15. Navigation & History
+## 17. Navigation & History
 
 ### History Stack
 
 Two independent stacks are maintained: `feed_history` and `search_history`, each indexed by `feed_index` / `search_index`.
 
-Each entry is a dict:
-```python
-{
-    "type": "browser" | "detail" | "search_root",
-    "title": str,
-    "url": str,
-    "offset": int,       # ReFit/continuous scroll position
-    "pub": Publication,  # detail entries only
-    "feed_id": str       # for debugging
-}
-```
-
 ### Navigation operations
 
 | Action | Effect |
 |--------|--------|
-| Navigate to URL | Truncate history at current index, append new entry |
-| Back button (breadcrumb) | Jump to an earlier history entry via `on_jump_to_history(i)` |
-| Manual refresh | Reload current entry's URL with `force_refresh=True` |
-| Feed root ("Feeds" crumb) | Reset both stacks, return to FeedListView |
-| Tab switch (Browse ↔ Search) | Swap which stack is active, show appropriate view |
-
-### Browse / Search Tab System
-
-`active_tab` (`"feed"` or `"search"`) determines:
-- Which `BrowserView` instance is shown (indices 3 vs 9 in the stack).
-- Which history stack `get_current_history()` / `set_current_history()` operates on.
-- Which breadcrumb icon to show (library vs globe).
-
-Both `BrowserView` instances share the same `APIClient` / `OPDS2Client` / `ImageManager` for the active feed session.
+| **Back Button** | Global handler that traverses history or returns to feed list. |
+| **Breadcrumbs** | Deep-link jumping between history steps or feed levels. |
+| **Tab Switch** | Browse ↔ Search toggle with independent history preservation. |
+| **Escape Key** | Exits selection mode or returns from detail views. |
 
 ---
 
-## 16. Testing
+## 18. Testing
 
 Test suite uses `pytest` with `pytest-asyncio` (`asyncio_mode = auto`).
 
@@ -886,14 +836,9 @@ Test suite uses `pytest` with `pytest-asyncio` (`asyncio_mode = auto`).
 | `test_local_comicbox_flatten.py` | comicbox metadata flattening for all role types |
 | `test_config_library_dir.py` | Platform-specific config path resolution |
 
-Run all tests:
-```bash
-pytest
-```
-
 ---
 
-## 17. Known Issues & TODOs
+## 19. Known Issues & Future Enhancements
 
 ### ReFit Mode
 
@@ -903,7 +848,6 @@ pytest
 ### UI & UX
 
 - **Feed browser grid columns:** `_render_grid` uses a hardcoded `cols = 5`; should adapt to viewport width like continuous mode.
-- **Theme switch doesn't reload library thumbnails:** Library cover icons loaded before a theme switch retain their colour (minor — only affects the book/folder placeholder icon, not actual cover art).
 - **macOS / Windows testing:** Primary development target is Linux/GNOME. Stylesheet behaviour on macOS (native style engine) and Windows may need platform-specific tweaks.
 
 ### Performance

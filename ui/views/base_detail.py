@@ -13,10 +13,10 @@ from logger import get_logger
 from api.image_manager import ImageManager
 
 class BaseDetailView(QWidget):
-    def __init__(self, on_back):
+    def __init__(self, on_back, image_manager: ImageManager):
         super().__init__()
         self.on_back = on_back
-        self.image_manager = ImageManager(None)
+        self.image_manager = image_manager
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(10, 10, 10, 10)
@@ -40,6 +40,8 @@ class BaseDetailView(QWidget):
 
         # Progress bar (loading state)
         self.progress = QProgressBar()
+        self.progress.setFixedHeight(4)
+        self.progress.setTextVisible(False)
         self.progress.setRange(0, 0)
         self.progress.setVisible(False)
         self.layout.addWidget(self.progress)

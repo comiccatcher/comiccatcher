@@ -15,6 +15,10 @@ class OPDS2Client:
             logger.debug(f"JSON Cache hit for feed: {url}")
             return OPDSFeed(**self._cache[url])
 
+        if not self.api:
+            logger.error(f"Cannot fetch feed {url}: No APIClient (User may have switched feeds)")
+            raise RuntimeError("APIClient not available")
+
         logger.debug(f"Fetching feed (force={force_refresh}): {url}")
         response = await self.api.get(url)
         response.raise_for_status()
@@ -30,6 +34,10 @@ class OPDS2Client:
         if not force_refresh and url in self._cache:
             logger.debug(f"JSON Cache hit for manifest: {url}")
             return Publication(**self._cache[url])
+
+        if not self.api:
+            logger.error(f"Cannot fetch publication manifest {url}: No APIClient")
+            raise RuntimeError("APIClient not available")
 
         logger.debug(f"Fetching publication manifest (force={force_refresh}): {url}")
         response = await self.api.get(url)

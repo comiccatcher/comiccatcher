@@ -21,11 +21,11 @@ class ReaderView(BaseReaderView):
     via the Readium Locator API.
     """
 
-    def __init__(self, config_manager, on_exit):
+    def __init__(self, config_manager, on_exit, image_manager: ImageManager = None):
         super().__init__(on_exit)
         self.config_manager = config_manager
         self.api_client    = None
-        self.image_manager: Optional[ImageManager] = None
+        self.image_manager = image_manager
         self.progression_sync: Optional[ProgressionSync] = None
         self.progression_url: Optional[str] = None
 
@@ -94,14 +94,14 @@ class ReaderView(BaseReaderView):
     # Loading                                                              #
     # ------------------------------------------------------------------ #
 
-    def load_manifest(self, pub: Publication, manifest_url: str):
+    def load_manifest(self, pub: Publication, manifest_url: str, image_manager: ImageManager):
         self._load_token += 1
         self._current_pub  = pub
         self._manifest_url = manifest_url
         self._reading_order = []
         self._index = 0
         self._prefetch_set.clear()
-        self.image_manager    = ImageManager(self.api_client)
+        self.image_manager    = image_manager
         self.progression_sync = ProgressionSync(
             self.api_client, self.config_manager.get_device_id()
         )

@@ -1,3 +1,4 @@
+from __future__ import annotations
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
@@ -7,14 +8,16 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from config import ConfigManager
+from api.image_manager import ImageManager
 from ui.views.feed_management import FeedManagementView
 
 class SettingsView(QWidget):
     theme_changed = pyqtSignal()
     
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(self, config_manager: ConfigManager, image_manager: ImageManager):
         super().__init__()
         self.config_manager = config_manager
+        self.image_manager = image_manager
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -60,7 +63,7 @@ class SettingsView(QWidget):
         # Feeds Management
         self.feeds_group = QGroupBox("Feeds")
         self.feeds_layout = QVBoxLayout(self.feeds_group)
-        self.feed_management = FeedManagementView(self.config_manager)
+        self.feed_management = FeedManagementView(self.config_manager, self.image_manager)
         self.feeds_layout.addWidget(self.feed_management)
         self.layout.addWidget(self.feeds_group)
 
@@ -144,6 +147,11 @@ class SettingsView(QWidget):
         theme = self.theme_combo.itemData(index)
         self.config_manager.set_theme(theme)
         self.theme_changed.emit()
+
+    def _on_theme_changed(self):
+        # Triggered when theme changes from sidebar or other sources
+        # We need to refresh icons if any
+        pass
 
     def _on_method_combo_changed(self, index):
         method = self.method_combo.itemData(index)

@@ -86,11 +86,11 @@ class ComicDelegate(QStyledItemDelegate):
             is_read = total_pages > 0 and curr_page >= total_pages - 1
             if total_pages > 0 and curr_page > 0 and not is_read:
                 prog_pct = curr_page / total_pages
-                bar_h = 3
-                bar_rect = QRect(icon_rect.left() + 2, icon_rect.bottom() + 2, icon_rect.width() - 4, bar_h)
+                bar_h = 4
+                bar_rect = QRect(icon_rect.left() + 2, icon_rect.bottom() + 4, icon_rect.width() - 4, bar_h)
                 
                 # Background
-                painter.fillRect(bar_rect, QColor(0, 0, 0, 50))
+                painter.fillRect(bar_rect, QColor(0, 0, 0, 60))
                 # Progress
                 painter.fillRect(QRect(bar_rect.left(), bar_rect.top(), int(bar_rect.width() * prog_pct), bar_h), option.palette.highlight().color())
 
@@ -302,6 +302,7 @@ class LocalLibraryView(QWidget):
         self,
         config_manager: ConfigManager,
         on_open_comic: Callable[[Path], None],
+        image_manager: ImageManager,
         local_db: Optional[LocalLibraryDB] = None,
     ):
         super().__init__()
@@ -311,7 +312,7 @@ class LocalLibraryView(QWidget):
 
         self.root_dir = self.config_manager.get_library_dir()
         self.current_dir = self.root_dir
-        self.image_manager = ImageManager(None)
+        self.image_manager = image_manager
         self._meta_sem = asyncio.Semaphore(4)
         self._is_dirty = False
         
@@ -419,6 +420,7 @@ class LocalLibraryView(QWidget):
         self.progress.setVisible(False)
         self.progress.setRange(0, 0)
         self.progress.setFixedHeight(4)
+        self.progress.setTextVisible(False)
         self.layout.addWidget(self.progress)
         
         self.scan_label = QLabel("")
@@ -737,7 +739,7 @@ class LocalLibraryView(QWidget):
         }
         stack_idx = stack_map.get(index, 0)
         self.stack.setCurrentIndex(stack_idx)
-        self.btn_up.setVisible(stack_idx == 0) # Only show 'Up' in Folder mode
+        self.btn_up.setVisible(False)
         self.nav_changed.emit()
         self._reload_current_view()
 
@@ -794,7 +796,7 @@ class LocalLibraryView(QWidget):
         index = self.config_manager.get_library_view_mode()
         stack_map = {0: 0, 1: 1, 2: 2, 3: 1, 4: 1, 5: 1}
         self.stack.setCurrentIndex(stack_map.get(index, 0))
-        self.btn_up.setVisible(self.stack.currentIndex() == 0)
+        self.btn_up.setVisible(False)
 
         self._reload_current_view()
 

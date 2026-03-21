@@ -229,7 +229,7 @@ class ThemeManager:
 
             QScrollBar:vertical {{
                 border: none;
-                background: {theme['bg_main']};
+                background: transparent;
                 width: 10px;
                 margin: 0px;
             }}
@@ -240,13 +240,17 @@ class ThemeManager:
                 border-radius: 5px;
             }}
             
+            QScrollBar::handle:vertical:hover {{
+                background: {theme['text_dim']};
+            }}
+            
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
                 height: 0px;
             }}
 
             QScrollBar:horizontal {{
                 border: none;
-                background: {theme['bg_main']};
+                background: transparent;
                 height: 10px;
                 margin: 0px;
             }}
@@ -255,6 +259,10 @@ class ThemeManager:
                 background: {theme['border']};
                 min-width: 20px;
                 border-radius: 5px;
+            }}
+            
+            QScrollBar::handle:horizontal:hover {{
+                background: {theme['text_dim']};
             }}
             
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
@@ -275,13 +283,31 @@ class ThemeManager:
                 border: none;
                 background-color: {theme['bg_item_hover']};
                 height: 4px;
-                text-align: center;
+                min-height: 4px;
+                max-height: 4px;
                 border-radius: 2px;
             }}
             
             QProgressBar::chunk {{
                 background-color: {theme['accent']};
                 border-radius: 2px;
+            }}
+            
+            QFrame#sidebar {{
+                background-color: {theme['bg_sidebar']};
+                border: none;
+                border-right: 1px solid {theme['border']};
+            }}
+            
+            QFrame#top_header {{
+                background-color: {theme['bg_header']};
+                border: none;
+                border-bottom: 1px solid {theme['border']};
+            }}
+            
+            QFrame#debug_bar {{
+                background-color: {theme['bg_sidebar']};
+                border-bottom: 1px solid {theme['border']};
             }}
             
             QFrame#badge {{
@@ -350,7 +376,7 @@ class ThemeManager:
             }}
 
             QLabel#breadcrumb_sep {{
-                color: {theme['border']};
+                color: {theme['text_dim']};
                 font-weight: bold;
             }}
 
