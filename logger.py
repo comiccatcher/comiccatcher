@@ -32,6 +32,7 @@ def setup_logging(debug=False):
         "httpx",
         "httpcore",
         "asyncio",
+        "qasync",
     ]
     for name in noisy:
         logging.getLogger(name).setLevel(logging.INFO)

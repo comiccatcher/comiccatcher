@@ -7,19 +7,23 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QPushButton, QProgressBar, QComboBox, QStackedWidget,
     QScrollArea, QApplication, QStyledItemDelegate, QStyle,
-    QAbstractItemView, QSizePolicy
+    QAbstractItemView, QSizePolicy, QFrame, QSpacerItem, QListView
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QPen, QImage, QPixmapCache, QKeyEvent
+from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect, QModelIndex, QPoint
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QPen, QImage, QPixmapCache, QKeyEvent, QStandardItemModel, QStandardItem
 
 from config import ConfigManager, CONFIG_DIR
 from logger import get_logger
 from api.image_manager import ImageManager
 from ui.local_archive import read_first_image
-from ui.local_comicbox import flatten_comicbox, read_comicbox_dict, subtitle_from_flat, read_comicbox_cover
-from ui.theme_manager import ThemeManager
+from ui.local_comicbox import flatten_comicbox, read_comicbox_dict, subtitle_from_flat, read_comicbox_cover, generate_comic_labels
+from ui.theme_manager import ThemeManager, UIConstants
 from api.local_db import LocalLibraryDB
 from api.library_scanner import LibraryScanner
+from ui.views.base_browser import BaseBrowserView
+from ui.components.library_card_delegate import LibraryCardDelegate
+from ui.components.base_ribbon import BaseCardRibbon
+from ui.components.mini_detail_popover import MiniDetailPopover
 
 logger = get_logger("ui.local_library")
 
@@ -37,80 +41,6 @@ def _save_thumbnail(data: bytes, cache_path: Path, thumb_w: int = 240, thumb_h: 
     scaled = img.scaled(thumb_w, thumb_h, _Qt.AspectRatioMode.KeepAspectRatio, _Qt.TransformationMode.SmoothTransformation)
     return scaled.save(str(cache_path), "JPEG", 85)
 
-class ComicDelegate(QStyledItemDelegate):
-    def __init__(self, parent=None, show_labels=True):
-        super().__init__(parent)
-        self.show_labels = show_labels
-
-    def paint(self, painter, option, index):
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # Get data
-        file_path = index.data(Qt.ItemDataRole.UserRole)
-        pixmap = index.data(Qt.ItemDataRole.DecorationRole)
-        if isinstance(pixmap, QIcon):
-            pixmap = pixmap.pixmap(option.decorationSize)
-            
-        progress_data = index.data(Qt.ItemDataRole.UserRole + 1) # (current, total)
-        # Ensure progress_data is a tuple of ints
-        curr_page, total_pages = 0, 0
-        if isinstance(progress_data, (list, tuple)) and len(progress_data) >= 2:
-            curr_page = progress_data[0] or 0
-            total_pages = progress_data[1] or 0
-        
-        rect = option.rect
-        
-        # Draw background if selected
-        if option.state & QStyle.StateFlag.State_Selected:
-            # We can use the accent color from the palette
-            painter.fillRect(rect, option.palette.highlight().color().lighter(160))
-
-        # Icon rect
-        icon_rect = QRect(rect.left() + (rect.width() - option.decorationSize.width()) // 2,
-                          rect.top() + 5,
-                          option.decorationSize.width(),
-                          option.decorationSize.height())
-
-        if pixmap and not pixmap.isNull():
-            # If read to the end, reduce color (desaturate or dim)
-            if total_pages > 0 and curr_page >= total_pages - 1:
-                # Dim it
-                painter.setOpacity(0.5)
-                painter.drawPixmap(icon_rect, pixmap)
-                painter.setOpacity(1.0)
-            else:
-                painter.drawPixmap(icon_rect, pixmap)
-            
-            # Progress bar just BELOW the cover (only if NOT fully read)
-            is_read = total_pages > 0 and curr_page >= total_pages - 1
-            if total_pages > 0 and curr_page > 0 and not is_read:
-                prog_pct = curr_page / total_pages
-                bar_h = 4
-                bar_rect = QRect(icon_rect.left() + 2, icon_rect.bottom() + 4, icon_rect.width() - 4, bar_h)
-                
-                # Background
-                painter.fillRect(bar_rect, QColor(0, 0, 0, 60))
-                # Progress
-                painter.fillRect(QRect(bar_rect.left(), bar_rect.top(), int(bar_rect.width() * prog_pct), bar_h), option.palette.highlight().color())
-
-        # Label
-        if self.show_labels:
-            text = index.data(Qt.ItemDataRole.DisplayRole)
-            if text:
-                # Move text slightly lower to accommodate progress bar
-                text_rect = QRect(rect.left(), icon_rect.bottom() + 8, rect.width(), rect.bottom() - icon_rect.bottom() - 8)
-                painter.setPen(option.palette.text().color())
-                painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
-
-        painter.restore()
-
-    def sizeHint(self, option, index):
-        base_size = option.decorationSize
-        if self.show_labels:
-            return QSize(base_size.width() + 20, base_size.height() + 45)
-        return QSize(base_size.width() + 10, base_size.height() + 20)
-
 @dataclass(frozen=True)
 class LibraryEntry:
     path: Path
@@ -120,7 +50,7 @@ class LibraryEntry:
     def name(self) -> str:
         return self.path.name
 
-def _list_dir(path: Path) -> List[LibraryEntry]:
+def _list_dir(path: Path, sort_dir: str = "asc") -> List[LibraryEntry]:
     if not path.exists() or not path.is_dir():
         return []
     entries: List[LibraryEntry] = []
@@ -136,7 +66,9 @@ def _list_dir(path: Path) -> List[LibraryEntry]:
     except Exception:
         return []
 
-    entries.sort(key=lambda e: (not e.is_dir, e.name.lower()))
+    reverse = (sort_dir == "desc")
+    # Always sort directories first, but respect sort_dir for the names within those blocks
+    entries.sort(key=lambda e: (not e.is_dir if not reverse else e.is_dir, e.name.lower()), reverse=reverse)
     return entries
 
 def format_ranges(nums: List[int]) -> str:
@@ -165,8 +97,15 @@ def format_ranges(nums: List[int]) -> str:
     add_range(start, end)
     return ",".join(ranges)
 
+def set_item_data(item, role, value):
+    """Helper to handle different setData signatures between QListWidgetItem and QStandardItem."""
+    if isinstance(item, QListWidgetItem):
+        item.setData(role, value)
+    elif isinstance(item, QStandardItem):
+        item.setData(value, role)
+
 class SeriesSection(QWidget):
-    def __init__(self, title: str, rows: List[Any], on_item_clicked: Callable, is_grid: bool = False, image_manager=None, meta_sem=None, show_labels=True):
+    def __init__(self, title: str, rows: List[Any], on_item_clicked: Callable, is_grid: bool = False, image_manager=None, meta_sem=None, show_labels=True, label_focus="series", is_folder_mode=False, config_manager=None):
         super().__init__()
         self.rows = rows
         self.on_item_clicked = on_item_clicked
@@ -174,72 +113,161 @@ class SeriesSection(QWidget):
         self._meta_sem = meta_sem
         self.show_labels = show_labels
         self.is_grid = is_grid
+        self.label_focus = label_focus
+        self.is_folder_mode = is_folder_mode
+        self.config_manager = config_manager
         
         self.setObjectName("series_section")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 10) # Less margin
-        layout.setSpacing(0)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, UIConstants.SECTION_MARGIN_BOTTOM)
+        self.layout.setSpacing(0)
+        # 1. Header Area (Matching FeedBrowser style)
+        self.header_widget = QWidget()
+        self.header_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.header_widget.setObjectName("section_header")
+        self.header_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.header_layout = QHBoxLayout(self.header_widget)
+        self.header_layout.setContentsMargins(0, UIConstants.SECTION_HEADER_MARGIN_TOP, 0, 0)
+        self.header_layout.setSpacing(UIConstants.SECTION_HEADER_SPACING)
 
         self.btn_toggle = QPushButton()
+        self.btn_toggle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.btn_toggle.setFixedSize(UIConstants.TOGGLE_BUTTON_SIZE, UIConstants.TOGGLE_BUTTON_SIZE)
         self.btn_toggle.setFlat(True)
         self.btn_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_toggle.setObjectName("section_toggle")
-        self.btn_toggle.setStyleSheet("text-align: left; padding-left: 5px;")
-        self.btn_toggle.setFixedHeight(30)
-        self.btn_toggle.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.base_title = title.upper()
+        self.btn_toggle.clicked.connect(self.toggle)
+        self.header_layout.addWidget(self.btn_toggle)
+
+        self.header_label = QLabel(title)
+        self.header_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        theme = ThemeManager.get_current_theme_colors()
+        self.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold;")
+        self.header_label.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        layout.addWidget(self.btn_toggle)
+        # We need to preserve the mousePressEvent for toggle
+        def label_press(e):
+            if e.button() == Qt.MouseButton.LeftButton:
+                self.toggle()
+                return
+            # Let other buttons (RightButton) fall through to trigger the context menu event
+            QLabel.mousePressEvent(self.header_label, e)
+            
+        self.header_label.mousePressEvent = label_press
+        self.header_layout.addWidget(self.header_label)
         
-        self.list_widget = QListWidget()
-        self.list_widget.setMouseTracking(True)
-        self.delegate = ComicDelegate(self.list_widget, show_labels=self.show_labels)
-        self.list_widget.setItemDelegate(self.delegate)
-        self.list_widget.setViewMode(QListWidget.ViewMode.IconMode)
-        self.list_widget.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.list_widget.itemClicked.connect(self.on_item_clicked)
+        self.header_layout.addStretch()
+        self.layout.addWidget(self.header_widget)
         
-        icon_w, icon_h = 120, 180
-        self.list_widget.setIconSize(QSize(icon_w, icon_h))
-        
+        # 2. List Content
+        s = UIConstants.scale
         if is_grid:
+            self.list_widget = QListWidget()
+            self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
+            self.list_widget.setMouseTracking(True)
+            self.delegate = LibraryCardDelegate(self.list_widget, show_labels=self.show_labels, image_manager=self.image_manager)
+            self.list_widget.setItemDelegate(self.delegate)
+            self.list_widget.setViewMode(QListWidget.ViewMode.IconMode)
+            self.list_widget.setResizeMode(QListWidget.ResizeMode.Adjust)
+            self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
             self.list_widget.setMovement(QListWidget.Movement.Static)
             self.list_widget.setFlow(QListWidget.Flow.LeftToRight)
             self.list_widget.setWrapping(True)
-            self.list_widget.setSpacing(10)
+            self.list_widget.setSpacing(UIConstants.GRID_SPACING)
+            s = UIConstants.scale
+            self.list_widget.setIconSize(QSize(s(120), s(180)))
         else:
-            self.list_widget.setFlow(QListWidget.Flow.LeftToRight)
-            self.list_widget.setWrapping(False)
-            h = icon_h + (45 if self.show_labels else 20)
-            self.list_widget.setFixedHeight(h + 15)
-            self.list_widget.setSpacing(10)
-            self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.list_widget = BaseCardRibbon(self, show_labels=self.show_labels)
+            self.model = QStandardItemModel()
+            self.list_widget.setModel(self.model)
+            self.delegate = LibraryCardDelegate(self.list_widget, show_labels=self.show_labels, image_manager=self.image_manager)
+            self.list_widget.setItemDelegate(self.delegate)
+            self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+            self.list_widget.clicked.connect(self.on_item_clicked)
+
+        # We need a unified way to handle clicks between QListWidget (items) and QListView (indexes)
+        if is_grid:
+            self.list_widget.itemClicked.connect(self.on_item_clicked)
             
-        for row in rows:
+        # Ensure rows are sorted based on context
+        sorted_rows = rows
+        sort_dir = self.config_manager.get_library_sort_direction()
+        reverse = (sort_dir == "desc")
+        
+        if self.is_folder_mode:
+            sorted_rows = sorted(rows, key=lambda r: Path(r["file_path"]).name.lower(), reverse=reverse)
+        # For non-folder modes, we trust the DB (which handles smart Series sorting) 
+        # or the caller (_load_grouped manual sorting for one-offs)
+        
+        for row in sorted_rows:
             r = dict(row)
-            title_text = r.get("title") or Path(r["file_path"]).name
-            item = QListWidgetItem(title_text if self.show_labels else "")
-            item.setData(Qt.ItemDataRole.UserRole, Path(r["file_path"]))
-            # Store progress
-            item.setData(Qt.ItemDataRole.UserRole + 1, (r.get("current_page") or 0, r.get("page_count") or 0))
+            primary, secondary = generate_comic_labels(r, self.label_focus)
             
-            item.setIcon(ThemeManager.get_icon("book"))
-            item.setToolTip(f"{r.get('series') or 'Other'} - {title_text}")
-            self.list_widget.addItem(item)
-            try:
-                asyncio.create_task(self._load_thumb(Path(r["file_path"]), item))
-            except RuntimeError:
-                pass
+            # In Folder mode, we always use filename for display
+            display_text = Path(r["file_path"]).name if self.is_folder_mode else primary
             
-        layout.addWidget(self.list_widget)
-        self.btn_toggle.clicked.connect(self.toggle)
+            # Label data (primary, secondary) for the card delegate
+            card_primary = display_text if self.is_folder_mode else primary
+            
+            if is_grid:
+                item = QListWidgetItem(display_text)
+                item.setData(Qt.ItemDataRole.UserRole, Path(r["file_path"]))
+                item.setData(Qt.ItemDataRole.UserRole + 1, (r.get("current_page") or 0, r.get("page_count") or 0))
+                item.setData(Qt.ItemDataRole.UserRole + 2, (card_primary, secondary))
+                item.setIcon(ThemeManager.get_icon("book"))
+                item.setToolTip(display_text)
+                self.list_widget.addItem(item)
+                try:
+                    asyncio.create_task(self._load_thumb(Path(r["file_path"]), item))
+                except RuntimeError:
+                    pass
+            else:
+                item = QStandardItem(display_text)
+                item.setData(Path(r["file_path"]), Qt.ItemDataRole.UserRole)
+                item.setData((r.get("current_page") or 0, r.get("page_count") or 0), Qt.ItemDataRole.UserRole + 1)
+                item.setData((card_primary, secondary), Qt.ItemDataRole.UserRole + 2)
+                item.setIcon(ThemeManager.get_icon("book"))
+                item.setToolTip(display_text)
+                self.model.appendRow(item)
+                try:
+                    asyncio.create_task(self._load_thumb(Path(r["file_path"]), item))
+                except RuntimeError:
+                    pass
+            
+        self.layout.addWidget(self.list_widget)
+        self.layout.setStretch(1, 0) # Ensure content area doesn't stretch
         self.set_expanded(True)
 
     def set_expanded(self, expanded: bool):
+        logger.debug(f"SeriesSection '{self.header_label.text()}' set_expanded: {expanded}")
         self.list_widget.setVisible(expanded)
-        icon = "▼" if expanded else "▶"
-        self.btn_toggle.setText(f"{icon} {self.base_title}")
+        icon_name = "chevron_down" if expanded else "chevron_right"
+        self.btn_toggle.setIcon(ThemeManager.get_icon(icon_name))
+        
+        # When collapsed, strictly limit height. When expanded, allow it to take its preferred size.
+        if expanded:
+            self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        else:
+            self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        
+        self.updateGeometry()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.updateGeometry()
+
+    def reapply_theme(self):
+        """Theme-aware update for section header and delegate."""
+        theme = ThemeManager.get_current_theme_colors()
+        self.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
+        
+        is_visible = self.list_widget.isVisible()
+        icon_name = "chevron_down" if is_visible else "chevron_right"
+        color_key = "accent" if is_visible else "text_dim"
+        self.btn_toggle.setIcon(ThemeManager.get_icon(icon_name, color_key))
+        
+        self.delegate.show_labels = self.show_labels
+        self.list_widget.viewport().update()
 
     def toggle(self):
         self.set_expanded(not self.list_widget.isVisible())
@@ -254,14 +282,15 @@ class SeriesSection(QWidget):
         if count == 0:
             return
             
+        s = UIConstants.scale
         available_width = self.list_widget.viewport().width()
-        item_w = 120 + (20 if self.show_labels else 10) + 10 # Width + spacing
+        item_w = UIConstants.CARD_WIDTH + UIConstants.GRID_SPACING
         
         cols = max(1, available_width // item_w)
         rows_count = (count + cols - 1) // cols
         
-        item_h = 180 + (45 if self.show_labels else 20)
-        self.list_widget.setFixedHeight(rows_count * (item_h + 10) + 20)
+        item_h = UIConstants.CARD_HEIGHT if self.show_labels else (UIConstants.CARD_COVER_HEIGHT + UIConstants.GRID_SPACING)
+        self.list_widget.setFixedHeight(rows_count * (item_h + UIConstants.GRID_SPACING) + UIConstants.GRID_SPACING)
 
     async def _load_thumb(self, path: Path, item: QListWidgetItem):
         if path.suffix.lower() in (".cbz", ".cbr", ".cb7"):
@@ -270,7 +299,7 @@ class SeriesSection(QWidget):
 
             pixmap = QPixmapCache.find(str(cache_path))
             if pixmap:
-                item.setData(Qt.ItemDataRole.DecorationRole, pixmap)
+                set_item_data(item, Qt.ItemDataRole.DecorationRole, pixmap)
                 return
 
             if not cache_path.exists():
@@ -292,11 +321,11 @@ class SeriesSection(QWidget):
                         # QPixmap conversion must happen on UI thread, but it's very fast
                         pixmap = QPixmap.fromImage(img)
                         QPixmapCache.insert(str(cache_path), pixmap)
-                        item.setData(Qt.ItemDataRole.DecorationRole, pixmap)
+                        set_item_data(item, Qt.ItemDataRole.DecorationRole, pixmap)
                 except Exception:
                     pass
 
-class LocalLibraryView(QWidget):
+class LocalLibraryView(BaseBrowserView):
     scan_progress_signal = pyqtSignal(int, int, str)
     scan_finished_signal = pyqtSignal(bool)
     nav_changed = pyqtSignal()
@@ -308,8 +337,8 @@ class LocalLibraryView(QWidget):
         image_manager: ImageManager,
         local_db: Optional[LocalLibraryDB] = None,
     ):
-        super().__init__()
         self.config_manager = config_manager
+        super().__init__()
         self.on_open_comic = on_open_comic
         self.db = local_db or LocalLibraryDB(CONFIG_DIR / "library.db")
 
@@ -317,17 +346,13 @@ class LocalLibraryView(QWidget):
         self.current_dir = self.root_dir
         self.image_manager = image_manager
         self._meta_sem = asyncio.Semaphore(4)
-        self._is_dirty = False
+        self._is_dirty = True
         
-        # Restore preferences
         self._show_labels = self.config_manager.get_show_labels()
         initial_view_mode = self.config_manager.get_library_view_mode()
         
-        last_folder = self.config_manager.get_last_folder_path()
-        if last_folder and Path(last_folder).exists() and str(last_folder).startswith(str(self.root_dir)):
-            self.current_dir = Path(last_folder)
-        else:
-            self.current_dir = self.root_dir
+        # Reset to root each startup (per user request)
+        self.current_dir = self.root_dir
         
         # Init Scanner
         self.scanner = LibraryScanner(self.db, self.root_dir, on_cover=self._save_cover_to_cache)
@@ -337,113 +362,190 @@ class LocalLibraryView(QWidget):
         self.scan_progress_signal.connect(self._on_scan_progress_ui)
         self.scan_finished_signal.connect(self._on_scan_finished_ui)
 
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(10, 10, 10, 10)
-
-        # Header
-        self.header_layout = QHBoxLayout()
-        
-        self.btn_up = QPushButton()
-        self.btn_up.setProperty("flat", "true")
-        self.btn_up.setIcon(ThemeManager.get_icon("back"))
-        self.btn_up.setFixedSize(32, 32)
-        self.btn_up.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Header Configuration (using base class helper)
+        self.btn_up = self.create_header_button("back", "Go up one folder")
         self.btn_up.clicked.connect(self._go_up)
-        self.btn_up.setToolTip("Go up one folder")
-        self.btn_up.setVisible(False) # Now hidden
+        self.btn_up.setVisible(False)
         
-        self.btn_refresh = QPushButton()
-        self.btn_refresh.setProperty("flat", "true")
-        self.btn_refresh.setIcon(ThemeManager.get_icon("refresh"))
-        self.btn_refresh.setFixedSize(32, 32)
-        self.btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_refresh = self.create_header_button("refresh", "Scan for changes")
         self.btn_refresh.clicked.connect(self.refresh_and_scan)
-        self.btn_refresh.setToolTip("Scan for changes")
         
-        # View Options Menu Button
+        # View Modes
+        from PyQt6.QtWidgets import QButtonGroup
+        from PyQt6.QtGui import QActionGroup
+        self.view_mode_group = QButtonGroup(self)
+        self.view_mode_group.setExclusive(True)
+        
+        self.btn_view_file = self.create_header_button("view_file", "File Mode", checkable=True)
+        self.btn_view_grid = self.create_header_button("view_grid", "Grid Mode", checkable=True)
+        self.btn_view_group = self.create_header_button("view_group", "Groups Mode", checkable=True)
+        
+        self.view_mode_group.addButton(self.btn_view_file)
+        self.view_mode_group.addButton(self.btn_view_grid)
+        self.view_mode_group.addButton(self.btn_view_group)
+        
+        self.btn_view_file.clicked.connect(lambda: self._on_display_mode_changed("file"))
+        self.btn_view_grid.clicked.connect(lambda: self._on_display_mode_changed("grid"))
+        self.btn_view_group.clicked.connect(lambda: self._on_display_mode_changed("grouped"))
+
+        # Label View Toggle
+        self.btn_labels = self.create_header_button("label", "Toggle Labels", checkable=True)
+        self.btn_labels.setChecked(self._show_labels)
+        self.btn_labels.clicked.connect(self.toggle_labels)
+
+        # Label Focus
+        self.focus_group = QButtonGroup(self)
+        self.focus_group.setExclusive(True)
+        self.btn_focus_series = self.create_header_button("focus_series", "Series Focus", checkable=True)
+        self.btn_focus_title = self.create_header_button("focus_title", "Title Focus", checkable=True)
+        self.focus_group.addButton(self.btn_focus_series)
+        self.focus_group.addButton(self.btn_focus_title)
+        
+        self.btn_focus_series.clicked.connect(lambda: self._on_label_focus_changed("series"))
+        self.btn_focus_title.clicked.connect(lambda: self._on_label_focus_changed("title"))
+
+        # Sort Direction
+        self.sort_dir_group = QButtonGroup(self)
+        self.sort_dir_group.setExclusive(True)
+        self.btn_sort_asc = self.create_header_button("sort_asc", "Sort Ascending", checkable=True)
+        self.btn_sort_desc = self.create_header_button("sort_desc", "Sort Descending", checkable=True)
+        self.sort_dir_group.addButton(self.btn_sort_asc)
+        self.sort_dir_group.addButton(self.btn_sort_desc)
+        
+        self.btn_sort_asc.clicked.connect(lambda: self._on_sort_dir_changed("asc"))
+        self.btn_sort_desc.clicked.connect(lambda: self._on_sort_dir_changed("desc"))
+
+        # Sort By
+        self.sort_by_group = QButtonGroup(self)
+        self.sort_by_group.setExclusive(True)
+        self.btn_sort_alpha = self.create_header_button("sort_alpha", "Sort A-Z", checkable=True)
+        self.btn_sort_date = self.create_header_button("sort_date", "Sort by Pub Date", checkable=True)
+        self.btn_sort_added = self.create_header_button("sort_added", "Sort by Date Added", checkable=True)
+        self.sort_by_group.addButton(self.btn_sort_alpha)
+        self.sort_by_group.addButton(self.btn_sort_date)
+        self.sort_by_group.addButton(self.btn_sort_added)
+        
+        self.btn_sort_alpha.clicked.connect(lambda: self._on_sort_order_changed("alpha"))
+        self.btn_sort_date.clicked.connect(lambda: self._on_sort_order_changed("pub_date"))
+        self.btn_sort_added.clicked.connect(lambda: self._on_sort_order_changed("added_date"))
+
+        # Misc Grouping
+        self.btn_group_misc = self.create_header_button("group_misc", "Toggle Misc. Grouping", checkable=True)
+        self.btn_group_misc.setChecked(self.config_manager.get_library_group_misc())
+        self.btn_group_misc.clicked.connect(self._on_misc_group_changed)
+
+        # Group By Dropdown
         from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtGui import QAction, QActionGroup
-        
-        self.btn_view_options = QPushButton()
-        self.btn_view_options.setProperty("flat", "true")
-        self.btn_view_options.setIcon(ThemeManager.get_icon("settings")) # Using settings icon for view options
-        self.btn_view_options.setFixedSize(32, 32)
-        self.btn_view_options.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_view_options.setToolTip("View options")
-        
-        self.view_menu = QMenu(self)
-        
-        # View Mode Group
-        mode_group = QActionGroup(self)
-        modes = ["Folders", "Grouped (Series)", "Alphabetical", "Publisher", "Writer", "Creator"]
-        for i, mode_name in enumerate(modes):
-            action = QAction(mode_name, self, checkable=True)
-            action.setChecked(i == initial_view_mode)
-            action.setData(i)
-            action.triggered.connect(lambda _, idx=i: self._on_view_mode_changed(idx))
-            self.view_menu.addAction(action)
-            mode_group.addAction(action)
-        
-        self.view_menu.addSeparator()
-        
-        # Label Toggle
-        self.action_show_labels = QAction("Show Labels", self, checkable=True)
-        self.action_show_labels.setChecked(self._show_labels)
-        self.action_show_labels.triggered.connect(self._on_show_labels_changed)
-        self.view_menu.addAction(self.action_show_labels)
-        
-        self.btn_view_options.setMenu(self.view_menu)
+        self.btn_group_by = self.create_header_button("group_by", "Group By Options")
+        self.group_by_menu = QMenu(self)
+        self.btn_group_by.setMenu(self.group_by_menu)
+        self._build_group_by_menu()
 
         self.path_breadcrumb = QWidget()
         self.path_layout = QHBoxLayout(self.path_breadcrumb)
         self.path_layout.setContentsMargins(0, 0, 0, 0)
-        self.path_layout.setSpacing(5)
+        s = UIConstants.scale
+        self.path_layout.setSpacing(s(5))
         
         self.lib_icon_label = QLabel()
-        self.lib_icon_label.setPixmap(ThemeManager.get_icon("library").pixmap(18, 18))
+        self.lib_icon_label.setPixmap(ThemeManager.get_icon("library").pixmap(s(18), s(18)))
         self.path_layout.addWidget(self.lib_icon_label)
         
         self.path_label = QLabel("")
         self.path_label.setObjectName("path_label")
         self.path_layout.addWidget(self.path_label, 1)
         
-        self.btn_select = QPushButton("Select")
-        self.btn_select.setCheckable(True)
+        self.btn_select = self.create_header_button("select", "Select Mode", checkable=True)
         self.btn_select.clicked.connect(self.toggle_selection_mode)
         
         self.header_layout.addWidget(self.btn_up)
         self.header_layout.addWidget(self.path_breadcrumb, 1)
+        
+        # Standard spacing between distinct elements
+        GROUP_GAP = s(12)
+        
+        # 1. Mode Selection (3 buttons)
+        view_mode_layout = QHBoxLayout()
+        view_mode_layout.setSpacing(0)
+        view_mode_layout.setContentsMargins(0, 0, 0, 0)
+        view_mode_layout.addWidget(self.btn_view_file)
+        view_mode_layout.addWidget(self.btn_view_grid)
+        view_mode_layout.addWidget(self.btn_view_group)
+        self.header_layout.addLayout(view_mode_layout)
+        
+        self.header_layout.addSpacing(GROUP_GAP)
+        
+        # 2. Group Selection (Solo Dropdown)
+        self.header_layout.addWidget(self.btn_group_by)
+        
+        self.header_layout.addSpacing(GROUP_GAP)
+        
+        # 3. Misc Group Toggle (Solo)
+        self.header_layout.addWidget(self.btn_group_misc)
+        
+        self.header_layout.addSpacing(GROUP_GAP)
+        
+        # 4. Sort By (3 buttons)
+        sort_by_layout = QHBoxLayout()
+        sort_by_layout.setSpacing(0)
+        sort_by_layout.setContentsMargins(0, 0, 0, 0)
+        sort_by_layout.addWidget(self.btn_sort_alpha)
+        sort_by_layout.addWidget(self.btn_sort_date)
+        sort_by_layout.addWidget(self.btn_sort_added)
+        self.header_layout.addLayout(sort_by_layout)
+        
+        self.header_layout.addSpacing(GROUP_GAP)
+        
+        # 5. Sort Order (2 buttons)
+        sort_dir_layout = QHBoxLayout()
+        sort_dir_layout.setSpacing(0)
+        sort_dir_layout.setContentsMargins(0, 0, 0, 0)
+        sort_dir_layout.addWidget(self.btn_sort_asc)
+        sort_dir_layout.addWidget(self.btn_sort_desc)
+        self.header_layout.addLayout(sort_dir_layout)
+        
+        self.header_layout.addSpacing(GROUP_GAP)
+        
+        # 6. Label Toggle (Solo)
+        self.header_layout.addWidget(self.btn_labels)
+        
+        self.header_layout.addSpacing(GROUP_GAP)
+        
+        # 7. Focus (2 buttons)
+        label_focus_layout = QHBoxLayout()
+        label_focus_layout.setSpacing(0)
+        label_focus_layout.setContentsMargins(0, 0, 0, 0)
+        label_focus_layout.addWidget(self.btn_focus_series)
+        label_focus_layout.addWidget(self.btn_focus_title)
+        self.header_layout.addLayout(label_focus_layout)
+        
+        self.header_layout.addSpacing(GROUP_GAP)
+        
         self.header_layout.addWidget(self.btn_select)
         self.header_layout.addWidget(self.btn_refresh)
-        self.header_layout.addWidget(self.btn_view_options)
-        self.layout.addLayout(self.header_layout)
-
-        # Progress bar & Scan label
-        self.progress = QProgressBar()
-        self.progress.setVisible(False)
-        self.progress.setRange(0, 0)
-        self.progress.setFixedHeight(4)
-        self.progress.setTextVisible(False)
-        self.layout.addWidget(self.progress)
         
-        self.scan_label = QLabel("")
-        self.scan_label.setObjectName("scan_label")
-        self.scan_label.setVisible(False)
-        self.layout.addWidget(self.scan_label)
+        self._refresh_toolbar_states()
 
-        # Stacked Widget for Views
+        # Status & Progress (using base class members)
+        self.scan_label = self.status_label
+        self.progress = self.progress_bar
+        
+        # Stacked Content Area
         self.stack = QStackedWidget()
-        self.layout.addWidget(self.stack)
         
         # 0: Folders View
         self.list_widget = QListWidget()
-        self.folders_delegate = ComicDelegate(self.list_widget, show_labels=True)
+        self.folders_delegate = LibraryCardDelegate(self.list_widget, show_labels=True, image_manager=self.image_manager)
         self.list_widget.setItemDelegate(self.folders_delegate)
+
         self.list_widget.setViewMode(QListWidget.ViewMode.IconMode)
         self.list_widget.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.list_widget.setSpacing(10)
-        self.list_widget.setIconSize(QSize(120, 180))
+        s = UIConstants.scale
+        self.list_widget.setSpacing(s(10))
+        icon_w = UIConstants.CARD_WIDTH - s(20)
+        icon_h = UIConstants.CARD_HEIGHT - s(50)
+        self.list_widget.setIconSize(QSize(icon_w, icon_h))
         self.list_widget.itemClicked.connect(self._on_folder_item_clicked)
         self.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
         self.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -456,20 +558,29 @@ class LocalLibraryView(QWidget):
         self.grouped_container = QWidget()
         self.grouped_layout = QVBoxLayout(self.grouped_container)
         self.grouped_layout.setContentsMargins(0, 0, 0, 0)
-        self.grouped_layout.setSpacing(5)
+        self.grouped_layout.setSpacing(2)
         self.grouped_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        # Add a permanent widget-based spacer at the bottom to ensure items always stick to the top
+        self._grouped_spacer = QWidget()
+        self._grouped_spacer.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+        self.grouped_layout.addWidget(self._grouped_spacer)
+
+        self.grouped_layout.setStretch(self.grouped_layout.count() - 1, 100) # Give spacer huge stretch
+        
         self.grouped_scroll.setWidget(self.grouped_container)
         self.stack.addWidget(self.grouped_scroll)
         
         # 2: Alphabetical View
         self.alpha_list = QListWidget()
-        self.alpha_delegate = ComicDelegate(self.alpha_list, show_labels=True)
+        self.alpha_delegate = LibraryCardDelegate(self.alpha_list, show_labels=True, image_manager=self.image_manager)
         self.alpha_list.setItemDelegate(self.alpha_delegate)
+        s = UIConstants.scale
         self.alpha_list.setViewMode(QListWidget.ViewMode.IconMode)
         self.alpha_list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.alpha_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.alpha_list.setSpacing(10)
-        self.alpha_list.setIconSize(QSize(120, 180))
+        self.alpha_list.setSpacing(s(10))
+        self.alpha_list.setIconSize(QSize(icon_w, icon_h))
         self.alpha_list.setWordWrap(True)
         self.alpha_list.itemClicked.connect(self._on_db_item_clicked)
         self.alpha_list.itemSelectionChanged.connect(self._update_selection_ui)
@@ -477,83 +588,40 @@ class LocalLibraryView(QWidget):
         self.alpha_list.customContextMenuRequested.connect(lambda pos: self._on_item_context_menu(pos, self.alpha_list))
         self.stack.addWidget(self.alpha_list)
 
-        # Selection Action Bar
-        self.selection_bar = QWidget()
-        self.selection_bar.setObjectName("top_header")
-        self.selection_bar.setFixedHeight(50)
-        sel_layout = QHBoxLayout(self.selection_bar)
-        sel_layout.setContentsMargins(10, 5, 10, 5)
-        sel_layout.setSpacing(10)
-        
-        self.btn_sel_cancel = QPushButton("Cancel")
+        # Selection Action Bar Configuration (using base class layout)
         self.btn_sel_cancel.clicked.connect(lambda: self.toggle_selection_mode(False))
-        self.label_sel_count = QLabel("0 items selected")
-        self.label_sel_count.setStyleSheet("font-weight: bold;")
-
-        button_style = """
-            QPushButton {
-                padding: 4px 8px;
-                font-size: 11px;
-            }
-        """
 
         self.btn_sel_mark_read = QPushButton("Mark Read")
-        self.btn_sel_mark_read.setStyleSheet(button_style)
+        self.btn_sel_mark_read.setIcon(ThemeManager.get_icon("action_read", "text_dim"))
         self.btn_sel_mark_read.clicked.connect(self._on_bulk_mark_read)
         self.btn_sel_mark_read.setEnabled(False)
 
         self.btn_sel_mark_unread = QPushButton("Mark Unread")
-        self.btn_sel_mark_unread.setStyleSheet(button_style)
+        self.btn_sel_mark_unread.setIcon(ThemeManager.get_icon("action_unread", "text_dim"))
         self.btn_sel_mark_unread.clicked.connect(self._on_bulk_mark_unread)
         self.btn_sel_mark_unread.setEnabled(False)
 
         self.btn_sel_delete = QPushButton("Delete Selected")
-        self.btn_sel_delete.setStyleSheet("""
-            QPushButton {
-                background-color: #d32f2f; 
-                color: white; 
-                border: 1px solid #b71c1c;
-                padding: 4px 10px;
-                font-size: 11px;
-                font-weight: bold;
-            }
-            QPushButton:disabled {
-                background-color: #552222;
-                color: #888;
-                border-color: #441111;
-            }
-        """)
+        self.btn_sel_delete.setIcon(ThemeManager.get_icon("action_delete", "text_dim"))
         self.btn_sel_delete.clicked.connect(self._on_bulk_delete)
         self.btn_sel_delete.setEnabled(False)
         
-        sel_layout.addWidget(self.btn_sel_cancel)
-        sel_layout.addStretch()
-        sel_layout.addWidget(self.label_sel_count)
-        sel_layout.addStretch()
-        sel_layout.addWidget(self.btn_sel_mark_read)
-        sel_layout.addWidget(self.btn_sel_mark_unread)
-        sel_layout.addWidget(self.btn_sel_delete)
+        self.selection_layout.addWidget(self.btn_sel_mark_read)
+        self.selection_layout.addWidget(self.btn_sel_mark_unread)
+        self.selection_layout.addStretch()
+        self.selection_layout.addWidget(self.btn_sel_delete)
         
-        self.selection_bar.setVisible(False)
-        self.layout.addWidget(self.selection_bar)
+        self.add_content_widget(self.stack)
         
         self._selection_mode = False
-
-        self.refresh()
-        # Initial scan is triggered by refresh_and_scan() logic if needed
-        # self.refresh() above calls _reload_current_view() which loads from DB immediately.
-        # We also want to trigger a scan on startup to pick up new files.
-        if not self.scanner.is_scanning:
-            asyncio.create_task(self.scanner.scan())
+        self._is_dirty = True # Flag for initial load in showEvent
 
     def toggle_selection_mode(self, enabled: Optional[bool] = None):
         if enabled is None:
             enabled = not self._selection_mode
             
+        super().toggle_selection_mode(enabled)
         self._selection_mode = enabled
-        self.btn_select.setChecked(enabled)
-        self.btn_select.setText("Done" if enabled else "Select")
-        self.selection_bar.setVisible(enabled)
         
         mode = QAbstractItemView.SelectionMode.MultiSelection if enabled else QAbstractItemView.SelectionMode.NoSelection
         self.list_widget.setSelectionMode(mode)
@@ -580,15 +648,30 @@ class LocalLibraryView(QWidget):
 
     def _get_all_selected_items(self):
         selected_items = []
+        
+        def get_selections(view):
+            if isinstance(view, QListWidget):
+                return view.selectedItems()
+            elif isinstance(view, QListView):
+                # We use BaseCardRibbon which has QStandardItemModel
+                indices = view.selectionModel().selectedIndexes()
+                items = []
+                model = view.model()
+                for idx in indices:
+                    if hasattr(model, "itemFromIndex"):
+                        items.append(model.itemFromIndex(idx))
+                return items
+            return []
+
         if self.stack.currentIndex() == 0:
-            selected_items.extend(self.list_widget.selectedItems())
+            selected_items.extend(get_selections(self.list_widget))
         elif self.stack.currentIndex() == 2:
-            selected_items.extend(self.alpha_list.selectedItems())
+            selected_items.extend(get_selections(self.alpha_list))
         elif self.stack.currentIndex() == 1:
             for i in range(self.grouped_layout.count()):
                 item = self.grouped_layout.itemAt(i)
                 if item and item.widget() and isinstance(item.widget(), SeriesSection):
-                    selected_items.extend(item.widget().list_widget.selectedItems())
+                    selected_items.extend(get_selections(item.widget().list_widget))
         return selected_items
 
     def _update_selection_ui(self):
@@ -699,14 +782,19 @@ class LocalLibraryView(QWidget):
         if not cache_path.exists():
             _save_thumbnail(cover_bytes, cache_path)
 
+    def toggle_labels(self, enabled: bool):
+        """Toggle label visibility for cards."""
+        self.btn_labels.setChecked(enabled)
+        self._on_show_labels_changed(enabled)
+
     def _on_show_labels_changed(self, checked):
         self._show_labels = checked
         self.config_manager.set_show_labels(self._show_labels)
         self.alpha_delegate.show_labels = self._show_labels
         self.folders_delegate.show_labels = self._show_labels
         self._reload_current_view()
-
     def _on_scan_progress_ui(self, curr, total, msg):
+        self.status_area.setVisible(True)
         self.scan_label.setText(msg)
         if total > 0:
             self.progress.setRange(0, total)
@@ -714,50 +802,205 @@ class LocalLibraryView(QWidget):
         else:
             self.progress.setRange(0, 0)
 
-        if not self.progress.isVisible():
-            self.progress.setVisible(True)
-            self.scan_label.setVisible(True)
-
-    def _on_scan_finished_ui(self, has_changes=False):
-        self.progress.setVisible(False)
-        self.scan_label.setVisible(False)
-        # ONLY reload if something actually changed in the DB.
-        # This prevents flickering on every startup when the quick scan confirms no changes.
-        if has_changes:
+    def _on_scan_finished_ui(self, changed):
+        self.status_area.setVisible(False)
+        if changed:
             self._reload_current_view()
 
-    def _on_view_mode_changed(self, index):
-        # Stack indices: 0: Folders, 1: Grouped, 2: Alpha
-        self.config_manager.set_library_view_mode(index)
-        stack_map = {
-            0: 0, # Folders
-            1: 1, # Series (Grouped)
-            2: 2, # Alpha
-            3: 1, # Publisher (Grouped)
-            4: 1, # Writer (Grouped)
-            5: 1, # Creator (Grouped)
-        }
-        stack_idx = stack_map.get(index, 0)
-        self.stack.setCurrentIndex(stack_idx)
+    def reapply_theme(self):
+        """Standardized theme application for Library view."""
+        super().reapply_theme()
+        theme = ThemeManager.get_current_theme_colors()
+
+        # 1. Header Elements
+        if hasattr(self, "lib_icon_label"):
+            self.lib_icon_label.setPixmap(ThemeManager.get_icon("library").pixmap(UIConstants.scale(18), UIConstants.scale(18)))
+        if hasattr(self, "path_label"):
+            self.path_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
+
+        # Update all toolbar icons
+        if hasattr(self, "btn_up"): self.btn_up.setIcon(ThemeManager.get_icon("back", "text_dim"))
+        if hasattr(self, "btn_refresh"): self.btn_refresh.setIcon(ThemeManager.get_icon("refresh", "text_dim"))
+        if hasattr(self, "btn_select"): self.btn_select.setIcon(ThemeManager.get_icon("select", "text_dim"))
+        
+        # Apply Segmented Styling to groups
+        if hasattr(self, "btn_view_file"):
+            self.btn_view_file.setIcon(ThemeManager.get_icon("view_file", "text_dim"))
+            self.btn_view_grid.setIcon(ThemeManager.get_icon("view_grid", "text_dim"))
+            self.btn_view_group.setIcon(ThemeManager.get_icon("view_group", "text_dim"))
+            self._style_segmented_group([self.btn_view_file, self.btn_view_grid, self.btn_view_group])
+            
+        if hasattr(self, "btn_labels"):
+            self.btn_labels.setIcon(ThemeManager.get_icon("label", "text_dim"))
+            self._style_segmented_group([self.btn_labels])
+            
+        if hasattr(self, "btn_focus_series"):
+            self.btn_focus_series.setIcon(ThemeManager.get_icon("focus_series", "text_dim"))
+            self.btn_focus_title.setIcon(ThemeManager.get_icon("focus_title", "text_dim"))
+            self._style_segmented_group([self.btn_focus_series, self.btn_focus_title])
+            
+        if hasattr(self, "btn_sort_asc") and hasattr(self, "btn_sort_desc"):
+            self.btn_sort_asc.setIcon(ThemeManager.get_icon("sort_asc", "text_dim"))
+            self.btn_sort_desc.setIcon(ThemeManager.get_icon("sort_desc", "text_dim"))
+            self._style_segmented_group([self.btn_sort_asc, self.btn_sort_desc])
+            
+        if hasattr(self, "btn_sort_alpha"):
+            self.btn_sort_alpha.setIcon(ThemeManager.get_icon("sort_alpha", "text_dim"))
+            self.btn_sort_date.setIcon(ThemeManager.get_icon("sort_date", "text_dim"))
+            self.btn_sort_added.setIcon(ThemeManager.get_icon("sort_added", "text_dim"))
+            self._style_segmented_group([self.btn_sort_alpha, self.btn_sort_date, self.btn_sort_added])
+            
+        if hasattr(self, "btn_group_misc"):
+            self.btn_group_misc.setIcon(ThemeManager.get_icon("group_misc", "text_dim"))
+            self._style_segmented_group([self.btn_group_misc])
+
+        if hasattr(self, "btn_group_by"):
+            self.btn_group_by.setIcon(ThemeManager.get_icon("group_by", "text_dim"))
+            self._style_segmented_group([self.btn_group_by])
+        
+        self._refresh_toolbar_states()
+
+        # 2. Selection Bar Elements
+        btn_style = f"padding: 4px 8px; font-size: 11px; background-color: {theme['bg_sidebar']}; color: {theme['text_main']}; border: 1px solid {theme['border']};"
+        delete_style = f"padding: 4px 10px; font-size: 11px; font-weight: bold; background-color: {theme['accent']}; color: {theme['bg_main']}; border: none;"
+        
+        if hasattr(self, "btn_sel_mark_read"):
+            self.btn_sel_mark_read.setStyleSheet(btn_style)
+            self.btn_sel_mark_read.setIcon(ThemeManager.get_icon("action_read", "text_dim"))
+        if hasattr(self, "btn_sel_mark_unread"):
+            self.btn_sel_mark_unread.setStyleSheet(btn_style)
+            self.btn_sel_mark_unread.setIcon(ThemeManager.get_icon("action_unread", "text_dim"))
+        if hasattr(self, "btn_sel_delete"):
+            self.btn_sel_delete.setStyleSheet(delete_style)
+            self.btn_sel_delete.setIcon(ThemeManager.get_icon("action_delete", "white"))
+        
+        # Ensure grouped view container doesn't have a white background
+        if hasattr(self, "grouped_scroll"):
+            self.grouped_scroll.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
+        if hasattr(self, "grouped_container"):
+            self.grouped_container.setStyleSheet(f"background-color: {theme['bg_main']};")
+
+        # 3. Refresh active view if it contains dynamic headers (like SeriesSection)
+        if hasattr(self, "stack") and self.stack.currentIndex() == 1:
+            for i in range(self.grouped_layout.count()):
+                item = self.grouped_layout.itemAt(i)
+                if item and item.widget() and isinstance(item.widget(), SeriesSection):
+                    item.widget().reapply_theme()
+
+    def _build_group_by_menu(self):
+        from PyQt6.QtGui import QAction, QActionGroup
+        self.group_by_menu.clear()
+        
+        group_by = self.config_manager.get_library_group_by()
+        group_group = QActionGroup(self)
+        for val, label in [("series", "Series"), ("publisher", "Publisher"), ("writer", "Writer"), ("artist", "Artist")]:
+            action = QAction(label, self, checkable=True)
+            action.setChecked(group_by == val)
+            action.triggered.connect(lambda checked, v=val: self._on_group_by_changed(v))
+            self.group_by_menu.addAction(action)
+            group_group.addAction(action)
+
+    def _refresh_toolbar_states(self):
+        if not hasattr(self, "btn_view_file"): return
+        
+        # View Modes
+        mode = self.config_manager.get_library_display_mode()
+        self.btn_view_file.setChecked(mode == "file")
+        self.btn_view_grid.setChecked(mode == "grid")
+        self.btn_view_group.setChecked(mode == "grouped")
+        
+        # Labels
+        self.btn_labels.setChecked(self._show_labels)
+        
+        # Label Focus
+        focus = self.config_manager.get_library_label_focus()
+        self.btn_focus_series.setChecked(focus == "series")
+        self.btn_focus_title.setChecked(focus == "title")
+        
+        # Sort Direction
+        sort_dir = self.config_manager.get_library_sort_direction()
+        self.btn_sort_asc.setChecked(sort_dir == "asc")
+        self.btn_sort_desc.setChecked(sort_dir == "desc")
+        
+        # Sort Order
+        order = self.config_manager.get_library_sort_order()
+        self.btn_sort_alpha.setChecked(order == "alpha")
+        self.btn_sort_date.setChecked(order == "pub_date")
+        self.btn_sort_added.setChecked(order == "added_date")
+        
+        # Misc Grouping
+        self.btn_group_misc.setEnabled(mode == "grouped")
+        self.btn_group_misc.setChecked(self.config_manager.get_library_group_misc())
+        
+        # Group By
+        self.btn_group_by.setEnabled(mode == "grouped")
+        self._build_group_by_menu()
+
+    def _on_label_focus_changed(self, focus: str):
+        if self.config_manager.get_library_label_focus() == focus: return
+        self.config_manager.set_library_label_focus(focus)
+        self._refresh_toolbar_states()
+        self._reload_current_view()
+
+    def _on_display_mode_changed(self, mode: str):
+        if self.config_manager.get_library_display_mode() == mode: return
+        self.config_manager.set_library_display_mode(mode)
+        self._refresh_toolbar_states()
+        
+        if mode == "file":
+            self.stack.setCurrentIndex(0)
+        elif mode == "grouped":
+            self.stack.setCurrentIndex(1)
+        elif mode == "grid":
+            self.stack.setCurrentIndex(2)
+            
         self.btn_up.setVisible(False)
         self.nav_changed.emit()
+        self._reload_current_view()
+        
+    def _on_group_by_changed(self, group_by: str):
+        if self.config_manager.get_library_group_by() == group_by: return
+        self.config_manager.set_library_group_by(group_by)
+        self._refresh_toolbar_states()
+        self._reload_current_view()
+        
+    def _on_misc_group_changed(self, checked: bool):
+        if self.config_manager.get_library_group_misc() == checked: return
+        self.config_manager.set_library_group_misc(checked)
+        self._refresh_toolbar_states()
+        self._reload_current_view()
+        
+    def _on_sort_order_changed(self, sort_order: str):
+        if self.config_manager.get_library_sort_order() == sort_order: return
+        self.config_manager.set_library_sort_order(sort_order)
+        self._refresh_toolbar_states()
+        self._reload_current_view()
+        
+    def _on_sort_dir_changed(self, sort_dir: str):
+        if self.config_manager.get_library_sort_direction() == sort_dir: return
+        self.config_manager.set_library_sort_direction(sort_dir)
+        self._refresh_toolbar_states()
         self._reload_current_view()
 
     @pyqtSlot()
     def _reload_current_view(self):
-        combo_idx = self.config_manager.get_library_view_mode()
-        if combo_idx == 0:
-            asyncio.create_task(self._load_dir(self.current_dir))
-        elif combo_idx == 1:
-            asyncio.create_task(self._load_grouped("series"))
-        elif combo_idx == 2:
-            asyncio.create_task(self._load_alphabetical())
-        elif combo_idx == 3:
-            asyncio.create_task(self._load_grouped("publisher"))
-        elif combo_idx == 4:
-            asyncio.create_task(self._load_grouped("writer"))
-        elif combo_idx == 5:
-            asyncio.create_task(self._load_grouped("penciller"))
+        mode = self.config_manager.get_library_display_mode()
+        
+        self.stack.setUpdatesEnabled(False)
+        try:
+            # Ensure correct stack index is shown
+            if mode == "file":
+                self.stack.setCurrentIndex(0)
+                asyncio.create_task(self._load_dir(self.current_dir))
+            elif mode == "grouped":
+                self.stack.setCurrentIndex(1)
+                asyncio.create_task(self._load_grouped())
+            elif mode == "grid":
+                self.stack.setCurrentIndex(2)
+                asyncio.create_task(self._load_grid())
+        finally:
+            self.stack.setUpdatesEnabled(True)
+
 
     def refresh_and_scan(self):
         self.root_dir = self.config_manager.get_library_dir()
@@ -769,11 +1012,22 @@ class LocalLibraryView(QWidget):
             asyncio.create_task(self.scanner.scan())
 
     def refresh_icons(self):
-        from ui.theme_manager import ThemeManager
+        theme = ThemeManager.get_current_theme_colors()
         self.btn_up.setIcon(ThemeManager.get_icon("back"))
         self.btn_refresh.setIcon(ThemeManager.get_icon("refresh"))
+        self.btn_select.setIcon(ThemeManager.get_icon("select"))
         self.btn_view_options.setIcon(ThemeManager.get_icon("settings"))
-        self.lib_icon_label.setPixmap(ThemeManager.get_icon("library").pixmap(18, 18))
+        s = UIConstants.scale
+        self.lib_icon_label.setPixmap(ThemeManager.get_icon("library").pixmap(s(18), s(18)))
+        
+        # Refresh path label style
+        self.path_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold;")
+        
+        # Trigger update of existing sections
+        for i in range(self.stack.count()):
+            widget = self.stack.widget(i)
+            if hasattr(widget, "update"):
+                widget.update()
 
     def set_dirty(self):
         self._is_dirty = True
@@ -806,9 +1060,34 @@ class LocalLibraryView(QWidget):
         self.path_label.setText(f"> {path}")
 
         # Fetch data FIRST
-        entries = await asyncio.to_thread(_list_dir, path)
+        sort_dir = self.config_manager.get_library_sort_direction()
+        sort_order = self.config_manager.get_library_sort_order()
+        reverse = (sort_dir == "desc")
+        
+        entries = await asyncio.to_thread(_list_dir, path, sort_dir)
         # Single query for all comics under this directory
         dir_rows = await asyncio.to_thread(self.db.get_comics_in_dir, str(path.absolute()))
+
+        if sort_order != "alpha":
+            def entry_sort_key(e):
+                # Directories always first (or last if reversed)
+                if e.is_dir:
+                    return (0 if not reverse else 1, e.name.lower())
+                
+                row = dir_rows.get(str(e.path.absolute()))
+                if not row:
+                    return (1 if not reverse else 0, e.name.lower())
+                
+                r = dict(row)
+                if sort_order == "pub_date":
+                    # (block, year, name)
+                    return (1 if not reverse else 0, str(r.get("year") or ""), e.name.lower())
+                if sort_order == "added_date":
+                    # (block, mtime, name)
+                    return (1 if not reverse else 0, r.get("file_mtime") or 0, e.name.lower())
+                return (1 if not reverse else 0, e.name.lower())
+            
+            entries.sort(key=entry_sort_key, reverse=reverse)
 
         self.list_widget.setUpdatesEnabled(False)
         try:
@@ -816,19 +1095,35 @@ class LocalLibraryView(QWidget):
             self.config_manager.set_last_folder_path(str(path.absolute()))
             self.current_dir = path
 
+            label_focus = self.config_manager.get_library_label_focus()
             for entry in entries:
-                item = QListWidgetItem(entry.name)
-                item.setData(Qt.ItemDataRole.UserRole, entry.path)
-
                 if entry.is_dir:
+                    item = QListWidgetItem(entry.name)
+                    item.setData(Qt.ItemDataRole.UserRole, entry.path)
                     item.setIcon(ThemeManager.get_icon("folder"))
                 else:
                     row = dir_rows.get(str(entry.path.absolute()))
+                    
+                    # In File mode, we always use filename for display
+                    display_text = entry.name
+                    
                     if row:
                         r = dict(row)
+                        primary, secondary = generate_comic_labels(r, label_focus)
+                    else:
+                        primary, secondary = entry.name, ""
+
+                    # Label data (primary, secondary) for the card delegate
+                    card_primary = display_text # In _load_dir we are ALWAYS in file mode
+                    
+                    item = QListWidgetItem(display_text)
+                    item.setData(Qt.ItemDataRole.UserRole, entry.path)
+                    if row:
                         item.setData(Qt.ItemDataRole.UserRole + 1, (r.get("current_page") or 0, r.get("page_count") or 0))
+                        item.setData(Qt.ItemDataRole.UserRole + 2, (card_primary, secondary))
 
                     item.setIcon(ThemeManager.get_icon("book"))
+                    item.setToolTip(display_text)
                     try:
                         asyncio.create_task(self._load_thumb_for_item(entry.path, item))
                     except RuntimeError:
@@ -838,39 +1133,52 @@ class LocalLibraryView(QWidget):
         finally:
             self.list_widget.setUpdatesEnabled(True)
 
-    async def _load_grouped(self, field="series"):
-        self.path_label.setText(f"> Grouped by {field.replace('_', ' ').capitalize()}")
-        
-        # 1. Fetch data from DB FIRST (this might take a few ms)
-        # We do this before clearing or suspending updates to avoid a blank screen.
-        if field == "series":
-            grouped = await asyncio.to_thread(self.db.get_comics_grouped_by_series)
-        else:
-            grouped = await asyncio.to_thread(self.db.get_comics_grouped_by_field, field)
-            
+    async def _load_grouped(self):
+        group_by = self.config_manager.get_library_group_by()
+        sort_order = self.config_manager.get_library_sort_order()
+        sort_dir = self.config_manager.get_library_sort_direction()
+        misc_toggle = self.config_manager.get_library_group_misc()
+
+        self.path_label.setText(f"> Grouped by {group_by.replace('_', ' ').capitalize()}")
+
+        # 0. Capture expansion states before clearing
+        expansion_states = {}
+        for i in range(self.grouped_layout.count()):
+            item = self.grouped_layout.itemAt(i)
+            if item and item.widget() and isinstance(item.widget(), SeriesSection):
+                s = item.widget()
+                expansion_states[s.header_label.text()] = s.list_widget.isVisible()
+
+        # 1. Fetch data from DB FIRST
+        grouped = await asyncio.to_thread(self.db.get_comics_grouped, group_by, sort_order, sort_dir)
+        label_focus = self.config_manager.get_library_label_focus()
+
         # 2. Suspend updates and clear ONLY right before rebuilding
         self.setUpdatesEnabled(False)
         try:
-            while self.grouped_layout.count():
+            # Clear all widgets except the permanent spacer
+            while self.grouped_layout.count() > 1:
                 item = self.grouped_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
-                    
+                else:
+                    self.grouped_layout.removeItem(item)
+
             group_items = []
             one_offs = []
-            
+
             for name, rows in grouped.items():
                 dict_rows = [dict(r) for r in rows]
-                if not name or name.strip() == "" or name.startswith("Unknown") or len(rows) == 1:
+                if misc_toggle and (not name or name.strip() == "" or name.startswith("Unknown") or len(rows) == 1):
                     one_offs.extend(dict_rows)
                 else:
                     group_items.append((name, dict_rows))
-            
-            group_items.sort(key=lambda x: x[0].lower())
-            
+
+            group_items.sort(key=lambda x: x[0].lower(), reverse=(sort_dir == "desc"))
+
             for group_name, rows in group_items:
                 range_str = ""
-                if field == "series":
+                if group_by == "series":
                     issues = []
                     for r in rows:
                         issue_val = r.get("issue")
@@ -878,66 +1186,116 @@ class LocalLibraryView(QWidget):
                             issues.append(int(issue_val))
                     if issues:
                         range_str = f" {format_ranges(issues)}"
-                
-                title = f"{group_name}{range_str}".upper()
-                
-                section = SeriesSection(title, rows, self._on_db_item_clicked, is_grid=False, image_manager=self.image_manager, meta_sem=self._meta_sem, show_labels=self._show_labels)
-                section.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
+
+                title = f"{group_name}{range_str}"
+
+                is_file_mode = (self.config_manager.get_library_display_mode() == "file")
+                section = SeriesSection(title, rows, self._on_db_item_clicked, is_grid=False, image_manager=self.image_manager, meta_sem=self._meta_sem, show_labels=self._show_labels, label_focus=label_focus, is_folder_mode=is_file_mode, config_manager=self.config_manager)
+
+                # Restore expansion state
+                if title in expansion_states:
+                    section.set_expanded(expansion_states[title])
+
+                if section.is_grid:
+                    section.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
+                else:
+                    section.list_widget.selectionModel().selectionChanged.connect(self._update_selection_ui)
+
                 if self._selection_mode:
                     section.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-                    
+
                 section.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 section.list_widget.customContextMenuRequested.connect(lambda pos, w=section.list_widget: self._on_item_context_menu(pos, w))
                 section.btn_toggle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 section.btn_toggle.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
-                
-                self.grouped_layout.addWidget(section)
-                
+                section.header_label.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
+                section.header_widget.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
+
+                # Insert before the spacer
+                self.grouped_layout.insertWidget(self.grouped_layout.count() - 1, section)
+
             if one_offs:
-                title = f"{len(one_offs)} MISCELLANEOUS"
-                one_offs.sort(key=lambda x: ( (x.get("series") or "").lower(), (x.get("title") or "").lower() ))
-                section = SeriesSection(title, one_offs, self._on_db_item_clicked, is_grid=True, image_manager=self.image_manager, meta_sem=self._meta_sem, show_labels=self._show_labels)
-                section.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
+                title = f"{len(one_offs)} Miscellaneous"
+
+                reverse = (sort_dir == "desc")
+                if sort_order == "pub_date":
+                    one_offs.sort(key=lambda x: (str(x.get("year") or ""), (x.get("title") or "").lower()), reverse=reverse)
+                elif sort_order == "added_date":
+                    one_offs.sort(key=lambda x: (x.get("file_mtime") or 0, (x.get("title") or "").lower()), reverse=reverse)
+                else:
+                    one_offs.sort(key=lambda r: generate_comic_labels(dict(r), label_focus)[0].lower(), reverse=reverse)
+
+                section = SeriesSection(title, one_offs, self._on_db_item_clicked, is_grid=True, image_manager=self.image_manager, meta_sem=self._meta_sem, show_labels=self._show_labels, label_focus=label_focus, is_folder_mode=is_file_mode, config_manager=self.config_manager)
+
+                # Restore expansion state
+                if title in expansion_states:
+                    section.set_expanded(expansion_states[title])
+
+                if section.is_grid:
+                    section.list_widget.itemSelectionChanged.connect(self._update_selection_ui)
+                else:
+                    section.list_widget.selectionModel().selectionChanged.connect(self._update_selection_ui)
+
                 if self._selection_mode:
                     section.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-                    
+
                 section.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 section.list_widget.customContextMenuRequested.connect(lambda pos, w=section.list_widget: self._on_item_context_menu(pos, w))
                 section.btn_toggle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 section.btn_toggle.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
-                
+                section.header_label.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
+                section.header_widget.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
+
                 count = len(one_offs)
-                cols = 6 
+                s = UIConstants.scale
+                item_w = UIConstants.CARD_WIDTH + s(10)
+                cols = 6 # Default, though it might resize
                 rows_count = (count + cols - 1) // cols
-                item_h = 180 + (45 if self._show_labels else 20)
-                section.list_widget.setFixedHeight(rows_count * item_h + 20)
-                self.grouped_layout.addWidget(section)
-                
-            self.grouped_layout.addStretch()
+                item_h = UIConstants.CARD_HEIGHT if self._show_labels else (UIConstants.CARD_COVER_HEIGHT + s(10))
+                section.list_widget.setFixedHeight(rows_count * (item_h + s(10)) + s(10))
+                # Insert before the spacer
+                self.grouped_layout.insertWidget(self.grouped_layout.count() - 1, section)
+
         finally:
             self.setUpdatesEnabled(True)
 
-    async def _load_alphabetical(self):
-        self.path_label.setText("> Alphabetical")
-        
+    async def _load_grid(self):
+        self.path_label.setText("> Grid")
+
+        sort_order = self.config_manager.get_library_sort_order()
+        sort_dir = self.config_manager.get_library_sort_direction()
+        is_file_mode = (self.config_manager.get_library_display_mode() == "file")
+
         # 1. Fetch data FIRST
-        rows = await asyncio.to_thread(self.db.get_all_comics_alphabetical)
+        rows = await asyncio.to_thread(self.db.get_comics_grid, sort_order, sort_dir)
         
+        if is_file_mode and sort_order == "alpha":
+            reverse = (sort_dir == "desc")
+            rows = sorted(rows, key=lambda r: Path(r["file_path"]).name.lower(), reverse=reverse)
+
         # 2. Rebuild UI efficiently
         self.alpha_list.setUpdatesEnabled(False)
         try:
             self.alpha_list.clear()
+            label_focus = self.config_manager.get_library_label_focus()
 
             for row in rows:
                 r = dict(row)
-                title = r["title"] or Path(r["file_path"]).name
+                primary, secondary = generate_comic_labels(r, label_focus)
                 
-                item = QListWidgetItem(title)
+                # In File mode, we always use filename for display
+                display_text = Path(r["file_path"]).name if is_file_mode else primary
+
+                item = QListWidgetItem(display_text)
                 item.setData(Qt.ItemDataRole.UserRole, Path(r["file_path"]))
                 item.setData(Qt.ItemDataRole.UserRole + 1, (r.get("current_page") or 0, r.get("page_count") or 0))
                 
+                # Label data (primary, secondary) for the card delegate
+                card_primary = display_text if is_file_mode else primary
+                item.setData(Qt.ItemDataRole.UserRole + 2, (card_primary, secondary))
+
                 item.setIcon(ThemeManager.get_icon("book"))
-                item.setToolTip(str(Path(r["file_path"]).name))
+                item.setToolTip(display_text)
                 self.alpha_list.addItem(item)
                 try:
                     asyncio.create_task(self._load_thumb_for_item(Path(r["file_path"]), item))
@@ -945,7 +1303,6 @@ class LocalLibraryView(QWidget):
                     pass
         finally:
             self.alpha_list.setUpdatesEnabled(True)
-
     async def _load_thumb_for_item(self, path: Path, item: QListWidgetItem):
         if path.suffix.lower() in (".cbz", ".cbr", ".cb7"):
             url = f"local-cbz://{path.absolute()}/{_COVER_URL_SUFFIX}"
@@ -953,7 +1310,7 @@ class LocalLibraryView(QWidget):
 
             pixmap = QPixmapCache.find(str(cache_path))
             if pixmap:
-                item.setData(Qt.ItemDataRole.DecorationRole, pixmap)
+                set_item_data(item, Qt.ItemDataRole.DecorationRole, pixmap)
                 return
 
             if not cache_path.exists():
@@ -975,7 +1332,7 @@ class LocalLibraryView(QWidget):
                         # QPixmap conversion must happen on UI thread, but it's very fast
                         pixmap = QPixmap.fromImage(img)
                         QPixmapCache.insert(str(cache_path), pixmap)
-                        item.setData(Qt.ItemDataRole.DecorationRole, pixmap)
+                        set_item_data(item, Qt.ItemDataRole.DecorationRole, pixmap)
                 except Exception:
                     pass
 
@@ -983,32 +1340,59 @@ class LocalLibraryView(QWidget):
         if self._selection_mode:
             return
 
+        # Handle both QListWidgetItem (Folders) and QModelIndex (List View)
         path = item.data(Qt.ItemDataRole.UserRole)
-        if path.is_dir():
+        if isinstance(path, QModelIndex): # Extra safety
+            path = path.data(Qt.ItemDataRole.UserRole)
+
+        if isinstance(path, Path) and path.is_dir():
             asyncio.create_task(self._load_dir(path))
         else:
-            lw = item.listWidget()
+            # Handle QListWidgetItem vs QModelIndex for context gathering
             context = []
-            if lw:
-                for i in range(lw.count()):
-                    p = lw.item(i).data(Qt.ItemDataRole.UserRole)
-                    if isinstance(p, Path) and not p.is_dir():
-                        context.append(p)
+            if hasattr(item, "listWidget"): # QListWidgetItem
+                lw = item.listWidget()
+                if lw:
+                    for i in range(lw.count()):
+                        p = lw.item(i).data(Qt.ItemDataRole.UserRole)
+                        if isinstance(p, Path) and not p.is_dir():
+                            context.append(p)
+            elif isinstance(item, QModelIndex): # QModelIndex (from clicked signal)
+                model = item.model()
+                if model:
+                    for i in range(model.rowCount()):
+                        p = model.index(i, 0).data(Qt.ItemDataRole.UserRole)
+                        if isinstance(p, Path) and not p.is_dir():
+                            context.append(p)
+            
             self.on_open_comic(path, context)
 
     def _on_db_item_clicked(self, item):
         if self._selection_mode:
             return
 
+        # Handle both QListWidgetItem (Grid) and QModelIndex (Ribbon)
         path = item.data(Qt.ItemDataRole.UserRole)
-        if path.exists():
-            lw = item.listWidget()
+        if isinstance(path, QModelIndex):
+            path = path.data(Qt.ItemDataRole.UserRole)
+            
+        if isinstance(path, Path) and path.exists():
             context = []
-            if lw:
-                for i in range(lw.count()):
-                    p = lw.item(i).data(Qt.ItemDataRole.UserRole)
-                    if isinstance(p, Path) and not p.is_dir():
-                        context.append(p)
+            if hasattr(item, "listWidget"): # QListWidgetItem
+                lw = item.listWidget()
+                if lw:
+                    for i in range(lw.count()):
+                        p = lw.item(i).data(Qt.ItemDataRole.UserRole)
+                        if isinstance(p, Path) and not p.is_dir():
+                            context.append(p)
+            elif isinstance(item, QModelIndex): # QModelIndex
+                model = item.model()
+                if model:
+                    for i in range(model.rowCount()):
+                        p = model.index(i, 0).data(Qt.ItemDataRole.UserRole)
+                        if isinstance(p, Path) and not p.is_dir():
+                            context.append(p)
+
             self.on_open_comic(path, context)
 
     @property
@@ -1037,7 +1421,16 @@ class LocalLibraryView(QWidget):
         self.go_up()
 
     def _on_item_context_menu(self, pos, list_widget):
-        item = list_widget.itemAt(pos)
+        logger.info(f"--- Entering _on_item_context_menu ---")
+        logger.info(f"  Pos: {pos}, Widget: {list_widget.objectName()}")
+        if isinstance(list_widget, QListWidget):
+            item = list_widget.itemAt(pos)
+        else:
+            idx = list_widget.indexAt(pos)
+            if not idx.isValid(): return
+            model = list_widget.model()
+            item = model.itemFromIndex(idx) if hasattr(model, "itemFromIndex") else None
+            
         if not item: return
         
         path_or_data = item.data(Qt.ItemDataRole.UserRole)
@@ -1054,27 +1447,26 @@ class LocalLibraryView(QWidget):
             file_path = path_or_data
             
         if not file_path: return
+
+        # Load metadata from DB for popover
+        row = self.db.get_comic(file_path)
+        if not row: return
+        meta = dict(row)
+
+        # Create/Update Popover
+        if not hasattr(self, "detail_popover"):
+            self.detail_popover = MiniDetailPopover(self, self.config_manager.get_theme())
         
-        from PyQt6.QtWidgets import QMenu, QMessageBox
-        import os
+        self.detail_popover.set_show_cover(False)
+        self.detail_popover.clear_actions()
         
-        menu = QMenu(self)
-        action_read = menu.addAction("Mark as Read")
-        action_unread = menu.addAction("Mark as Unread")
-        menu.addSeparator()
+        # Add Actions
+        self.detail_popover.add_action("action_read", "Mark Read", lambda: [self.db.mark_as_read(file_path), self._reload_current_view()])
+        self.detail_popover.add_action("action_unread", "Mark Unread", lambda: [self.db.mark_as_unread(file_path), self._reload_current_view()])
         
-        # Style delete button red in context menu or just use text
-        action_delete = menu.addAction("Delete")
-        
-        action = menu.exec(list_widget.viewport().mapToGlobal(pos))
-        
-        if action == action_read:
-            self.db.mark_as_read(file_path)
-            self._reload_current_view()
-        elif action == action_unread:
-            self.db.mark_as_unread(file_path)
-            self._reload_current_view()
-        elif action == action_delete:
+        def do_delete():
+            from PyQt6.QtWidgets import QMessageBox
+            import os
             reply = QMessageBox.question(
                 self, "Confirm Delete",
                 f"Are you sure you want to delete this comic?\nThis action cannot be undone.",
@@ -1089,6 +1481,66 @@ class LocalLibraryView(QWidget):
                 except Exception as e:
                     logger.error(f"Failed to delete {file_path}: {e}")
 
+        self.detail_popover.add_action("action_delete", "Delete", do_delete) 
+
+        # Populate and Show
+        # Build data dict
+        creds = []
+        for role in ["writer", "penciller", "inker", "colorist", "letterer", "editor"]:
+            val = meta.get(role)
+            if val: creds.append(f"{role.capitalize()}: {val}")
+        
+        # Build published string with month and year
+        pub_month = meta.get("month")
+        pub_year = meta.get("year")
+        date_parts = []
+        if pub_month:
+            import calendar
+            try:
+                m_val = int(pub_month)
+                if 1 <= m_val <= 12:
+                    date_parts.append(calendar.month_name[m_val])
+            except: pass
+        if pub_year:
+            date_parts.append(str(pub_year))
+
+        data = {
+            "credits": "\n".join(creds),
+            "publisher": meta.get("publisher"),
+            "published": " ".join(date_parts) if date_parts else None,
+            "summary": meta.get("summary") or meta.get("description")
+        }
+        
+        label_focus = self.config_manager.get_library_label_focus()
+        primary, secondary = generate_comic_labels(meta, label_focus)
+        
+        self.detail_popover.populate(data=data, title=primary, subtitle=secondary)
+        
+        # Smart Positioning: Try to show to the right of the item
+        # Get item global rect
+        if isinstance(list_widget, QListWidget):
+            item_rect = list_widget.visualItemRect(item)
+        else:
+            item_rect = list_widget.visualRect(idx)
+            
+        global_item_topleft = list_widget.viewport().mapToGlobal(item_rect.topLeft())
+        
+        # Default: To the right of the card
+        pop_x = global_item_topleft.x() + item_rect.width() + 10
+        pop_y = global_item_topleft.y()
+        
+        # Screen boundary check
+        screen = QApplication.primaryScreen().availableGeometry()
+        if pop_x + self.detail_popover.width() > screen.right():
+            # Show to the left instead
+            pop_x = global_item_topleft.x() - self.detail_popover.width() - 10
+            
+        if pop_y + self.detail_popover.height() > screen.bottom():
+            # Shift up to stay on screen
+            pop_y = screen.bottom() - self.detail_popover.height() - 10
+            
+        self.detail_popover.show_at(QPoint(max(screen.left(), pop_x), max(screen.top(), pop_y)))
+
     def _on_group_context_menu(self, pos, section):
         from PyQt6.QtWidgets import QMenu, QMessageBox
         import os
@@ -1102,8 +1554,10 @@ class LocalLibraryView(QWidget):
         menu.addSeparator()
         action_delete = menu.addAction("Delete Group")
         
-        # Map from btn_toggle
-        action = menu.exec(section.btn_toggle.mapToGlobal(pos))
+        # Map from sender (which could be the label, the toggle button, or the header widget)
+        sender = self.sender()
+        if not sender: sender = section.btn_toggle
+        action = menu.exec(sender.mapToGlobal(pos))
         if not action: return
         
         if action == action_expand_all or action == action_collapse_all:

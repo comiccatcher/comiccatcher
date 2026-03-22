@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QSize
 from api.download_manager import DownloadManager, DownloadTask
+from ui.theme_manager import ThemeManager, UIConstants
 
 class DownloadTaskWidget(QFrame):
     def __init__(self, task: DownloadTask, on_cancel, on_remove):
@@ -14,29 +15,20 @@ class DownloadTaskWidget(QFrame):
         self.on_remove = on_remove
         
         self.setObjectName("download_task")
-        self.setStyleSheet("""
-            QFrame#download_task {
-                background-color: rgba(128, 128, 128, 20); 
-                border: 1px solid rgba(128, 128, 128, 30);
-                border-radius: 4px; 
-                margin-bottom: 2px;
-            }
-        """)
         
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(8, 8, 8, 8)
-        self.layout.setSpacing(4)
+        s = UIConstants.scale
+        self.layout.setContentsMargins(s(8), s(8), s(8), s(8))
+        self.layout.setSpacing(s(4))
         
         # Title and Close/Cancel Button
         header = QHBoxLayout()
         self.title_label = QLabel(task.title)
-        self.title_label.setStyleSheet("font-weight: bold; font-size: 12px; border: none;")
         self.title_label.setWordWrap(True)
         
         self.btn_action = QPushButton()
-        self.btn_action.setFixedSize(20, 20)
+        self.btn_action.setFixedSize(s(20), s(20))
         self.btn_action.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_action.setStyleSheet("QPushButton { border: none; background: transparent; }")
         
         header.addWidget(self.title_label, 1)
         header.addWidget(self.btn_action)
@@ -45,10 +37,8 @@ class DownloadTaskWidget(QFrame):
         # Status and Progress
         status_row = QHBoxLayout()
         self.status_label = QLabel(task.status)
-        self.status_label.setStyleSheet("font-size: 10px; border: none;")
         
         self.pct_label = QLabel("0%")
-        self.pct_label.setStyleSheet("font-size: 10px; font-weight: bold; border: none;")
         
         status_row.addWidget(self.status_label)
         status_row.addStretch()
@@ -56,11 +46,35 @@ class DownloadTaskWidget(QFrame):
         self.layout.addLayout(status_row)
         
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setFixedHeight(s(4))
         self.progress_bar.setTextVisible(False)
         self.layout.addWidget(self.progress_bar)
         
+        self.reapply_theme()
         self.update_ui(task)
+
+    def reapply_theme(self):
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
+        self.setStyleSheet(f"""
+            QFrame#download_task {{
+                background-color: {theme['bg_sidebar']}; 
+                border: {max(1, s(1))}px solid {theme['border']};
+                border-radius: {s(4)}px; 
+                margin-bottom: {s(2)}px;
+            }}
+        """)
+        self.title_label.setStyleSheet(f"font-weight: bold; font-size: {s(12)}px; border: none; color: {theme['text_main']};")
+        self.btn_action.setStyleSheet(f"QPushButton {{ border: none; background: transparent; color: {theme['text_dim']}; font-size: {s(16)}px; }} QPushButton:hover {{ color: {theme['danger']}; }}")
+        self.status_label.setStyleSheet(f"font-size: {s(10)}px; border: none; color: {theme['text_dim']};")
+        self.pct_label.setStyleSheet(f"font-size: {s(10)}px; font-weight: bold; border: none; color: {theme['text_main']};")
+        
+        # Progress bar colors are handled in update_ui based on task status, 
+        # but we should ensure the base background is themed.
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{ height: {s(4)}px; border: none; background-color: {theme['bg_item_hover']}; border-radius: {s(2)}px; }}
+            QProgressBar::chunk {{ background-color: {theme['accent']}; border-radius: {s(2)}px; }}
+        """)
 
     def update_ui(self, task: DownloadTask):
         self.status_label.setText(task.status)
@@ -80,15 +94,16 @@ class DownloadTaskWidget(QFrame):
             except: pass
             self.btn_action.clicked.connect(lambda: self.on_remove(task.book_id))
             
+            theme = ThemeManager.get_current_theme_colors()
             if task.status == "Completed":
-                self.progress_bar.setStyleSheet("""
-                    QProgressBar { height: 4px; border: none; background-color: rgba(128,128,128,20); border-radius: 2px; }
-                    QProgressBar::chunk { background-color: #4caf50; border-radius: 2px; }
+                self.progress_bar.setStyleSheet(f"""
+                    QProgressBar {{ height: 4px; border: none; background-color: {theme['bg_item_hover']}; border-radius: 2px; }}
+                    QProgressBar::chunk {{ background-color: {theme['success']}; border-radius: 2px; }}
                 """)
             elif task.status == "Failed" or task.status == "Cancelled":
-                self.progress_bar.setStyleSheet("""
-                    QProgressBar { height: 4px; border: none; background-color: rgba(128,128,128,20); border-radius: 2px; }
-                    QProgressBar::chunk { background-color: #f44336; border-radius: 2px; }
+                self.progress_bar.setStyleSheet(f"""
+                    QProgressBar {{ height: 4px; border: none; background-color: {theme['bg_item_hover']}; border-radius: 2px; }}
+                    QProgressBar::chunk {{ background-color: {theme['danger']}; border-radius: 2px; }}
                 """)
 
 class DownloadsView(QWidget):
@@ -100,20 +115,17 @@ class DownloadsView(QWidget):
         self.widgets = {} # book_id -> DownloadTaskWidget
 
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(5, 5, 5, 5)
-        self.layout.setSpacing(5)
+        s = UIConstants.scale
+        self.layout.setContentsMargins(s(5), s(5), s(5), s(5))
+        self.layout.setSpacing(s(5))
         
         self.header = QHBoxLayout()
         self.title = QLabel("Downloads")
-        self.title.setStyleSheet("font-size: 14px; font-weight: bold;")
         self.header.addWidget(self.title)
         self.header.addStretch()
         
         self.btn_clear = QPushButton("Clear Completed")
         self.btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_clear.setStyleSheet("""
-            QPushButton { background: transparent; font-size: 10px; border: 1px solid rgba(128, 128, 128, 50); padding: 2px 8px; border-radius: 4px; }
-        """)
         self.btn_clear.clicked.connect(self._clear_finished)
         self.header.addWidget(self.btn_clear)
         self.layout.addLayout(self.header)
@@ -124,10 +136,9 @@ class DownloadsView(QWidget):
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
         self.container = QWidget()
-        self.container.setStyleSheet("background-color: transparent;")
         self.list_layout = QVBoxLayout(self.container)
         self.list_layout.setContentsMargins(0, 0, 0, 0)
-        self.list_layout.setSpacing(2)
+        self.list_layout.setSpacing(s(2))
         self.list_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
         self.scroll.setWidget(self.container)
@@ -138,7 +149,35 @@ class DownloadsView(QWidget):
         self.empty_label.setObjectName("empty_state_label")
         self.list_layout.addWidget(self.empty_label)
 
+        self.reapply_theme()
         self.refresh_needed.connect(self.do_refresh)
+        if self.dm:
+            self.dm.add_callback(self._on_dm_update)
+            self.do_refresh()
+
+    def reapply_theme(self):
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
+        self.title.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
+        self.btn_clear.setStyleSheet(f"""
+            QPushButton {{ 
+                background: {theme['bg_sidebar']}; 
+                color: {theme['text_dim']};
+                font-size: {s(10)}px; 
+                border: {max(1, s(1))}px solid {theme['border']}; 
+                padding: {s(2)}px {s(8)}px; 
+                border-radius: {s(4)}px; 
+            }}
+            QPushButton:hover {{
+                color: {theme['text_main']};
+                border-color: {theme['accent']};
+            }}
+        """)
+        self.container.setStyleSheet("background-color: transparent;")
+        self.empty_label.setStyleSheet(f"color: {theme['text_dim']}; font-style: italic;")
+        
+        for widget in self.widgets.values():
+            widget.reapply_theme()
         if self.dm:
             self.dm.add_callback(self._on_dm_update)
             self.do_refresh()

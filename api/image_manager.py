@@ -14,6 +14,23 @@ class ImageManager:
         self.api_client = api_client
         self._memory_cache = {} # URL -> Base64 string
 
+    async def get_image(self, url: str, api_client: Optional[APIClient] = None):
+        """Fetches an image, caches it on disk, and returns it as a QPixmap."""
+        from PyQt6.QtGui import QPixmap
+        
+        b64 = await self.get_image_b64(url, api_client)
+        if not b64:
+            return None
+            
+        try:
+            from PyQt6.QtCore import QByteArray
+            pixmap = QPixmap()
+            pixmap.loadFromData(QByteArray.fromBase64(b64.encode("utf-8")))
+            return pixmap
+        except Exception as e:
+            logger.error(f"Error converting B64 to Pixmap for {url}: {e}")
+            return None
+
     async def get_image_b64(self, url: str, api_client: Optional[APIClient] = None) -> Optional[str]:
         """Fetches an image, caches it on disk, and returns it as a Base64 string."""
         if not url:
@@ -71,3 +88,18 @@ class ImageManager:
 
     def clear_memory_cache(self):
         self._memory_cache.clear()
+
+    def clear_disk_cache(self):
+        """Removes all cached images from disk."""
+        import shutil
+        if CACHE_DIR.exists():
+            try:
+                # Remove everything inside CACHE_DIR but keep the dir itself
+                for item in CACHE_DIR.iterdir():
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+                logger.info("Disk cache cleared successfully.")
+            except Exception as e:
+                logger.error(f"Error clearing disk cache: {e}")

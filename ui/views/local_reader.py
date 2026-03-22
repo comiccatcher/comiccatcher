@@ -7,8 +7,11 @@ from PyQt6.QtGui import QPixmap
 
 from logger import get_logger
 from api.image_manager import ImageManager
+from config import ConfigManager
+from ui.theme_manager import UIConstants
 from ui.base_reader import BaseReaderView
 from ui.local_archive import LocalPage, list_cbz_pages, read_cbz_entry_bytes
+from ui.local_comicbox import generate_comic_labels
 
 logger = get_logger("ui.local_reader")
 
@@ -21,7 +24,7 @@ class LocalReaderView(BaseReaderView):
     to disk via ImageManager's cache layout.
     """
 
-    def __init__(self, on_exit, image_manager: ImageManager, on_get_adjacent=None, on_transition=None, local_db=None):
+    def __init__(self, on_exit, image_manager: ImageManager, config_manager: ConfigManager, on_get_adjacent=None, on_transition=None, local_db=None):
         super().__init__(
             on_exit, 
             image_manager, 
@@ -30,6 +33,7 @@ class LocalReaderView(BaseReaderView):
             on_transition=on_transition
         )
         self.local_db = local_db
+        self.config_manager = config_manager
 
         self._path: Optional[Path] = None
         self._pages: list[LocalPage] = []
@@ -65,20 +69,40 @@ class LocalReaderView(BaseReaderView):
         if cache_path.exists():
             cover_pixmap.load(str(cache_path))
 
+        # Build published string with month and year
+        pub_month = r.get("month")
+        pub_year = r.get("year")
+        date_parts = []
+        if pub_month:
+            import calendar
+            try:
+                m_val = int(pub_month)
+                if 1 <= m_val <= 12:
+                    date_parts.append(calendar.month_name[m_val])
+            except: pass
+        if pub_year:
+            date_parts.append(str(pub_year))
+
         data = {
             "credits": "\n".join(creds),
             "publisher": r.get("publisher"),
-            "published": str(pub_info) if pub_info else None,
+            "published": " ".join(date_parts) if date_parts else None,
             "summary": r.get("summary")
         }
         
-        self.meta_popover.populate(cover_pixmap, data)
+        # Use focus-aware labels for the popover title
+        label_focus = self.config_manager.get_library_label_focus()
+        primary, secondary = generate_comic_labels(r, label_focus)
+        
+        self.meta_popover.set_show_cover(True)
+        self.meta_popover.populate(cover_pixmap, data, title=primary, subtitle=secondary)
         
         # Position below header
         hdr_pos = self.header.mapToGlobal(self.header.rect().bottomLeft())
         # Center horizontally
+        s = UIConstants.scale
         x = hdr_pos.x() + (self.width() - self.meta_popover.width()) // 2
-        y = hdr_pos.y() + 5
+        y = hdr_pos.y() + s(5)
         self.meta_popover.show_at(QPoint(x, y))
 
     # ------------------------------------------------------------------ #
@@ -122,25 +146,31 @@ class LocalReaderView(BaseReaderView):
                 logger.error("No pages found in archive")
                 return
             
+            title = self._path.stem
             subtitle = None
             if self.local_db:
                 row = await asyncio.to_thread(self.local_db.get_comic, str(self._path.absolute()))
                 if row:
-                    r = dict(row)
-                    saved_idx = r.get("current_page", 0)
+                    meta = dict(row)
+                    saved_idx = meta.get("current_page", 0)
                     if 0 <= saved_idx < len(pages):
                         self._index = saved_idx
                         logger.info(f"Restoring progress to page {saved_idx}")
                     
-                    # Build subtitle from metadata
-                    series = r.get("series")
-                    issue = r.get("issue")
-                    if series:
-                        subtitle = series
-                        if issue:
-                            subtitle += f" #{issue}"
+                    # Use focus-aware label logic for consistency with Detail view
+                    label_focus = self.config_manager.get_library_label_focus()
+                    primary, secondary = generate_comic_labels(meta, label_focus)
+                    
+                    # Use primary label as title if we have meta, else filename
+                    # Align with LocalDetailView: only use labels if we have real series/title meta
+                    if meta.get("series") or meta.get("title"):
+                        title = primary
+                        subtitle = secondary
+                    else:
+                        title = self._path.stem
+                        subtitle = None
             
-            self._setup_reader(self._path.stem, len(pages), subtitle)
+            self._setup_reader(title, len(pages), subtitle)
             await self._show_page()
         except Exception as e:
             logger.error(f"Failed to load CBZ: {e}")

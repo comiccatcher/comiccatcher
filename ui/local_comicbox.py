@@ -129,6 +129,7 @@ def flatten_comicbox(d: Dict[str, Any]) -> Dict[str, Any]:
 
     flat["volume"] = _get(inner, "volume", "number") or _get(inner, "volume")
     flat["year"] = _get(inner, "date", "year") or _get(inner, "date", "cover_date")
+    flat["month"] = _get(inner, "date", "month")
     flat["publisher"] = _get(inner, "publisher", "name")
     flat["summary"] = _get(inner, "summary")
     flat["page_count"] = _get(inner, "page_count")
@@ -177,4 +178,56 @@ def subtitle_from_flat(flat: Dict[str, Any]) -> str:
         parts.append(f"({year_s})")
 
     return " ".join(parts).strip()
+
+
+def generate_comic_labels(meta: Dict[str, Any], focus: str) -> Tuple[str, str]:
+    """
+    Generate primary and secondary labels for a comic based on metadata and focus preference.
+    Focus can be "series" or "title".
+    Returns (primary, secondary).
+    """
+    if not isinstance(meta, dict):
+        return "", ""
+
+    series = (meta.get("series") or "").strip()
+    issue = str(meta.get("issue") or "").strip()
+    volume = str(meta.get("volume") or "").strip()
+    year = meta.get("year")
+    title = (meta.get("title") or "").strip()
+
+    # 1. Format Series Info: Series (Year) #Issue or Series vVolume #Issue
+    series_parts = []
+    if series:
+        series_parts.append(series)
+
+        import re
+        is_year = False
+        if volume and re.match(r"^\d{4}$", volume):
+            v_val = int(volume)
+            if 1900 <= v_val <= 2100:
+                is_year = True
+
+        if is_year:
+            series_parts.append(f"({volume})")
+        elif volume:
+            series_parts.append(f"v{volume}")
+        elif year:
+            y_str = str(year)
+            if len(y_str) >= 4 and y_str[:4].isdigit():
+                series_parts.append(f"({y_str[:4]})")
+
+        if issue:
+            series_parts.append(f"#{issue}")
+
+    series_info = " ".join(series_parts).strip()
+
+    # 2. Assign Primary/Secondary
+    if focus == "title" and title:
+        primary = title
+        secondary = series_info
+    else:
+        primary = series_info or title or "Unknown Comic"
+        secondary = title if primary != title else ""
+
+    return primary, secondary
 

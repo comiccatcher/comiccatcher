@@ -16,6 +16,7 @@ from config import ConfigManager
 from models.feed import FeedProfile
 from api.client import APIClient
 from api.image_manager import ImageManager
+from ui.theme_manager import ThemeManager, UIConstants
 from logger import get_logger
 
 logger = get_logger("ui.feed_management")
@@ -23,50 +24,64 @@ logger = get_logger("ui.feed_management")
 class ConnectionTestResultDialog(QDialog):
     def __init__(self, parent, success: bool, message: str, icon_pixmap: QPixmap = None):
         super().__init__(parent)
+        s = UIConstants.scale
         self.setWindowTitle("Connection Test Result")
-        self.setFixedWidth(400)
+        self.setFixedWidth(s(400))
+        self.success = success
+        self.message = message
+        self.icon_pixmap = icon_pixmap
         
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(20)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(s(25), s(25), s(25), s(25))
+        self.layout.setSpacing(s(20))
         
-        icon_label = QLabel()
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        if icon_pixmap and not icon_pixmap.isNull():
-            icon_label.setPixmap(icon_pixmap.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        else:
-            from ui.theme_manager import ThemeManager
-            icon_label.setPixmap(ThemeManager.get_icon("feeds").pixmap(80, 80))
-        layout.addWidget(icon_label)
+        self.icon_label = QLabel()
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout.addWidget(self.icon_label)
         
-        status_title = QLabel("SUCCESS" if success else "CONNECTION FAILED")
-        status_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {'#4caf50' if success else '#f44336'};")
-        layout.addWidget(status_title)
+        self.status_title = QLabel()
+        self.status_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout.addWidget(self.status_title)
         
-        msg_label = QLabel(message)
-        msg_label.setWordWrap(True)
-        msg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        msg_label.setStyleSheet("font-size: 13px; line-height: 1.4;")
-        layout.addWidget(msg_label)
+        self.msg_label = QLabel(message)
+        self.msg_label.setWordWrap(True)
+        self.msg_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout.addWidget(self.msg_label)
         
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setStyleSheet("background-color: rgba(128, 128, 128, 50);")
-        layout.addWidget(line)
+        self.line = QFrame()
+        self.line.setFrameShape(QFrame.Shape.HLine)
+        self.line.setFrameShadow(QFrame.Shadow.Sunken)
+        self.layout.addWidget(self.line)
 
-        btn_ok = QPushButton("Got it")
-        btn_ok.setFixedWidth(120)
-        btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_ok.setMinimumHeight(40)
-        btn_ok.clicked.connect(self.accept)
+        self.btn_ok = QPushButton("Got it")
+        self.btn_ok.setObjectName("secondary_button")
+        self.btn_ok.setFixedWidth(s(120))
+        self.btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_ok.setMinimumHeight(s(40))
+        self.btn_ok.clicked.connect(self.accept)
         
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        btn_row.addWidget(btn_ok)
+        btn_row.addWidget(self.btn_ok)
         btn_row.addStretch()
-        layout.addLayout(btn_row)
+        self.layout.addLayout(btn_row)
+        
+        self.reapply_theme()
+
+    def reapply_theme(self):
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
+        
+        if self.icon_pixmap and not self.icon_pixmap.isNull():
+            self.icon_label.setPixmap(self.icon_pixmap.scaled(s(80), s(80), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        else:
+            self.icon_label.setPixmap(ThemeManager.get_icon("feeds").pixmap(s(80), s(80)))
+            
+        self.status_title.setText("SUCCESS" if self.success else "CONNECTION FAILED")
+        self.status_title.setStyleSheet(f"font-size: {s(20)}px; font-weight: bold; color: {theme['success'] if self.success else theme['danger']};")
+        self.msg_label.setStyleSheet(f"font-size: {s(13)}px; line-height: 1.4; color: {theme['text_main']};")
+        self.line.setStyleSheet(f"background-color: {theme['border']};")
+        self.btn_ok.setStyleSheet("font-weight: bold;")
 
 class FeedEditDialog(QDialog):
     def __init__(self, parent, config_manager: ConfigManager, image_manager: ImageManager, feed: Optional[FeedProfile] = None):
@@ -75,16 +90,17 @@ class FeedEditDialog(QDialog):
         self.feed = feed
         self.shared_image_manager = image_manager
         
+        s = UIConstants.scale
         self.setWindowTitle("Edit Feed" if feed else "Add New Feed")
-        self.setFixedWidth(500)
+        self.setFixedWidth(s(500))
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+        layout.setContentsMargins(s(20), s(20), s(20), s(20))
+        layout.setSpacing(s(15))
 
         form_group = QGroupBox("Feed Details")
         form_layout = QFormLayout(form_group)
-        form_layout.setSpacing(10)
+        form_layout.setSpacing(s(10))
 
         self.name_input = QLineEdit()
         self.url_input = QLineEdit()
@@ -113,15 +129,17 @@ class FeedEditDialog(QDialog):
 
         btn_layout = QHBoxLayout()
         self.btn_test = QPushButton("Test Connection")
+        self.btn_test.setObjectName("secondary_button")
         self.btn_test.clicked.connect(self.test_connection)
         
+        s = UIConstants.scale
         self.btn_save = QPushButton("Save Feed" if feed else "Add Feed")
-        self.btn_save.setObjectName("primary_button")
-        self.btn_save.setMinimumHeight(40)
+        self.btn_save.setMinimumHeight(s(40))
         self.btn_save.clicked.connect(self.save_and_close)
         
         self.btn_cancel = QPushButton("Cancel")
-        self.btn_cancel.setMinimumHeight(40)
+        self.btn_cancel.setObjectName("secondary_button")
+        self.btn_cancel.setMinimumHeight(s(40))
         self.btn_cancel.clicked.connect(self.reject)
         
         btn_layout.addWidget(self.btn_test)
@@ -312,39 +330,34 @@ class FeedManagementView(QWidget):
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
 
+        s = UIConstants.scale
         header = QHBoxLayout()
-        header.addWidget(QLabel("Configured Feeds"))
+        self.title_label = QLabel("Configured Feeds")
+        header.addWidget(self.title_label)
         header.addStretch()
         
         self.btn_add = QPushButton("Add New Feed")
-        self.btn_add.setObjectName("primary_button")
-        self.btn_add.setMinimumHeight(35)
+        self.btn_add.setIcon(ThemeManager.get_icon("plus", "text_dim"))
+        self.btn_add.setMinimumHeight(s(35))
         self.btn_add.clicked.connect(self.add_feed)
         header.addWidget(self.btn_add)
         self.layout.addLayout(header)
 
         self.feeds_list = QListWidget()
-        self.feeds_list.setIconSize(QSize(32, 32))
-        self.feeds_list.setStyleSheet("""
-            QListWidget { 
-                border-radius: 4px; 
-            }
-            QListWidget::item { 
-                padding: 10px; 
-                border-bottom: 1px solid rgba(128, 128, 128, 30); 
-            }
-        """)
+        self.feeds_list.setIconSize(QSize(s(32), s(32)))
+        self.feeds_list.setMinimumHeight(s(180)) # Roughly 3 items
         self.feeds_list.itemDoubleClicked.connect(self.edit_selected)
         self.layout.addWidget(self.feeds_list)
 
         self.list_btns = QHBoxLayout()
         self.btn_edit = QPushButton("Edit")
-        self.btn_edit.setMinimumHeight(35)
+        self.btn_edit.setIcon(ThemeManager.get_icon("label", "text_dim"))
+        self.btn_edit.setMinimumHeight(s(35))
         self.btn_edit.clicked.connect(self.edit_selected)
         
         self.btn_delete = QPushButton("Delete")
-        self.btn_delete.setMinimumHeight(35)
-        self.btn_delete.setStyleSheet("background-color: #d32f2f; color: white;")
+        self.btn_delete.setIcon(ThemeManager.get_icon("action_delete", "text_dim"))
+        self.btn_delete.setMinimumHeight(s(35))
         self.btn_delete.clicked.connect(self.delete_selected)
         
         self.list_btns.addWidget(self.btn_edit)
@@ -352,10 +365,31 @@ class FeedManagementView(QWidget):
         self.list_btns.addStretch()
         self.layout.addLayout(self.list_btns)
 
+        self.reapply_theme()
         self.refresh_feeds()
 
+    def reapply_theme(self):
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
+        self.title_label.setStyleSheet(f"font-weight: bold; color: {theme['text_main']};")
+        self.feeds_list.setStyleSheet(f"""
+            QListWidget {{ 
+                background-color: {theme['bg_sidebar']};
+                border: {max(1, s(1))}px solid {theme['border']};
+                border-radius: {s(4)}px; 
+                color: {theme['text_main']};
+            }}
+            QListWidget::item {{ 
+                padding: {s(10)}px; 
+                border-bottom: {max(1, s(1))}px solid {theme['border']}; 
+            }}
+            QListWidget::item:selected {{
+                background-color: {theme['bg_item_selected']};
+                color: {theme['text_selected']};
+            }}
+        """)
+
     def refresh_feeds(self):
-        from ui.theme_manager import ThemeManager
         default_icon = ThemeManager.get_icon("feeds")
         
         self.feeds_list.clear()

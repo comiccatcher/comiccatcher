@@ -39,6 +39,9 @@ class Metadata(BaseModel):
     modified: Optional[str] = None
     conformsTo: Optional[Union[str, List[str]]] = None
     belongsTo: Optional[Dict[str, Any]] = None
+    numberOfItems: Optional[int] = None
+    itemsPerPage: Optional[int] = None
+    currentPage: Optional[int] = None
 
 class Publication(BaseModel):
     model_config = ConfigDict(extra='allow')

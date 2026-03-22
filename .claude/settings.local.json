@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"TODO\\\\|FIXME\\\\|HACK\\\\|BUG\" /home/tony/Sync/lytx/vibe/comiccatcher --include=*.py)",
+      "Bash(python:*)"
+    ]
+  }
+}

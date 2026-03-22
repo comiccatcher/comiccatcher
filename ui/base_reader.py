@@ -29,6 +29,8 @@ from PyQt6.QtWidgets import (
 
 from logger import get_logger
 from api.image_manager import ImageManager
+from ui.theme_manager import ThemeManager, UIConstants, THEMES
+from ui.components.mini_detail_popover import MiniDetailPopover
 
 logger = get_logger("ui.base_reader")
 
@@ -85,150 +87,6 @@ def _compose_spread(pm1: QPixmap, pm2: QPixmap) -> QPixmap:
 
 
 # ---------------------------------------------------------------------------
-# Mini Detail Popover
-# ---------------------------------------------------------------------------
-
-class MiniDetailPopover(QFrame):
-    """
-    A stylish white-background popover showing comic metadata summary.
-    Designed to be repurposed or used as a dropdown from the header.
-    """
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        
-        self.setFixedWidth(460)
-        self.setFixedHeight(340)
-        
-        # Main container with white background and rounded corners
-        self.container = QFrame(self)
-        self.container.setObjectName("popover_container")
-        self.container.setStyleSheet("""
-            QFrame#popover_container {
-                background-color: #ffffff;
-                border: 1px solid #d0d0d0;
-                border-radius: 12px;
-            }
-            QWidget { 
-                background-color: transparent; 
-            }
-            QLabel { 
-                color: #222222; 
-            }
-            QLabel#meta_label { font-size: 12px; color: #555555; }
-            QLabel#section_title { font-weight: bold; font-size: 16px; color: #111111; }
-            QScrollArea { 
-                border: none; 
-                background-color: transparent; 
-            }
-            QScrollArea > QWidget > QWidget { 
-                background-color: transparent; 
-            }
-        """)
-        
-        # Drop Shadow
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(15)
-        shadow.setXOffset(0)
-        shadow.setYOffset(4)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        self.container.setGraphicsEffect(shadow)
-        
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.addWidget(self.container)
-        
-        self.content_layout = QHBoxLayout(self.container)
-        self.content_layout.setContentsMargins(20, 20, 20, 20)
-        self.content_layout.setSpacing(25)
-        
-        # Left: Cover
-        self.cover_label = QLabel()
-        self.cover_label.setFixedSize(140, 210)
-        self.cover_label.setScaledContents(True)
-        self.cover_label.setStyleSheet("border: 1px solid #eeeeee; background: #fdfdfd; border-radius: 4px;")
-        self.content_layout.addWidget(self.cover_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        
-        # Right: Info
-        self.info_area = QWidget()
-        self.info_layout = QVBoxLayout(self.info_area)
-        self.info_layout.setContentsMargins(0, 0, 0, 0)
-        self.info_layout.setSpacing(8)
-        
-        self.content_layout.addWidget(self.info_area, 1)
-        
-    def populate(self, cover: QPixmap, data: dict, title: str = None):
-        """
-        data expected keys:
-          - credits: str (joined writers/artists)
-          - publisher: str
-          - published: str (Month Year)
-          - summary: str
-        """
-        # Clear info layout
-        while self.info_layout.count():
-            item = self.info_layout.takeAt(0)
-            if item.widget(): item.widget().deleteLater()
-            
-        # Title (Optional)
-        if title:
-            t_label = QLabel(title)
-            t_label.setObjectName("section_title")
-            t_label.setWordWrap(True)
-            self.info_layout.addWidget(t_label)
-        
-        # Cover
-        if cover and not cover.isNull():
-            self.cover_label.setPixmap(cover)
-        else:
-            self.cover_label.setText("No Cover")
-            
-        # Credits
-        if data.get("credits"):
-            c_label = QLabel(data["credits"])
-            c_label.setObjectName("meta_label")
-            c_label.setWordWrap(True)
-            self.info_layout.addWidget(c_label)
-            
-        # Pub Info
-        pub_parts = []
-        if data.get("publisher"): pub_parts.append(data["publisher"])
-        if data.get("published"): pub_parts.append(data["published"])
-        
-        if pub_parts:
-            p_label = QLabel(" • ".join(pub_parts))
-            p_label.setObjectName("meta_label")
-            self.info_layout.addWidget(p_label)
-            
-        # Divider
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("background-color: #eee; min-height: 1px; max-height: 1px; border: none;")
-        self.info_layout.addWidget(line)
-        
-        # Summary (Truncated/Scrollable)
-        if data.get("summary"):
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setStyleSheet("background-color: transparent; border: none;")
-            scroll.viewport().setStyleSheet("background-color: transparent;")
-            s_label = QLabel(data["summary"])
-            s_label.setStyleSheet("font-size: 12px; line-height: 1.4; color: #222222; background-color: transparent;")
-            s_label.setWordWrap(True)
-            s_label.setAlignment(Qt.AlignmentFlag.AlignTop)
-            scroll.setWidget(s_label)
-            self.info_layout.addWidget(scroll, 1)
-        else:
-            self.info_layout.addStretch()
-
-    def show_at(self, pos: QPoint):
-        # Adjust if would go off-screen
-        self.move(pos)
-        self.show()
-
-
-# ---------------------------------------------------------------------------
 # Adjacent Book Popover
 # ---------------------------------------------------------------------------
 
@@ -236,44 +94,48 @@ class AdjacentBookPopover(QFrame):
     """
     A popover that appears when reaching the start/end of a book,
     suggesting the next or previous book in the current context.
+    Pinned to "light" theme by default.
     """
-    def __init__(self, parent=None, on_clicked: Callable[[], None] = None):
+    def __init__(self, parent=None, on_clicked: Callable[[], None] = None, theme_name="light"):
         super().__init__(parent)
         self.on_clicked = on_clicked
         self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
-        self.setFixedWidth(300)
-        self.setFixedHeight(400)
+        s = UIConstants.scale
+        self.setFixedWidth(s(300))
+        self.setFixedHeight(s(400))
+        
+        theme = THEMES.get(theme_name, THEMES["light"])
         
         # Main container
         self.container = QFrame(self)
         self.container.setObjectName("adjacent_container")
         self.container.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.container.setStyleSheet("""
-            QFrame#adjacent_container {
-                background-color: #ffffff;
-                border: 2px solid #007fd4;
-                border-radius: 15px;
-            }
-            QLabel { color: #222222; background: transparent; }
-            QLabel#header_label { font-weight: bold; font-size: 14px; color: #007fd4; }
-            QLabel#title_label { font-weight: bold; font-size: 15px; color: #111111; }
+        self.container.setStyleSheet(f"""
+            QFrame#adjacent_container {{
+                background-color: {theme['bg_header']};
+                border: {max(1, s(2))}px solid {theme['accent']};
+                border-radius: {s(15)}px;
+            }}
+            QLabel {{ color: {theme['text_main']}; background: transparent; }}
+            QLabel#header_label {{ font-weight: bold; font-size: {s(14)}px; color: {theme['accent']}; }}
+            QLabel#title_label {{ font-weight: bold; font-size: {s(15)}px; color: {theme['text_main']}; }}
         """)
         
         # Shadow
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20)
+        shadow.setBlurRadius(s(20))
         shadow.setColor(QColor(0, 0, 0, 100))
         self.container.setGraphicsEffect(shadow)
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(s(10), s(10), s(10), s(10))
         layout.addWidget(self.container)
         
         self.inner_layout = QVBoxLayout(self.container)
-        self.inner_layout.setContentsMargins(20, 20, 20, 20)
-        self.inner_layout.setSpacing(15)
+        self.inner_layout.setContentsMargins(s(20), s(20), s(20), s(20))
+        self.inner_layout.setSpacing(s(15))
         
         # Header (e.g. Next Comic)
         self.hdr_label = QLabel("")
@@ -283,9 +145,9 @@ class AdjacentBookPopover(QFrame):
         
         # Cover
         self.cover_label = QLabel()
-        self.cover_label.setFixedSize(180, 270)
+        self.cover_label.setFixedSize(s(180), s(270))
         self.cover_label.setScaledContents(True)
-        self.cover_label.setStyleSheet("border: 1px solid #ddd; border-radius: 4px;")
+        self.cover_label.setStyleSheet(f"border: {max(1, s(1))}px solid {theme['border']}; border-radius: {s(4)}px;")
         self.inner_layout.addWidget(self.cover_label, 0, Qt.AlignmentFlag.AlignCenter)
         
         # Title
@@ -359,7 +221,8 @@ class ThumbnailSlider(QWidget):
         self._loading: set[int] = set()
         self._thumb_loader = None              # async callable: idx -> Optional[QPixmap]
 
-        self.setFixedHeight(30)
+        s = UIConstants.scale
+        self.setFixedHeight(s(30))
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -371,11 +234,11 @@ class ThumbnailSlider(QWidget):
 
         # Popup label — child of popup_parent for correct z-order
         self._popup = QLabel(popup_parent)
-        self._popup.setFixedSize(100, 150)
+        self._popup.setFixedSize(s(100), s(150))
         self._popup.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._popup.setStyleSheet(
-            "background: rgba(0,0,0,230); border: 1px solid #555; border-radius: 4px;"
-            "color: white; font-size: 11px;"
+            f"background: rgba(0,0,0,230); border: {max(1, s(1))}px solid #555; border-radius: {s(4)}px;"
+            f"color: white; font-size: {s(11)}px;"
         )
         self._popup.setVisible(False)
 
@@ -387,8 +250,9 @@ class ThumbnailSlider(QWidget):
 
     def store_thumb(self, idx: int, pixmap: QPixmap):
         if not pixmap.isNull():
+            s = UIConstants.scale
             self._cache[idx] = pixmap.scaled(
-                96, 136,
+                s(96), s(136),
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -428,10 +292,11 @@ class ThumbnailSlider(QWidget):
                 asyncio.create_task(self._async_load(idx))
 
         # Position popup above the hover point in the parent's coordinate space
+        s = UIConstants.scale
         pos_in_parent = self.slider.mapTo(self._popup_parent, QPoint(int(x), 0))
-        px = max(0, min(pos_in_parent.x() - 50,
+        px = max(0, min(pos_in_parent.x() - s(50),
                         self._popup_parent.width() - self._popup.width()))
-        py = max(0, pos_in_parent.y() - self._popup.height() - 10)
+        py = max(0, pos_in_parent.y() - self._popup.height() - s(10))
         self._popup.move(px, py)
         self._popup.setVisible(True)
         self._popup.raise_()
@@ -532,19 +397,20 @@ class BaseReaderView(QWidget):
 
         # --- Header overlay ---
         self.header = QFrame(self)
-        self.header.setFixedHeight(60)
+        s = UIConstants.scale
+        self.header.setFixedHeight(s(60))
         self.header.setStyleSheet(
             "background-color: rgba(0,0,0,160); border: none;"
         )
         hdr = QHBoxLayout(self.header)
-        hdr.setContentsMargins(10, 5, 10, 5)
-        hdr.setSpacing(15)
+        hdr.setContentsMargins(s(10), s(5), s(10), s(5))
+        hdr.setSpacing(s(15))
 
-        from ui.theme_manager import ThemeManager
         self.btn_back = QPushButton()
         self.btn_back.setIcon(ThemeManager.get_icon("back", "white"))
-        self.btn_back.setFixedSize(36, 36)
-        self.btn_back.setIconSize(QSize(20, 20))
+        s = UIConstants.scale
+        self.btn_back.setFixedSize(s(36), s(36))
+        self.btn_back.setIconSize(QSize(s(20), s(20)))
         self.btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_back.setToolTip("Exit Reader")
         self.btn_back.clicked.connect(self._do_exit)
@@ -558,8 +424,9 @@ class BaseReaderView(QWidget):
 
         self.btn_settings = QPushButton()
         self.btn_settings.setIcon(ThemeManager.get_icon("settings", "white"))
-        self.btn_settings.setFixedSize(36, 36)
-        self.btn_settings.setIconSize(QSize(22, 22))
+        s = UIConstants.scale
+        self.btn_settings.setFixedSize(s(36), s(36))
+        self.btn_settings.setIconSize(QSize(s(22), s(22)))
         self.btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_settings.setToolTip("Reader Settings")
         self.settings_menu = QMenu(self)
@@ -568,8 +435,8 @@ class BaseReaderView(QWidget):
 
         self.btn_fullscreen = QPushButton()
         self.btn_fullscreen.setIcon(ThemeManager.get_icon("fullscreen", "white"))
-        self.btn_fullscreen.setFixedSize(36, 36)
-        self.btn_fullscreen.setIconSize(QSize(20, 20))
+        self.btn_fullscreen.setFixedSize(s(36), s(36))
+        self.btn_fullscreen.setIconSize(QSize(s(20), s(20)))
         self.btn_fullscreen.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_fullscreen.setToolTip("Toggle fullscreen  [F11]")
         self.btn_fullscreen.clicked.connect(self._toggle_fullscreen)
@@ -580,8 +447,9 @@ class BaseReaderView(QWidget):
         hdr.addWidget(self.btn_fullscreen)
 
         self.counter_label = QLabel("0 / 0")
-        self.counter_label.setStyleSheet("color: #aaa; font-size: 16px; font-weight: bold;")
-        self.counter_label.setFixedWidth(95)
+        s = UIConstants.scale
+        self.counter_label.setStyleSheet(f"color: #aaa; font-size: {s(16)}px; font-weight: bold;")
+        self.counter_label.setFixedWidth(s(95))
         self.counter_label.setAlignment(
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
         )
@@ -592,11 +460,12 @@ class BaseReaderView(QWidget):
             "background-color: rgba(0,0,0,160); border: none;"
         )
         ftr = QVBoxLayout(self.footer)
-        ftr.setContentsMargins(10, 6, 10, 8)
-        ftr.setSpacing(5)
+        s = UIConstants.scale
+        ftr.setContentsMargins(s(10), s(6), s(10), s(8))
+        ftr.setSpacing(s(5))
 
         slider_row = QHBoxLayout()
-        slider_row.setSpacing(10)
+        slider_row.setSpacing(s(10))
         
         self.thumb_slider = ThumbnailSlider(self)
         self.thumb_slider.slider.sliderPressed.connect(self._on_slider_pressed)
@@ -657,8 +526,9 @@ class BaseReaderView(QWidget):
 
     def _layout_overlays(self):
         w     = self.width()
-        ftr_h = 78 if self._thumb_visible else 50
-        self.header.setGeometry(0, 0, w, 38)
+        s = UIConstants.scale
+        ftr_h = s(78) if self._thumb_visible else s(50)
+        self.header.setGeometry(0, 0, w, s(38))
         self.footer.setGeometry(0, self.height() - ftr_h, w, ftr_h)
 
     def _on_adjacent_clicked(self):
@@ -686,12 +556,13 @@ class BaseReaderView(QWidget):
             self.adjacent_popover.populate(direction, title, pixmap)
             
             # Position
+            s = UIConstants.scale
             if direction > 0:
                 # Next: Right side
-                x = self.width() - self.adjacent_popover.width() - 40
+                x = self.width() - self.adjacent_popover.width() - s(40)
             else:
                 # Prev: Left side
-                x = 40
+                x = s(40)
                 
             y = (self.height() - self.adjacent_popover.height()) // 2
             self.adjacent_popover.show_at(self.mapToGlobal(QPoint(x, y)))
@@ -860,12 +731,11 @@ class BaseReaderView(QWidget):
         self.on_exit()
 
     def _toggle_fullscreen(self):
-        from ui.theme_manager import ThemeManager
         win = self.window()
         if win.isFullScreen():
             win.showNormal()
             self.btn_fullscreen.setIcon(ThemeManager.get_icon("fullscreen", "white"))
-            self.btn_fullscreen.setToolTip("Enter fullscreen  [F11]")
+            self.btn_fullscreen.setToolTip("Exit fullscreen  [F11]")
         else:
             win.showFullScreen()
             self.btn_fullscreen.setIcon(ThemeManager.get_icon("minimize", "white"))
@@ -1099,9 +969,10 @@ class BaseReaderView(QWidget):
         self._total = total
         self._index = 0
         
-        display_text = f'<span style="font-size: 19px;">{title}</span>'
-        if subtitle:
-            display_text += f'<br/><i style="font-size: 15px; color: #bbb; font-weight: normal;">{subtitle}</i>'
+        s = UIConstants.scale
+        display_text = f'<span style="font-size: {s(19)}px;">{title}</span>'
+        if subtitle and subtitle.strip():
+            display_text += f'<br/><i style="font-size: {s(15)}px; color: #bbb; font-weight: normal;">{subtitle.strip()}</i>'
             
         self.title_label.setText(display_text)
         self.thumb_slider.slider.setRange(0, max(0, total - 1))

@@ -196,7 +196,7 @@ Stack Index (ViewIndex):
 - SEARCH_BROWSER: 9
 ```
 
-**Unified Navigation:**
+**Standard Navigation:**
 - Single global **Back** button in the header.
 - Smart **Breadcrumbs** distinguishing feed identity from path.
 

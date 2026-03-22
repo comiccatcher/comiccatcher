@@ -33,7 +33,7 @@ class LibraryScanner:
         has_changes = False
         
         try:
-            logger.info(f"Starting library scan in {self.library_dir}")
+            logger.debug(f"Starting library scan in {self.library_dir}")
             
             # 1. Get current DB state in one go
             db_mtimes = await asyncio.to_thread(self.db.get_all_comics_mtimes)
@@ -77,7 +77,7 @@ class LibraryScanner:
                     logger.error(f"Error stat-ing {file_path}: {e}")
 
             if not to_update:
-                logger.info("No files changed, skipping metadata update.")
+                logger.debug("No files changed, skipping metadata update.")
             else:
                 has_changes = True
                 # Process updates in smaller concurrent batches to avoid overloading
@@ -92,8 +92,6 @@ class LibraryScanner:
                             mtime = fp.stat().st_mtime
                             raw_meta, cover_bytes = await asyncio.to_thread(read_comicbox_dict_and_cover, fp)
                             flat_meta = flatten_comicbox(raw_meta)
-                            if not flat_meta.get("title"):
-                                flat_meta["title"] = fp.stem
                             await asyncio.to_thread(self.db.upsert_comic, str(fp.absolute()), mtime, flat_meta)
                             if cover_bytes and self.on_cover:
                                 await asyncio.to_thread(self.on_cover, fp, cover_bytes)
@@ -111,7 +109,7 @@ class LibraryScanner:
                 if removed_count > 0:
                     has_changes = True
                 
-            logger.info(f"Library scan finished. Changes: {has_changes}")
+            logger.debug(f"Library scan finished. Changes: {has_changes}")
             return has_changes
             
         except Exception as e:

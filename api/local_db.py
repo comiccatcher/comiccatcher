@@ -31,6 +31,7 @@ class LocalLibraryDB:
                     issue TEXT,
                     volume TEXT,
                     year TEXT,
+                    month TEXT,
                     publisher TEXT,
                     summary TEXT,
                     page_count INTEGER,
@@ -61,16 +62,21 @@ class LocalLibraryDB:
     def _migrate_db(self):
         with self._lock:
             cursor = self.conn.cursor()
-            try:
-                cursor.execute("ALTER TABLE comics ADD COLUMN current_page INTEGER DEFAULT 0")
-            except: pass
-            try:
-                cursor.execute("ALTER TABLE comics ADD COLUMN last_read REAL")
-            except: pass
-            try:
-                cursor.execute("ALTER TABLE comics ADD COLUMN source_url TEXT")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_url ON comics(source_url)")
-            except: pass
+            migrations = [
+                "ALTER TABLE comics ADD COLUMN month TEXT",
+                "ALTER TABLE comics ADD COLUMN current_page INTEGER DEFAULT 0",
+                "ALTER TABLE comics ADD COLUMN last_read REAL",
+                "ALTER TABLE comics ADD COLUMN source_url TEXT",
+                "CREATE INDEX IF NOT EXISTS idx_url ON comics(source_url)"
+            ]
+            for m in migrations:
+                try:
+                    cursor.execute(m)
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" not in str(e).lower():
+                        logger.warning(f"Migration error for '{m}': {e}")
+                except Exception as e:
+                    logger.error(f"Unexpected migration error: {e}")
             self.conn.commit()
 
     def update_progress(self, file_path: str, current_page: int, page_count: Optional[int] = None):
@@ -147,10 +153,10 @@ class LocalLibraryDB:
 
             cursor.execute("""
                 INSERT INTO comics (
-                    file_path, file_mtime, title, series, issue, volume, year,
+                    file_path, file_mtime, title, series, issue, volume, year, month,
                     publisher, summary, page_count, writer, penciller, inker,
                     colorist, letterer, editor, cover_artist, source_url, _status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(file_path) DO UPDATE SET
                     file_mtime=excluded.file_mtime,
                     title=excluded.title,
@@ -158,6 +164,7 @@ class LocalLibraryDB:
                     issue=excluded.issue,
                     volume=excluded.volume,
                     year=excluded.year,
+                    month=excluded.month,
                     publisher=excluded.publisher,
                     summary=excluded.summary,
                     page_count=excluded.page_count,
@@ -178,6 +185,7 @@ class LocalLibraryDB:
                 str(meta.get("issue")) if meta.get("issue") is not None else None,
                 str(meta.get("volume")) if meta.get("volume") is not None else None,
                 str(meta.get("year")) if meta.get("year") is not None else None,
+                str(meta.get("month")) if meta.get("month") is not None else None,
                 meta.get("publisher"),
                 meta.get("summary"),
                 meta.get("page_count"),
@@ -198,6 +206,14 @@ class LocalLibraryDB:
             cursor = self.conn.cursor()
             cursor.execute("DELETE FROM comics WHERE file_path = ?", (file_path,))
             self.conn.commit()
+
+    def clear_all(self):
+        """Removes all entries from the comics table."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM comics")
+            self.conn.commit()
+            logger.info("Local library database cleared.")
 
     def remove_missing_comics(self, current_paths: List[str]) -> int:
         """Remove entries that are no longer in the file system. Returns count removed."""
@@ -226,59 +242,44 @@ class LocalLibraryDB:
             self.conn.commit()
             return total_deleted
             
-    def get_all_comics_alphabetical(self) -> List[sqlite3.Row]:
-        with self._lock:
-            cursor = self.conn.cursor()
-            # Sort by series, then issue, then title fallback
-            cursor.execute("""
-                SELECT * FROM comics 
-                ORDER BY 
-                    CASE WHEN series IS NULL OR series = '' THEN title ELSE series END ASC,
-                    CAST(issue AS REAL) ASC,
-                    title ASC
-            """)
-            return cursor.fetchall()
-            
-    def get_comics_grouped_by_series(self) -> Dict[str, List[sqlite3.Row]]:
-        with self._lock:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT * FROM comics 
-                ORDER BY 
-                    series ASC, 
-                    CAST(issue AS REAL) ASC,
-                    title ASC
-            """)
-            rows = cursor.fetchall()
-            
-        grouped = {}
-        for row in rows:
-            series = row["series"]
-            if not series or series.strip() == "":
-                series = "Unknown Series"
-            if series not in grouped:
-                grouped[series] = []
-            grouped[series].append(row)
-            
-        return grouped
+    def get_comics_grid(self, sort_order: str, sort_direction: str) -> List[sqlite3.Row]:
+        sort_dir = "ASC" if sort_direction == "asc" else "DESC"
+        if sort_order == "pub_date":
+            order = f"year {sort_dir}, title {sort_dir}"
+        elif sort_order == "added_date":
+            order = f"file_mtime {sort_dir}, title {sort_dir}"
+        else: # alpha
+            order = f"COALESCE(series, title, file_path) {sort_dir}"
 
-    def get_comics_grouped_by_field(self, field: str) -> Dict[str, List[sqlite3.Row]]:
         with self._lock:
             cursor = self.conn.cursor()
-            # Allowed fields to prevent SQL injection (though we control the input)
-            allowed = ["series", "publisher", "writer", "year", "penciller"]
-            if field not in allowed:
-                field = "series"
-                
-            cursor.execute(f"""
-                SELECT * FROM comics 
-                ORDER BY 
-                    {field} ASC, 
-                    CAST(issue AS REAL) ASC,
-                    title ASC
-            """)
+            cursor.execute(f"SELECT * FROM comics ORDER BY {order}")
+            return cursor.fetchall()
+
+    def get_comics_grouped(self, group_by: str, sort_order: str, sort_direction: str) -> Dict[str, List[sqlite3.Row]]:
+        field_map = {"series": "series", "publisher": "publisher", "writer": "writer", "artist": "penciller"}
+        field = field_map.get(group_by, "series")
+
+        sort_dir = "ASC" if sort_direction == "asc" else "DESC"
+        if sort_order == "pub_date":
+            order = f"year {sort_dir}, title {sort_dir}"
+        elif sort_order == "added_date":
+            order = f"file_mtime {sort_dir}, title {sort_dir}"
+        else:
+            order = f"COALESCE(series, title, file_path) {sort_dir}"
+
+        with self._lock:
+            cursor = self.conn.cursor()
+
+            if field == "series":
+                # Primary sort inside group: Volume then Issue numerically, fallback to alpha
+                full_order = f"{field} {sort_dir}, CAST(volume AS REAL) {sort_dir}, CAST(issue AS REAL) {sort_dir}, {order}"
+            else:
+                full_order = f"{field} {sort_dir}, {order}"
+
+            cursor.execute(f"SELECT * FROM comics ORDER BY {full_order}")
             rows = cursor.fetchall()
-            
+
         grouped = {}
         for row in rows:
             val = row[field]
@@ -287,9 +288,8 @@ class LocalLibraryDB:
             if val not in grouped:
                 grouped[val] = []
             grouped[val].append(row)
-            
-        return grouped
 
+        return grouped
     def get_comics_in_dir(self, dir_path: str) -> Dict[str, sqlite3.Row]:
         """Return all comics under a directory, keyed by absolute file_path."""
         with self._lock:

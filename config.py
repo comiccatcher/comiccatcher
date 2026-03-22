@@ -42,6 +42,7 @@ class ConfigManager:
             "last_feed_id": None,
             "last_folder_path": None,
             "theme": "dark", # "light", "dark", "oled", "blue"
+            "library_label_focus": "series", # "series" or "title"
         }
         self._ensure_dirs()
         self.load_feeds()
@@ -129,11 +130,53 @@ class ConfigManager:
         self.settings["theme"] = theme
         self.save_settings()
 
+    def get_library_label_focus(self) -> str:
+        return self.settings.get("library_label_focus", "series")
+
+    def set_library_label_focus(self, focus: str):
+        self.settings["library_label_focus"] = focus
+        self.save_settings()
+
     def get_show_labels(self) -> bool:
         return self.settings.get("show_labels", True)
 
     def set_show_labels(self, val: bool):
         self.settings["show_labels"] = val
+        self.save_settings()
+
+    def get_library_display_mode(self) -> str:
+        return self.settings.get("library_display_mode", "file")
+
+    def set_library_display_mode(self, mode: str):
+        self.settings["library_display_mode"] = mode
+        self.save_settings()
+
+    def get_library_sort_order(self) -> str:
+        return self.settings.get("library_sort_order", "alpha")
+        
+    def set_library_sort_order(self, order: str):
+        self.settings["library_sort_order"] = order
+        self.save_settings()
+        
+    def get_library_sort_direction(self) -> str:
+        return self.settings.get("library_sort_direction", "asc")
+        
+    def set_library_sort_direction(self, direction: str):
+        self.settings["library_sort_direction"] = direction
+        self.save_settings()
+        
+    def get_library_group_by(self) -> str:
+        return self.settings.get("library_group_by", "series")
+        
+    def set_library_group_by(self, group_by: str):
+        self.settings["library_group_by"] = group_by
+        self.save_settings()
+        
+    def get_library_group_misc(self) -> bool:
+        return self.settings.get("library_group_misc", True)
+        
+    def set_library_group_misc(self, group_misc: bool):
+        self.settings["library_group_misc"] = group_misc
         self.save_settings()
 
     def get_library_view_mode(self) -> int:

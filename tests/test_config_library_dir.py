@@ -7,7 +7,7 @@ def test_library_dir_default_and_set(monkeypatch, tmp_path):
     # Isolate config side-effects to a temp folder by patching module globals used by ConfigManager.
     patched_config_dir = tmp_path / "comiccatcher_cfg"
     monkeypatch.setattr(cfg, "CONFIG_DIR", patched_config_dir)
-    monkeypatch.setattr(cfg, "PROFILES_FILE", patched_config_dir / "profiles.json")
+    monkeypatch.setattr(cfg, "FEEDS_FILE", patched_config_dir / "feeds.json")
     monkeypatch.setattr(cfg, "SETTINGS_FILE", patched_config_dir / "settings.json")
     monkeypatch.setattr(cfg, "CACHE_DIR", patched_config_dir / "cache")
     monkeypatch.setattr(cfg, "DOWNLOADS_DIR", patched_config_dir / "downloads")

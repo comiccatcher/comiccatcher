@@ -9,12 +9,15 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap, QFont
 
+from config import ConfigManager
 from logger import get_logger
 from api.image_manager import ImageManager
 from api.local_db import LocalLibraryDB
 from ui.local_archive import read_first_image
-from ui.local_comicbox import flatten_comicbox, read_comicbox_dict, read_comicbox_cover
+from ui.local_comicbox import flatten_comicbox, read_comicbox_dict, read_comicbox_cover, generate_comic_labels
+from ui.theme_manager import ThemeManager, UIConstants
 from ui.views.base_detail import BaseDetailView
+from ui.utils import format_artist_credits, format_publication_date, format_file_size
 
 logger = get_logger("ui.local_detail")
 
@@ -23,49 +26,115 @@ def _read_comicbox_meta(path: Path) -> Dict[str, Any]:
     return flatten_comicbox(raw)
 
 class LocalDetailView(BaseDetailView):
-    def __init__(self, on_back, image_manager: ImageManager, on_read_local=None, local_db: Optional[LocalLibraryDB] = None):
+    def __init__(self, config_manager: ConfigManager, on_back, image_manager: ImageManager, on_read_local=None, local_db: Optional[LocalLibraryDB] = None):
         super().__init__(on_back, image_manager)
+        self.config_manager = config_manager
         self.on_read_local = on_read_local
         self.db = local_db
         self._path: Optional[Path] = None
+
+    def reapply_theme(self):
+        super().reapply_theme()
 
     def load_path(self, path: Path, context_paths=None):
         self._path = Path(path)
         self._context_paths = context_paths
         
-        info_layout = self._setup_main_info_layout()
-        self._add_title(self._path.stem)
-        
-        # Action Button
-        self._add_read_button(self._on_read_clicked, "Read")
-        self.btn_read.setObjectName("primary_button")
-        is_cbz = self._path.suffix.lower() == ".cbz"
-        self.btn_read.setEnabled(is_cbz)
-        
-        # Delete Button (At the other end of the row)
-        self._add_delete_button(self._on_delete_clicked)
-        
-        # Progression
-        self._add_progression_label()
-        
-        # Metadata Rows
-        asyncio.create_task(self._load_meta(self._path))
-        
-        # Cover
-        if is_cbz:
-            asyncio.create_task(self._load_cover(self._path))
-            if self.db:
-                asyncio.create_task(self._load_progress(self._path))
-        else:
-            self.progression_label.hide()
+        # 1. Read metadata SYNCHRONOUSLY so we can populate the view in one go
+        # Reading a small XML/JSON from disk is very fast (<10ms typically)
+        meta = {}
+        try:
+            meta = _read_comicbox_meta(self._path)
+        except Exception as e:
+            logger.error(f"Error reading meta: {e}")
+
+        self.setUpdatesEnabled(False)
+        try:
+            info_layout = self._setup_main_info_layout()
+            
+            # Show relative file path under cover
+            lib_root = self.config_manager.get_library_dir()
+            try:
+                rel_path = self._path.relative_to(lib_root)
+                self.cover_footer.setText(str(rel_path))
+            except ValueError:
+                # Fallback if not within lib_root
+                self.cover_footer.setText(str(self._path))
+            
+            # Reset cover while loading new one asynchronously
+            self.cover_label.clear()
+            self.cover_label.setText("Loading Cover...")
+            
+            # Use focus-aware label logic
+            label_focus = self.config_manager.get_library_label_focus()
+            primary, secondary = generate_comic_labels(meta, label_focus)
+            
+            # Use primary label as title if we have meta, else filename
+            display_title = primary if meta.get("series") or meta.get("title") else self._path.stem
+            self._add_title(display_title, subtitle_text=secondary)
+            
+            # Publisher and Pub Date line
+            pub = meta.get("publisher")
+            year = meta.get("year")
+            month = meta.get("month")
+            
+            pub_parts = []
+            if pub:
+                pub_parts.append(pub)
+            
+            date_str = format_publication_date(month, year)
+            if date_str:
+                pub_parts.append(date_str)
+                
+            if pub_parts:
+                line_text = " • ".join(pub_parts)
+                pub_label = QLabel(line_text)
+                theme = ThemeManager.get_current_theme_colors()
+                s = UIConstants.scale
+                pub_label.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
+                self.info_layout.addWidget(pub_label)
+
+            # Action Button
+            self._add_read_button(self._on_read_clicked, "Read")
+            self.btn_read.setObjectName("primary_button")
+            is_cbz = self._path.suffix.lower() == ".cbz"
+            self.btn_read.setEnabled(is_cbz)
+            
+            # File Size
+            size_bytes = 0
+            if self._path.exists():
+                try:
+                    size_bytes = self._path.stat().st_size
+                except:
+                    pass
+            
+            self._file_size_str = format_file_size(size_bytes) if size_bytes > 0 else None
+            
+            # Progression
+            self._add_progression_label()
+
+            # Summary (Description)
+            summary = meta.get("summary") or meta.get("description")
+            if summary:
+                self._add_description(summary)
+            
+            # Render metadata IMMEDIATELY (no async jumping)
+            self._render_meta(meta)
+            info_layout.addStretch()
+            
+            # Async tasks for heavy things (Cover image and DB progress)
+            if is_cbz:
+                asyncio.create_task(self._load_cover(self._path))
+                if self.db:
+                    asyncio.create_task(self._load_progress(self._path))
+            else:
+                self.progression_label.hide()
+        finally:
+            self.setUpdatesEnabled(True)
 
     async def _load_meta(self, path: Path):
-        try:
-            meta = await asyncio.to_thread(_read_comicbox_meta, path)
-            if path != self._path: return
-            self._render_meta(meta)
-        except Exception as e:
-            logger.error(f"Error loading meta: {e}")
+        # Deprecated: replaced by synchronous load in load_path to avoid UI jumping
+        pass
 
     async def _load_cover(self, path: Path):
         url = f"local-cbz://{path.absolute()}/_cover"
@@ -96,50 +165,66 @@ class LocalDetailView(BaseDetailView):
                 curr = r.get("current_page", 0)
                 total = r.get("page_count", 0)
                 
+                theme = ThemeManager.get_current_theme_colors()
+                dim_color = theme['text_dim']
+                
                 if total > 0:
+                    prog_text = f"Page {curr + 1} of {total}"
+                    if self._file_size_str:
+                        prog_text += f"&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;<span style='color: {dim_color};'>{self._file_size_str}</span>"
+                    self.progression_label.setText(prog_text)
                     self.progression_label.show()
-                    self.progression_label.setText(f"Page {curr + 1} of {total}")
                     self._update_cover_progress(curr, total)
                     
                     if curr >= total - 1:
-                        self.progression_label.setText(f"Finished: {total} pages read")
+                        finished_text = f"Finished: {total} pages read"
+                        if self._file_size_str:
+                            finished_text += f"&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;<span style='color: {dim_color};'>{self._file_size_str}</span>"
+                        self.progression_label.setText(finished_text)
                         self.btn_read.setText("Read Again")
                     elif curr > 0:
-                        self.btn_read.setText("Resume Reading")
+                        self.btn_read.setText("Resume")
                     else:
                         self.btn_read.setText("Read")
                 else:
-                    self.progression_label.hide()
+                    if self._file_size_str:
+                        self.progression_label.setText(f"<span style='color: {dim_color};'>{self._file_size_str}</span>")
+                        self.progression_label.show()
+                    else:
+                        self.progression_label.hide()
                     self.btn_read.setText("Read")
             else:
-                self.progression_label.hide()
+                if self._file_size_str:
+                    theme = ThemeManager.get_current_theme_colors()
+                    dim_color = theme['text_dim']
+                    self.progression_label.setText(f"<span style='color: {dim_color};'>{self._file_size_str}</span>")
+                    self.progression_label.show()
+                else:
+                    self.progression_label.hide()
                 self.btn_read.setText("Read")
         except Exception as e:
             logger.error(f"Error loading progress: {e}")
             self.progression_label.hide()
 
     def _render_meta(self, meta: Dict[str, Any]):
-        fields = [
-            ("Series", "series"), ("Issue", "issue"),
-            ("Volume", "volume"), ("Year", "year"), ("Writer", "writer"),
-            ("Penciller", "penciller"), ("Inker", "inker"), ("Colorist", "colorist"),
-            ("Letterer", "letterer"), ("Editor", "editor"), ("Publisher", "publisher"),
-            ("Page Count", "page_count")
-        ]
+        roles = {
+            "Writer": meta.get("writer"),
+            "Penciller": meta.get("penciller"),
+            "Inker": meta.get("inker"),
+            "Colorist": meta.get("colorist"),
+            "Letterer": meta.get("letterer"),
+            "Editor": meta.get("editor")
+        }
+        # Filter out empty roles
+        roles = {k: v for k, v in roles.items() if v}
         
-        for label, key in fields:
-            self._add_metadata_row(label, meta.get(key))
+        final_creds = format_artist_credits(roles)
+        
+        for cred in final_creds:
+            if ":" in cred:
+                label, val = cred.split(":", 1)
+                self._add_metadata_row(label.strip(), val.strip())
             
-        if meta.get("summary"):
-            self._add_metadata_row("Summary", meta.get("summary"))
-        elif meta.get("description"):
-            self._add_metadata_row("Summary", meta.get("description"))
-            
-        # Add path at bottom
-        self._add_metadata_row("File", str(self._path))
-
-        self.info_layout.addStretch()
-
     def _on_delete_clicked(self):
         if not self._path: return
         

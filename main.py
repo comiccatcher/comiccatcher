@@ -138,7 +138,7 @@ def main():
         app.setWindowIcon(QIcon(str(icon_path)))
 
     # Ensure .desktop file exists so GNOME dock shows the right icon
-    _ensure_desktop_entry()
+    # _ensure_desktop_entry()
 
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)

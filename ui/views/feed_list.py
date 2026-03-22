@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
 from config import ConfigManager
-from ui.theme_manager import ThemeManager
+from ui.theme_manager import ThemeManager, UIConstants
 from models.feed import FeedProfile
 from api.client import APIClient
 from api.image_manager import ImageManager
@@ -22,43 +22,58 @@ class FeedListView(QWidget):
         self.shared_image_manager = image_manager
 
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(20, 20, 20, 20)
+        s = UIConstants.scale
+        self.layout.setContentsMargins(s(20), s(20), s(20), s(20))
         
         # Header with Title and Add Button
-        header = QHBoxLayout()
-        self.title = QLabel("Select a Feed")
-        self.title.setStyleSheet("font-size: 24px; font-weight: bold;")
-        header.addWidget(self.title)
-        header.addStretch()
+        self.header = QHBoxLayout()
+        self.title_label = QLabel("Select a Feed")
+        self.header.addWidget(self.title_label)
+        self.header.addStretch()
         
         self.btn_add = QPushButton()
-        # Let's try to find a better standard plus icon or use text
         self.btn_add.setText(" + Add Feed")
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add.setObjectName("primary_button")
         self.btn_add.clicked.connect(self.add_feed)
-        header.addWidget(self.btn_add)
+        self.header.addWidget(self.btn_add)
         
-        self.layout.addLayout(header)
+        self.layout.addLayout(self.header)
 
         self.feeds_list = QListWidget()
-        self.feeds_list.setIconSize(QSize(48, 48))
-        self.feeds_list.setStyleSheet("""
-            QListWidget {
-                border-radius: 8px;
-                padding: 5px;
-                margin-top: 10px;
-            }
-            QListWidget::item {
-                padding: 15px;
-                border-bottom: 1px solid rgba(128, 128, 128, 50);
-            }
-        """)
+        self.feeds_list.setIconSize(QSize(s(48), s(48)))
         self.feeds_list.itemClicked.connect(self._on_item_clicked)
         self.layout.addWidget(self.feeds_list)
         
+        self.reapply_theme()
         self.refresh_feeds()
 
+    def reapply_theme(self):
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
+        self.title_label.setStyleSheet(f"font-size: {s(24)}px; font-weight: bold; color: {theme['text_main']};")
+        
+        # Main list styling
+        self.feeds_list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {theme['bg_sidebar']};
+                border: {max(1, s(1))}px solid {theme['border']};
+                border-radius: {s(8)}px;
+                padding: {s(5)}px;
+                margin-top: {s(10)}px;
+                color: {theme['text_main']};
+            }}
+            QListWidget::item {{
+                padding: {s(15)}px;
+                border-bottom: {max(1, s(1))}px solid {theme['border']};
+                color: {theme['text_main']};
+            }}
+            QListWidget::item:selected {{
+                background-color: {theme['bg_item_selected']};
+                color: {theme['text_selected']};
+            }}
+        """)
+        
     def refresh_feeds(self):
         default_icon = ThemeManager.get_icon("feeds")
         
