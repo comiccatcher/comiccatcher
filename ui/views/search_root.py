@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QListWidget, QListWidgetItem, QStyle, QApplication, QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from ui.theme_manager import ThemeManager
+from ui.theme_manager import ThemeManager, UIConstants
 
 class SearchItemWidget(QWidget):
     """Custom widget for history/pinned items with buttons."""
@@ -127,7 +127,7 @@ class SearchRootView(QWidget):
         # Progress Indicator
         self.progress = QProgressBar()
         self.progress.setRange(0, 0) # Indeterminate
-        self.progress.setFixedHeight(4)
+        self.progress.setFixedHeight(UIConstants.PROGRESS_BAR_HEIGHT)
         self.progress.setTextVisible(False)
         self.progress.setVisible(False)
         self.layout.addWidget(self.progress)

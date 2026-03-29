@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QApplication, QStyledItemDelegate, QStyle,
     QAbstractItemView, QSizePolicy, QFrame, QSpacerItem, QListView
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect, QModelIndex, QPoint
+from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect, QModelIndex, QPoint, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QPen, QImage, QPixmapCache, QKeyEvent, QStandardItemModel, QStandardItem
 
 from config import ConfigManager, CONFIG_DIR
@@ -104,9 +104,11 @@ def set_item_data(item, role, value):
     elif isinstance(item, QStandardItem):
         item.setData(value, role)
 
-class SeriesSection(QWidget):
-    def __init__(self, title: str, rows: List[Any], on_item_clicked: Callable, is_grid: bool = False, image_manager=None, meta_sem=None, show_labels=True, label_focus="series", is_folder_mode=False, config_manager=None):
-        super().__init__()
+from ui.components.collapsible_section import CollapsibleSection
+
+class LibrarySection(CollapsibleSection):
+    def __init__(self, title: str, rows: List[Any], on_item_clicked: Callable, is_grid: bool = False, image_manager=None, meta_sem=None, show_labels=True, label_focus="series", is_folder_mode=False, config_manager=None, on_context_menu: Optional[Callable] = None):
+        super().__init__(title=title, content_widget=None, is_collapsed=False, on_context_menu=on_context_menu)
         self.rows = rows
         self.on_item_clicked = on_item_clicked
         self.image_manager = image_manager
@@ -117,49 +119,7 @@ class SeriesSection(QWidget):
         self.is_folder_mode = is_folder_mode
         self.config_manager = config_manager
         
-        self.setObjectName("series_section")
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, UIConstants.SECTION_MARGIN_BOTTOM)
-        self.layout.setSpacing(0)
-        # 1. Header Area (Matching FeedBrowser style)
-        self.header_widget = QWidget()
-        self.header_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        self.header_widget.setObjectName("section_header")
-        self.header_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.header_layout = QHBoxLayout(self.header_widget)
-        self.header_layout.setContentsMargins(0, UIConstants.SECTION_HEADER_MARGIN_TOP, 0, 0)
-        self.header_layout.setSpacing(UIConstants.SECTION_HEADER_SPACING)
-
-        self.btn_toggle = QPushButton()
-        self.btn_toggle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.btn_toggle.setFixedSize(UIConstants.TOGGLE_BUTTON_SIZE, UIConstants.TOGGLE_BUTTON_SIZE)
-        self.btn_toggle.setFlat(True)
-        self.btn_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_toggle.clicked.connect(self.toggle)
-        self.header_layout.addWidget(self.btn_toggle)
-
-        self.header_label = QLabel(title)
-        self.header_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        theme = ThemeManager.get_current_theme_colors()
-        self.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold;")
-        self.header_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        
-        # We need to preserve the mousePressEvent for toggle
-        def label_press(e):
-            if e.button() == Qt.MouseButton.LeftButton:
-                self.toggle()
-                return
-            # Let other buttons (RightButton) fall through to trigger the context menu event
-            QLabel.mousePressEvent(self.header_label, e)
-            
-        self.header_label.mousePressEvent = label_press
-        self.header_layout.addWidget(self.header_label)
-        
-        self.header_layout.addStretch()
-        self.layout.addWidget(self.header_widget)
-        
-        # 2. List Content
+        # 1. List Content
         s = UIConstants.scale
         if is_grid:
             self.list_widget = QListWidget()
@@ -170,14 +130,15 @@ class SeriesSection(QWidget):
             self.list_widget.setViewMode(QListWidget.ViewMode.IconMode)
             self.list_widget.setResizeMode(QListWidget.ResizeMode.Adjust)
             self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+            self.list_widget.viewport().installEventFilter(self)
             self.list_widget.setMovement(QListWidget.Movement.Static)
             self.list_widget.setFlow(QListWidget.Flow.LeftToRight)
             self.list_widget.setWrapping(True)
             self.list_widget.setSpacing(UIConstants.GRID_SPACING)
-            s = UIConstants.scale
             self.list_widget.setIconSize(QSize(s(120), s(180)))
+            self.list_widget.itemClicked.connect(self.on_item_clicked)
         else:
-            self.list_widget = BaseCardRibbon(self, show_labels=self.show_labels)
+            self.list_widget = BaseCardRibbon(show_labels=self.show_labels)
             self.model = QStandardItemModel()
             self.list_widget.setModel(self.model)
             self.delegate = LibraryCardDelegate(self.list_widget, show_labels=self.show_labels, image_manager=self.image_manager)
@@ -185,9 +146,8 @@ class SeriesSection(QWidget):
             self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
             self.list_widget.clicked.connect(self.on_item_clicked)
 
-        # We need a unified way to handle clicks between QListWidget (items) and QListView (indexes)
-        if is_grid:
-            self.list_widget.itemClicked.connect(self.on_item_clicked)
+        self.set_content_widget(self.list_widget)
+        self.setObjectName("series_section")
             
         # Ensure rows are sorted based on context
         sorted_rows = rows
@@ -233,49 +193,46 @@ class SeriesSection(QWidget):
                     asyncio.create_task(self._load_thumb(Path(r["file_path"]), item))
                 except RuntimeError:
                     pass
-            
-        self.layout.addWidget(self.list_widget)
-        self.layout.setStretch(1, 0) # Ensure content area doesn't stretch
-        self.set_expanded(True)
+
+        self.toggled.connect(self._on_toggled)
+        
+        # Initial height calculation after layout settle
+        if is_grid:
+            QTimer.singleShot(100, self._update_grid_height)
+        else:
+            QTimer.singleShot(100, self.list_widget.update_ribbon_height)
+
+    def _on_toggled(self, is_collapsed: bool):
+        if not is_collapsed:
+            if self.is_grid:
+                self._update_grid_height()
+            else:
+                self.list_widget.update_ribbon_height()
 
     def set_expanded(self, expanded: bool):
-        logger.debug(f"SeriesSection '{self.header_label.text()}' set_expanded: {expanded}")
-        self.list_widget.setVisible(expanded)
-        icon_name = "chevron_down" if expanded else "chevron_right"
-        self.btn_toggle.setIcon(ThemeManager.get_icon(icon_name))
-        
-        # When collapsed, strictly limit height. When expanded, allow it to take its preferred size.
-        if expanded:
-            self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
-        else:
-            self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        
-        self.updateGeometry()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.updateGeometry()
+        logger.debug(f"LibrarySection '{self.header_label.text()}' set_expanded: {expanded}")
+        self.set_collapsed(not expanded)
 
     def reapply_theme(self):
         """Theme-aware update for section header and delegate."""
-        theme = ThemeManager.get_current_theme_colors()
-        self.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
-        
-        is_visible = self.list_widget.isVisible()
-        icon_name = "chevron_down" if is_visible else "chevron_right"
-        color_key = "accent" if is_visible else "text_dim"
-        self.btn_toggle.setIcon(ThemeManager.get_icon(icon_name, color_key))
-        
+        self._update_ui_state() # Will update chevron color and ensure everything uses current theme
         self.delegate.show_labels = self.show_labels
         self.list_widget.viewport().update()
 
-    def toggle(self):
-        self.set_expanded(not self.list_widget.isVisible())
-
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, 'is_grid') and self.is_grid:
+        if hasattr(self, 'is_grid') and self.is_grid and not self.is_collapsed:
             self._update_grid_height()
+
+    def eventFilter(self, source, event):
+        """Dynamic cursor change when hovering over items."""
+        if hasattr(self, 'list_widget') and source is self.list_widget.viewport() and event.type() == event.Type.MouseMove:
+            index = self.list_widget.indexAt(event.pos())
+            if index.isValid():
+                self.list_widget.setCursor(Qt.CursorShape.PointingHandCursor)
+            else:
+                self.list_widget.setCursor(Qt.CursorShape.ArrowCursor)
+        return super().eventFilter(source, event)
 
     def _update_grid_height(self):
         count = self.list_widget.count()
@@ -630,7 +587,7 @@ class LocalLibraryView(BaseBrowserView):
         # Also update all SeriesSections in grouped view
         for i in range(self.grouped_layout.count()):
             item = self.grouped_layout.itemAt(i)
-            if item and item.widget() and isinstance(item.widget(), SeriesSection):
+            if item and item.widget() and isinstance(item.widget(), LibrarySection):
                 item.widget().list_widget.setSelectionMode(mode)
                 if not enabled:
                     item.widget().list_widget.clearSelection()
@@ -670,7 +627,7 @@ class LocalLibraryView(BaseBrowserView):
         elif self.stack.currentIndex() == 1:
             for i in range(self.grouped_layout.count()):
                 item = self.grouped_layout.itemAt(i)
-                if item and item.widget() and isinstance(item.widget(), SeriesSection):
+                if item and item.widget() and isinstance(item.widget(), LibrarySection):
                     selected_items.extend(get_selections(item.widget().list_widget))
         return selected_items
 
@@ -880,11 +837,11 @@ class LocalLibraryView(BaseBrowserView):
         if hasattr(self, "grouped_container"):
             self.grouped_container.setStyleSheet(f"background-color: {theme['bg_main']};")
 
-        # 3. Refresh active view if it contains dynamic headers (like SeriesSection)
+        # 3. Refresh active view if it contains dynamic headers (like LibrarySection)
         if hasattr(self, "stack") and self.stack.currentIndex() == 1:
             for i in range(self.grouped_layout.count()):
                 item = self.grouped_layout.itemAt(i)
-                if item and item.widget() and isinstance(item.widget(), SeriesSection):
+                if item and item.widget() and isinstance(item.widget(), LibrarySection):
                     item.widget().reapply_theme()
 
     def _build_group_by_menu(self):
@@ -1145,7 +1102,7 @@ class LocalLibraryView(BaseBrowserView):
         expansion_states = {}
         for i in range(self.grouped_layout.count()):
             item = self.grouped_layout.itemAt(i)
-            if item and item.widget() and isinstance(item.widget(), SeriesSection):
+            if item and item.widget() and isinstance(item.widget(), LibrarySection):
                 s = item.widget()
                 expansion_states[s.header_label.text()] = s.list_widget.isVisible()
 
@@ -1190,7 +1147,7 @@ class LocalLibraryView(BaseBrowserView):
                 title = f"{group_name}{range_str}"
 
                 is_file_mode = (self.config_manager.get_library_display_mode() == "file")
-                section = SeriesSection(title, rows, self._on_db_item_clicked, is_grid=False, image_manager=self.image_manager, meta_sem=self._meta_sem, show_labels=self._show_labels, label_focus=label_focus, is_folder_mode=is_file_mode, config_manager=self.config_manager)
+                section = LibrarySection(title, rows, self._on_db_item_clicked, is_grid=False, image_manager=self.image_manager, meta_sem=self._meta_sem, show_labels=self._show_labels, label_focus=label_focus, is_folder_mode=is_file_mode, config_manager=self.config_manager, on_context_menu=lambda pos: self._on_group_context_menu(pos, section))
 
                 # Restore expansion state
                 if title in expansion_states:
@@ -1206,10 +1163,6 @@ class LocalLibraryView(BaseBrowserView):
 
                 section.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 section.list_widget.customContextMenuRequested.connect(lambda pos, w=section.list_widget: self._on_item_context_menu(pos, w))
-                section.btn_toggle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                section.btn_toggle.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
-                section.header_label.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
-                section.header_widget.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
 
                 # Insert before the spacer
                 self.grouped_layout.insertWidget(self.grouped_layout.count() - 1, section)
@@ -1225,7 +1178,7 @@ class LocalLibraryView(BaseBrowserView):
                 else:
                     one_offs.sort(key=lambda r: generate_comic_labels(dict(r), label_focus)[0].lower(), reverse=reverse)
 
-                section = SeriesSection(title, one_offs, self._on_db_item_clicked, is_grid=True, image_manager=self.image_manager, meta_sem=self._meta_sem, show_labels=self._show_labels, label_focus=label_focus, is_folder_mode=is_file_mode, config_manager=self.config_manager)
+                section = LibrarySection(title, one_offs, self._on_db_item_clicked, is_grid=True, image_manager=self.image_manager, meta_sem=self._meta_sem, show_labels=self._show_labels, label_focus=label_focus, is_folder_mode=is_file_mode, config_manager=self.config_manager, on_context_menu=lambda pos: self._on_group_context_menu(pos, section))
 
                 # Restore expansion state
                 if title in expansion_states:
@@ -1241,18 +1194,7 @@ class LocalLibraryView(BaseBrowserView):
 
                 section.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 section.list_widget.customContextMenuRequested.connect(lambda pos, w=section.list_widget: self._on_item_context_menu(pos, w))
-                section.btn_toggle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                section.btn_toggle.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
-                section.header_label.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
-                section.header_widget.customContextMenuRequested.connect(lambda pos, s=section: self._on_group_context_menu(pos, s))
 
-                count = len(one_offs)
-                s = UIConstants.scale
-                item_w = UIConstants.CARD_WIDTH + s(10)
-                cols = 6 # Default, though it might resize
-                rows_count = (count + cols - 1) // cols
-                item_h = UIConstants.CARD_HEIGHT if self._show_labels else (UIConstants.CARD_COVER_HEIGHT + s(10))
-                section.list_widget.setFixedHeight(rows_count * (item_h + s(10)) + s(10))
                 # Insert before the spacer
                 self.grouped_layout.insertWidget(self.grouped_layout.count() - 1, section)
 
@@ -1526,18 +1468,18 @@ class LocalLibraryView(BaseBrowserView):
         global_item_topleft = list_widget.viewport().mapToGlobal(item_rect.topLeft())
         
         # Default: To the right of the card
-        pop_x = global_item_topleft.x() + item_rect.width() + 10
+        pop_x = global_item_topleft.x() + item_rect.width() + UIConstants.POPOVER_OFFSET
         pop_y = global_item_topleft.y()
         
         # Screen boundary check
         screen = QApplication.primaryScreen().availableGeometry()
         if pop_x + self.detail_popover.width() > screen.right():
             # Show to the left instead
-            pop_x = global_item_topleft.x() - self.detail_popover.width() - 10
+            pop_x = global_item_topleft.x() - self.detail_popover.width() - UIConstants.POPOVER_OFFSET
             
         if pop_y + self.detail_popover.height() > screen.bottom():
             # Shift up to stay on screen
-            pop_y = screen.bottom() - self.detail_popover.height() - 10
+            pop_y = screen.bottom() - self.detail_popover.height() - UIConstants.POPOVER_OFFSET
             
         self.detail_popover.show_at(QPoint(max(screen.left(), pop_x), max(screen.top(), pop_y)))
 
@@ -1561,11 +1503,7 @@ class LocalLibraryView(BaseBrowserView):
         if not action: return
         
         if action == action_expand_all or action == action_collapse_all:
-            expanded = (action == action_expand_all)
-            for i in range(self.grouped_layout.count()):
-                item = self.grouped_layout.itemAt(i)
-                if item and item.widget() and isinstance(item.widget(), SeriesSection):
-                    item.widget().set_expanded(expanded)
+            self.set_all_sections_collapsed(action == action_collapse_all)
             return
 
         paths = []

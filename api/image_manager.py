@@ -14,6 +14,30 @@ class ImageManager:
         self.api_client = api_client
         self._memory_cache = {} # URL -> Base64 string
 
+    def get_image_sync(self, url: str):
+        """Synchronously retrieves an image from cache (memory or disk)."""
+        if not url: return None
+        
+        from PyQt6.QtGui import QPixmap, QPixmapCache
+        
+        # 1. Check QPixmapCache
+        cache_path = self._get_cache_path(url)
+        pixmap = QPixmapCache.find(str(cache_path))
+        if pixmap:
+            return pixmap
+            
+        # 2. Check Disk Cache
+        if cache_path.exists():
+            try:
+                pixmap = QPixmap(str(cache_path))
+                if not pixmap.isNull():
+                    QPixmapCache.insert(str(cache_path), pixmap)
+                    return pixmap
+            except Exception as e:
+                logger.error(f"Error loading pixmap from disk {url}: {e}")
+                
+        return None
+
     async def get_image(self, url: str, api_client: Optional[APIClient] = None):
         """Fetches an image, caches it on disk, and returns it as a QPixmap."""
         from PyQt6.QtGui import QPixmap

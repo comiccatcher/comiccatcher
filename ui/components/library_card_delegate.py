@@ -44,8 +44,8 @@ class LibraryCardDelegate(BaseCardDelegate):
         content_rect = self.draw_card_background(painter, rect, option, theme)
 
         # 3. Cover / Folder Art Area
-        if is_dir and not self.show_labels:
-            # Folders fill the whole card if we aren't showing external labels
+        if not self.show_labels:
+            # If labels are hidden, fill the whole available card background
             cover_area_rect = content_rect
         else:
             cover_area_rect = QRect(content_rect.left(), content_rect.top(), content_rect.width(), self.cover_height)
@@ -79,5 +79,11 @@ class LibraryCardDelegate(BaseCardDelegate):
             text_y = progress_rect.bottom() + s(2)
             text_rect = QRect(content_rect.left() + s(5), text_y, content_rect.width() - s(10), self.label_height)
             self.draw_label(painter, text_rect, primary, theme)
+        else:
+            # Internal label as a backup when covers are missing
+            # is_dir (folders) handles its own internal label in draw_folder_stack
+            if not is_dir and (not pixmap or pixmap.isNull()):
+                primary = index.data(Qt.ItemDataRole.DisplayRole)
+                self.draw_internal_label(painter, cover_area_rect, primary, theme)
 
         painter.restore()

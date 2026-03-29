@@ -77,6 +77,16 @@ class BaseDetailView(QWidget):
         self.progress.setGeometry(0, 0, self.width(), UIConstants.scale(4))
         self.progress.raise_()
 
+    def create_action_button(self, text: str, callback: Optional[Any] = None, object_name: str = "action_button") -> QPushButton:
+        """Creates a standardized, themed action button (e.g., 'See All')."""
+        btn = QPushButton(text)
+        btn.setObjectName(object_name) # Triggers themed style from ThemeManager
+        btn.setFlat(True)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        if callback:
+            btn.clicked.connect(callback)
+        return btn
+
     def reapply_theme(self):
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale

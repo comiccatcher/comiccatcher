@@ -30,7 +30,8 @@ class LocalReaderView(BaseReaderView):
             image_manager, 
             on_title_clicked=self._on_header_title_clicked,
             on_get_adjacent=on_get_adjacent,
-            on_transition=on_transition
+            on_transition=on_transition,
+            config_manager=config_manager
         )
         self.local_db = local_db
         self.config_manager = config_manager

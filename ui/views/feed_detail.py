@@ -493,15 +493,13 @@ class FeedDetailView(BaseDetailView):
                     l_title.setObjectName("carousel_header")
                     header.addWidget(l_title)
                     header.addStretch()
-                    
-                    btn_all = QPushButton("See All")
-                    btn_all.setFlat(True)
-                    btn_all.setCursor(Qt.CursorShape.PointingHandCursor)
-                    btn_all.setObjectName("see_all_button")
+
                     full_href = urljoin(base_url, l_href)
-                    btn_all.clicked.connect(lambda _, u=full_href, t=label_text: self.on_navigate(u, t))
+                    btn_all = self.create_action_button(
+                        "See All",
+                        lambda _, u=full_href, t=label_text: self.on_navigate(u, t)
+                    )
                     header.addWidget(btn_all)
-                    
                     self.content_layout.insertLayout(self.content_layout.count() - 1, header)
                     
                     from ui.components.base_ribbon import BaseCardRibbon

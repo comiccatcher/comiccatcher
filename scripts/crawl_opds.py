@@ -77,6 +77,7 @@ class OPDSCrawler:
         try:
             resp = await self.client.get(url)
             if resp.status_code != 200:
+                print(f"    [!] HTTP Error {resp.status_code}: {url}")
                 return
             
             if "json" not in resp.headers.get("content-type", "").lower():

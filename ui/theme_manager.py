@@ -107,20 +107,31 @@ class UIConstants:
         return max(1, int(val * cls._scale_factor)) if val > 0 else 0
 
     @classmethod
+    def set_scale(cls, factor: float):
+        cls._scale_factor = max(0.5, min(3.0, factor))
+        cls.init_scale()
+
+    @classmethod
     def init_scale(cls):
-        app = QApplication.instance()
-        if app:
-            screen = app.primaryScreen()
-            if screen:
-                cls._scale_factor = screen.logicalDotsPerInch() / 96.0
+        # Only fetch screen DPI if _scale_factor is still at default 1.0
+        # or we want to force a reset.
+        if cls._scale_factor == 1.0:
+            app = QApplication.instance()
+            if app:
+                screen = app.primaryScreen()
+                if screen:
+                    cls._scale_factor = screen.logicalDotsPerInch() / 96.0
 
         cls.HEADER_HEIGHT = cls.scale(50)
-        cls.STATUS_HEIGHT = cls.scale(25)
+        cls.STATUS_HEIGHT = cls.scale(2)
         
         # Fonts
         cls.FONT_SIZE_SECTION_HEADER = cls.scale(14)
+        cls.FONT_SIZE_SECTION_HEADER_UNSCALED = 14
         cls.FONT_SIZE_CARD_LABEL = cls.scale(9)
+        cls.FONT_SIZE_CARD_LABEL_UNSCALED = 9
         cls.FONT_SIZE_STATUS = cls.scale(11)
+        cls.FONT_SIZE_STATUS_UNSCALED = 11
         
         # Card Dimensions
         cls.CARD_WIDTH = cls.scale(140)
@@ -138,30 +149,60 @@ class UIConstants:
         cls.FOLDER_BADGE_SIZE = cls.scale(32)
         cls.FOLDER_BADGE_OFFSET_Y = cls.scale(4)
         
-        cls.PROGRESS_BAR_HEIGHT = cls.scale(4)
+        cls.PROGRESS_BAR_HEIGHT = cls.scale(2)
         cls.PROGRESS_BAR_TOTAL_HEIGHT = cls.scale(10)
         cls.PROGRESS_BAR_MARGIN_H = cls.scale(10)
         cls.PROGRESS_BAR_OFFSET_Y = cls.scale(6)
+        
+        # Layout & Heuristics
+        cls.GRID_GUTTER = cls.scale(10)
+        cls.RIBBON_LABEL_GAP = cls.scale(25)
+        cls.LARGE_SECTION_THRESHOLD = 200
+        cls.VIEWPORT_MARGIN = cls.scale(20)
         
         # Skeleton / Loading
         cls.SKELETON_PADDING = cls.scale(10)
         cls.SKELETON_ROUNDING = cls.scale(3)
         
         # Layout Spacing & Margins
+        from PyQt6.QtWidgets import QStyle
+        cls.SCROLLBAR_SIZE = app.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+        
         cls.SECTION_SPACING = cls.scale(2)
         cls.SECTION_MARGIN_BOTTOM = cls.scale(5)
         cls.SECTION_HEADER_SPACING = cls.scale(5)
         cls.SECTION_HEADER_MARGIN_TOP = cls.scale(5)
+        cls.SECTION_HEADER_HEIGHT = cls.scale(30)
         cls.GRID_SPACING = cls.scale(10)
         cls.TOOLBAR_GAP = cls.scale(12)
         cls.TOGGLE_BUTTON_SIZE = cls.scale(24)
         cls.HEADER_BUTTON_SIZE = cls.scale(32)
         cls.LAYOUT_MARGIN_DEFAULT = cls.scale(10)
         cls.LAYOUT_MARGIN_LARGE = cls.scale(20)
+        
+        # Labeling
+        cls.ELIDED_TEXT_WIDTH_FACTOR = 1.85 # Factor of width for 2-line elided text
+        
+        # Popovers & Overlays
+        cls.POPOVER_OFFSET = cls.scale(10)
+        cls.POPOVER_ROUNDING = cls.scale(8)
+
+        # Debug
+        # Toggle with Ctrl+Shift+D at runtime — set True to always enable on startup
+        if not hasattr(cls, 'DEBUG_OUTLINES'):
+            cls.DEBUG_OUTLINES = False
+
+        # Virtualization & Fetching
+        cls.ITEMS_PER_PAGE = 100
+        cls.SPARSE_FETCH_BUFFER = 1 # +/- pages around viewport
+        cls.MAX_CONCURRENT_FETCHES = 3
+        cls.SCROLL_DEBOUNCE_MS = 250
+        cls.STATUS_UPDATE_MS = 50
+        cls.RESIZE_DEBOUNCE_MS = 200
 
     # Initial Defaults (Will be overwritten by init_scale at startup)
     HEADER_HEIGHT = 50
-    STATUS_HEIGHT = 25
+    STATUS_HEIGHT = 2
     FONT_SIZE_SECTION_HEADER = 14
     FONT_SIZE_CARD_LABEL = 9
     FONT_SIZE_STATUS = 11
@@ -181,6 +222,10 @@ class UIConstants:
     PROGRESS_BAR_TOTAL_HEIGHT = 10
     PROGRESS_BAR_MARGIN_H = 10
     PROGRESS_BAR_OFFSET_Y = 6
+    GRID_GUTTER = 10
+    RIBBON_LABEL_GAP = 25
+    LARGE_SECTION_THRESHOLD = 200
+    VIEWPORT_MARGIN = 20
     SKELETON_PADDING = 10
     SKELETON_ROUNDING = 3
     
@@ -189,12 +234,28 @@ class UIConstants:
     SECTION_MARGIN_BOTTOM = 5
     SECTION_HEADER_SPACING = 5
     SECTION_HEADER_MARGIN_TOP = 5
+    SECTION_HEADER_HEIGHT = 30
     GRID_SPACING = 10
     TOOLBAR_GAP = 12
     TOGGLE_BUTTON_SIZE = 24
     HEADER_BUTTON_SIZE = 32
     LAYOUT_MARGIN_DEFAULT = 10
     LAYOUT_MARGIN_LARGE = 20
+
+    # Labeling
+    ELIDED_TEXT_WIDTH_FACTOR = 1.85
+    
+    # Popovers & Overlays
+    POPOVER_OFFSET = 10
+    POPOVER_ROUNDING = 8
+
+    # Virtualization & Fetching
+    ITEMS_PER_PAGE = 100
+    SPARSE_FETCH_BUFFER = 1
+    MAX_CONCURRENT_FETCHES = 3
+    SCROLL_DEBOUNCE_MS = 250
+    STATUS_UPDATE_MS = 50
+    RESIZE_DEBOUNCE_MS = 200
     
     # Selection colors
     COLOR_ACCENT = "#007fd4" # Default blue
@@ -317,17 +378,21 @@ class ThemeManager:
                 border-bottom: {max(1, s(1))}px solid {theme['border']};
             }}
             
-            QListView, QTreeView, QListWidget {{
+            QListView, QTreeView, QListWidget, QScrollArea, QScrollArea > QWidget > QWidget {{
                 background-color: {theme['bg_main']};
                 border: none;
                 outline: none;
             }}
             
-            QListView::item {{
-                padding: {s(8)}px;
-                border-radius: {s(4)}px;
+            QScrollArea {{
+                background-color: {theme['bg_main']};
             }}
             
+            QListView::item {{
+                padding: 0px;
+                border-radius: {s(4)}px;
+            }}
+
             QListView::item:hover {{
                 background-color: {theme['bg_item_hover']};
             }}
@@ -372,11 +437,14 @@ class ThemeManager:
             }}
 
             QPushButton#tab_button:checked {{
-                background-color: {theme['bg_item_hover']};
-                color: {theme['accent']};
-                border-bottom: {max(1, s(2))}px solid {theme['accent']};
+               background-color: {theme['bg_item_hover']};
+               color: {theme['accent']};
+               border-bottom: {max(1, s(2))}px solid {theme['accent']};
             }}
 
+            #section_header, #section_header_container {{
+               background-color: {theme['bg_main']};
+            }}
             QComboBox {{
                 background-color: {theme['bg_item_hover']};
                 border: {max(1, s(1))}px solid {theme['border']};
@@ -407,7 +475,7 @@ class ThemeManager:
                 padding: 0 {s(3)}px 0 {s(3)}px;
             }}
 
-            QPushButton#see_all_button {{
+            QPushButton#action_button {{
                 background-color: transparent;
                 color: {theme['accent']};
                 border: none;
@@ -415,7 +483,7 @@ class ThemeManager:
             }}
 
 
-            QPushButton#see_all_button:hover {{
+            QPushButton#action_button:hover {{
                 text-decoration: underline;
                 background-color: {theme['bg_item_hover']};
                 border-radius: {s(4)}px;
@@ -424,7 +492,7 @@ class ThemeManager:
             QScrollBar:vertical {{
                 border: none;
                 background: transparent;
-                width: {s(10)}px;
+                width: {UIConstants.SCROLLBAR_SIZE}px;
                 margin: 0px;
             }}
 
@@ -445,7 +513,7 @@ class ThemeManager:
             QScrollBar:horizontal {{
                 border: none;
                 background: transparent;
-                height: {s(10)}px;
+                height: {UIConstants.SCROLLBAR_SIZE}px;
                 margin: 0px;
             }}
 
@@ -533,16 +601,17 @@ class ThemeManager:
             QProgressBar {{
                 border: none;
                 background-color: {theme['bg_item_hover']};
-                height: {s(4)}px;
-                min-height: {s(4)}px;
-                max-height: {s(4)}px;
-                border-radius: {s(2)}px;
+                height: {s(2)}px;
+                min-height: {s(2)}px;
+                max-height: {s(2)}px;
+                border-radius: 0px;
             }}
 
             QProgressBar::chunk {{
                 background-color: {theme['accent']};
-                border-radius: {s(2)}px;
+                border-radius: 0px;
             }}
+
 
             QFrame#sidebar {{
                 background-color: {theme['bg_sidebar']};

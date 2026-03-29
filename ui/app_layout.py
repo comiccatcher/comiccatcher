@@ -6,6 +6,7 @@ import urllib.parse
 from pathlib import Path
 from urllib.parse import urljoin
 
+from typing import List, Dict, Optional, Set, Any, Union
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
     QListWidget, QListWidgetItem, QStackedWidget, QLabel, QPushButton, QFrame,
@@ -120,6 +121,7 @@ class MainWindow(QMainWindow):
         self.nav_list.setFlow(QListWidget.Flow.TopToBottom)
         self.nav_list.setMovement(QListWidget.Movement.Static)
         self.nav_list.setSpacing(0)
+        self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.nav_list.setIconSize(QSize(UIConstants.scale(32), UIConstants.scale(32)))
         
         def add_nav_item(text, icon_name):
@@ -327,7 +329,6 @@ class MainWindow(QMainWindow):
             on_transition=self.on_reader_transition_online
         )
         
-        # Global Download Manager
         self.download_manager = DownloadManager(None, self.config_manager.get_library_dir())
         self.download_manager.set_callback(self._on_downloads_updated)
         self._last_completed_count = 0
@@ -342,7 +343,7 @@ class MainWindow(QMainWindow):
         self.content_stack.addWidget(self.feed_reader_view)
         self.content_stack.addWidget(self.search_root_view)
         
-        self.feed_browser = FeedBrowser(self.opds_client, self.image_manager, self.config_manager)
+        self.feed_browser = FeedBrowser(self.opds_client, self.image_manager, self.config_manager, self.download_manager)
         self.feed_browser.item_clicked.connect(self._on_feed_item_clicked)
         self.feed_browser.navigate_requested.connect(self.on_navigate_to_url)
         self.feed_browser.download_requested.connect(self.on_start_download)
@@ -477,7 +478,29 @@ class MainWindow(QMainWindow):
             self.update_header()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape:
+        modifiers = event.modifiers()
+        key = event.key()
+        
+        # 1. Scaling Shortcuts (Ctrl + Plus/Minus/Zero)
+        if modifiers == Qt.KeyboardModifier.ControlModifier:
+            if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+                self._change_scale(0.1)
+                return
+            elif key == Qt.Key.Key_Minus:
+                self._change_scale(-0.1)
+                return
+            elif key == Qt.Key.Key_0:
+                self._reset_scale()
+                return
+
+        # 2. Debug Outlines (Ctrl + Shift + D)
+        if (key == Qt.Key.Key_D
+                and modifiers == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)):
+            self._toggle_debug_outlines()
+            return
+            
+        # 3. Back Navigation (Escape)
+        if key == Qt.Key.Key_Escape:
             # Only trigger back button for non-reader views
             # (Readers handle their own Escape logic)
             idx = self.content_stack.currentIndex()
@@ -485,6 +508,44 @@ class MainWindow(QMainWindow):
                 self._on_header_back_clicked()
                 return
         super().keyPressEvent(event)
+
+    def _change_scale(self, delta: float):
+        from ui.theme_manager import UIConstants
+        new_factor = UIConstants._scale_factor + delta
+        UIConstants.set_scale(new_factor)
+        self._apply_theme()
+        logger.info(f"UI Scale changed to {UIConstants._scale_factor:.2f}")
+
+    def _reset_scale(self):
+        from ui.theme_manager import UIConstants
+        # 1.0 triggers re-fetch of system DPI in init_scale
+        UIConstants._scale_factor = 1.0
+        UIConstants.init_scale()
+        self._apply_theme()
+        logger.info("UI Scale reset to system default")
+
+    def _toggle_debug_outlines(self):
+        from ui.theme_manager import UIConstants
+        UIConstants.DEBUG_OUTLINES = not UIConstants.DEBUG_OUTLINES
+
+        if UIConstants.DEBUG_OUTLINES:
+            from ui.debug_overlay import DebugOverlay
+            self._debug_overlay = DebugOverlay(self)
+            self._debug_overlay.show()
+            logger.info("Debug outlines ON")
+        else:
+            overlay = getattr(self, '_debug_overlay', None)
+            if overlay:
+                overlay._timer.stop()
+                overlay.hide()
+                overlay.deleteLater()
+                self._debug_overlay = None
+            logger.info("Debug outlines OFF")
+
+        # Force repaint of all visible viewports so delegate outlines appear/disappear
+        for w in self.findChildren(QWidget):
+            if hasattr(w, 'viewport'):
+                w.viewport().update()
 
     def _on_header_back_clicked(self):
         current_view_idx = self.content_stack.currentIndex()
@@ -572,12 +633,9 @@ class MainWindow(QMainWindow):
         elif idx >= 0:
             entry = hist[idx]
             if entry["type"] == "browser":
-                if tab_name == "feed":
-                    self.content_stack.setCurrentIndex(ViewIndex.FEED_BROWSER)
-                    self.feed_browser.setFocus()
-                else:
-                    self.content_stack.setCurrentIndex(ViewIndex.FEED_BROWSER)
-                    self.feed_browser.setFocus()
+                self.content_stack.setCurrentIndex(ViewIndex.FEED_BROWSER)
+                asyncio.create_task(self.feed_browser.load_url(entry["url"]))
+                self.feed_browser.setFocus()
             elif entry["type"] == "detail":
                 self.feed_detail_view.load_publication(entry["pub"], entry["url"], self.api_client, self.opds_client, self.image_manager)
                 self.content_stack.setCurrentIndex(ViewIndex.DETAIL)

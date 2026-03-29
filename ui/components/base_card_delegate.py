@@ -22,7 +22,7 @@ class BaseCardDelegate(QStyledItemDelegate):
     def sizeHint(self, option, index):
         if not self.show_labels:
             # Shrink height if labels are hidden, but keep room for progress bar.
-            # cover_height (180) + prog_bar (10) + margin (10)
+            # cover_height + prog_bar + margin
             return QSize(UIConstants.CARD_WIDTH, UIConstants.CARD_COVER_HEIGHT + UIConstants.PROGRESS_BAR_TOTAL_HEIGHT + UIConstants.CARD_SPACING)
         return QSize(UIConstants.CARD_WIDTH, UIConstants.CARD_HEIGHT)
 
@@ -35,12 +35,8 @@ class BaseCardDelegate(QStyledItemDelegate):
         # This prevents stretching in justified layouts.
         target_w = UIConstants.CARD_WIDTH
         
-        # We only cap if the rect is significantly wider (headers handle their own drawing)
-        # In IconMode, rect.width() might be expanded by the layout engine.
-        if rect.width() > target_w + s(20): 
-            # If it's a card, center it. If it's a header (managed by subclass), 
-            # the subclass usually overrides or we handle it here.
-            # BaseCardDelegate is used for Cards.
+        # We only cap if the rect is significantly wider
+        if rect.width() > target_w + UIConstants.LAYOUT_MARGIN_LARGE: 
             offset_x = (rect.width() - target_w) // 2
             draw_rect = QRect(rect.left() + offset_x, rect.top(), target_w, rect.height())
         else:
@@ -151,34 +147,36 @@ class BaseCardDelegate(QStyledItemDelegate):
 
         # 4. Internal Label (only used when global labels are off)
         if label and not self.show_labels:
-            painter.save()
-            font = painter.font()
-            font.setPointSize(UIConstants.FONT_SIZE_CARD_LABEL - 1)
-            font.setBold(False)
-            painter.setFont(font)
-            
-            # Draw semi-transparent background strip at bottom
-            s = UIConstants.scale
-            margin = s(4)
-            metrics = painter.fontMetrics()
-            line_h = metrics.lineSpacing()
-            strip_h = (line_h * 2) + s(4) # 2 rows + small padding
-            strip_rect = QRect(rect.left() + margin, rect.bottom() - strip_h - margin, rect.width() - (margin * 2), strip_h)
-            
-            # Subtle gradient or solid dim background
-            bg_color = QColor(theme['bg_main'])
-            bg_color.setAlpha(180)
-            painter.setBrush(bg_color)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(strip_rect, s(4), s(4))
-            
-            # Draw text (Middle-elided, 2 rows max)
-            painter.setPen(QColor(theme['text_main']))
-            # Use a conservative heuristic (1.85x) to account for word-wrap overhead
-            # and ensure we don't trigger a 3rd line.
-            elided = metrics.elidedText(label, Qt.TextElideMode.ElideMiddle, int(strip_rect.width() * 1.85))
-            painter.drawText(strip_rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, elided)
-            painter.restore()
+            self.draw_internal_label(painter, rect, label, theme)
+
+    def draw_internal_label(self, painter: QPainter, rect: QRect, text: str, theme: dict):
+        """Draws a semi-transparent label strip inside the card area."""
+        painter.save()
+        font = painter.font()
+        font.setPixelSize(UIConstants.FONT_SIZE_CARD_LABEL)
+        font.setBold(False)
+        painter.setFont(font)
+        
+        # Draw semi-transparent background strip at bottom
+        s = UIConstants.scale
+        margin = s(4)
+        metrics = painter.fontMetrics()
+        line_h = metrics.lineSpacing()
+        strip_h = (line_h * 2) + s(4) # 2 rows + small padding
+        strip_rect = QRect(rect.left() + margin, rect.bottom() - strip_h - margin, rect.width() - (margin * 2), strip_h)
+        
+        # Subtle dim background
+        bg_color = QColor(theme['bg_main'])
+        bg_color.setAlpha(180)
+        painter.setBrush(bg_color)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(strip_rect, s(4), s(4))
+        
+        # Draw text (Middle-elided, 2 rows max)
+        painter.setPen(QColor(theme['text_main']))
+        elided = metrics.elidedText(text, Qt.TextElideMode.ElideMiddle, int(strip_rect.width() * UIConstants.ELIDED_TEXT_WIDTH_FACTOR))
+        painter.drawText(strip_rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, elided)
+        painter.restore()
 
     def draw_label(self, painter: QPainter, rect: QRect, text: str, theme: dict, secondary_text: str = None):
         """Draws the elided bold primary label, and optional dimmer secondary text below."""
@@ -188,7 +186,7 @@ class BaseCardDelegate(QStyledItemDelegate):
         # 1. Primary Label
         painter.setPen(QColor(theme['text_main']))
         font = painter.font()
-        font.setPointSize(UIConstants.FONT_SIZE_CARD_LABEL)
+        font.setPixelSize(UIConstants.FONT_SIZE_CARD_LABEL)
         font.setBold(False)
         painter.setFont(font)
         
@@ -202,7 +200,7 @@ class BaseCardDelegate(QStyledItemDelegate):
             # Draw secondary below primary
             painter.setPen(QColor(theme.get('text_dim', '#a0a0a0')))
             font.setBold(False)
-            font.setPointSize(UIConstants.FONT_SIZE_CARD_LABEL - 1)
+            font.setPixelSize(UIConstants.FONT_SIZE_CARD_LABEL - 1)
             painter.setFont(font)
             
             elided_secondary = metrics.elidedText(secondary_text, Qt.TextElideMode.ElideMiddle, rect.width())

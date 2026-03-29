@@ -1,105 +1,235 @@
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Set, Any
 from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, pyqtSignal
-from models.feed_page import FeedItem, ItemType
+from models.feed_page import FeedItem, ItemType as FeedItemType
+from enum import Enum
+
+class CompositeItemType(Enum):
+    HEADER = 1
+    RIBBON = 2
+    GRID_ITEM = 3
+
+class CompositeItem:
+    def __init__(self, type: CompositeItemType, section_id: str, data: Any = None, absolute_index: int = -1):
+        self.type = type
+        self.section_id = section_id
+        self.data = data # FeedSection for HEADER/RIBBON, FeedItem for GRID_ITEM
+        self.absolute_index = absolute_index # For grid items, their index in the sparse buffer
 
 class FeedBrowserModel(QAbstractListModel):
     """
-    A Qt model that supports a 'Sparse Buffer' for zero-jump scrolling.
-    Can pre-allocate thousands of rows and signal when missing data is scrolled into view.
+    A unified model for the Composite Virtual Dashboard.
+    Supports mixing embedded widgets (headers, ribbons) with thousands of virtualized grid items.
     """
     
-    # Custom roles
     ItemDataRole = Qt.ItemDataRole.UserRole + 1
-    
-    # Signals
-    page_request_needed = pyqtSignal(int) # page_index
-    cover_request_needed = pyqtSignal(str) # cover_url
+    IsCollapsedRole = Qt.ItemDataRole.UserRole + 2
+    CompositeTypeRole = Qt.ItemDataRole.UserRole + 3
 
-    def __init__(self, total_count: int = 0, items_per_page: int = 100):
+    page_request_needed = pyqtSignal(int)
+    cover_request_needed = pyqtSignal(str)
+
+    def __init__(self, items_per_page: int = 100, collapsed_sections: Optional[Set[str]] = None):
         super().__init__()
-        self._total_count = total_count
         self._items_per_page = items_per_page
         
-        # We use a dict for the sparse buffer: { index: FeedItem }
-        self._items: Dict[int, FeedItem] = {}
+        # Sparse buffer for the MAIN grid section: { absolute_index: FeedItem }
+        self._sparse_items: Dict[int, FeedItem] = {}
+        self._total_grid_items = 0
+        self._grid_section_id = None
+        
         self._requested_pages = set()
         self._requested_covers = set()
-
-    def rowCount(self, parent=QModelIndex()):
-        return self._total_count
-
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid() or not (0 <= index.row() < self._total_count):
-            return None
         
-        row = index.row()
-        item = self._items.get(row)
+        # The flattened list of items currently visible in the QListView
+        self._logical_items: List[CompositeItem] = []
         
-        # 1. Handle Missing Data (Trigger Pagination)
-        if item is None:
-            page_idx = (row // self._items_per_page) + 1
-            if page_idx not in self._requested_pages:
-                self._requested_pages.add(page_idx)
-                self.page_request_needed.emit(page_idx)
-            
-            # Return a "Skeleton" item
-            if role == self.ItemDataRole:
-                return FeedItem(
-                    type=ItemType.EMPTY,
-                    title="Loading...",
-                    identifier=f"empty_{row}"
-                )
-            return None
+        # Raw sections for rebuilding the map
+        self._raw_sections = []
+        # Share the collapsed state with the parent view if provided
+        self._collapsed_sections = collapsed_sections if collapsed_sections is not None else set()
 
-        # 2. Handle Existing Data
-        if role == self.ItemDataRole:
-            # TRIGGER COVER FETCH IF NOT ALREADY REQUESTED
-            if item.cover_url and item.cover_url not in self._requested_covers:
-                self._requested_covers.add(item.cover_url)
-                self.cover_request_needed.emit(item.cover_url)
-            return item
-        elif role == Qt.ItemDataRole.DisplayRole:
-            return item.title
-        
-        return None
-
-    def update_total_count(self, new_total: int):
-        """Pre-allocate the scrollbar height."""
-        if new_total == self._total_count:
-            return
-            
+    def update_total_count(self, count: int):
+        """Standard method for updating total items, used by Detail View Carousels."""
         self.beginResetModel()
-        self._total_count = new_total
+        self._total_grid_items = count
+        self._rebuild_logical_map()
         self.endResetModel()
 
-    def set_items_for_page(self, page_index: int, items: List[FeedItem]):
-        """Inject fetched items into their correct sparse slots."""
-        if not items:
-            return
-            
-        start_row = (page_index - 1) * self._items_per_page
+    def set_sections(self, sections: List[Any], main_grid_section_id: Optional[str] = None):
+        """Configures the dashboard structure."""
+        self.beginResetModel()
+        self._raw_sections = sections
+        self._grid_section_id = main_grid_section_id
         
-        for i, item in enumerate(items):
-            row = start_row + i
-            if row >= self._total_count:
-                # If server sent more than we expected, expand (rare)
-                self._total_count = row + 1
-                
-            self._items[row] = item
+        # If we have a main grid, initialize its total count
+        for s in sections:
+            if s.section_id == main_grid_section_id:
+                self._total_grid_items = s.total_items or len(s.items)
+                break
+        
+        self._rebuild_logical_map()
+        self.endResetModel()
+
+    def toggle_section(self, section_id: str):
+        self.beginResetModel()
+        if section_id in self._collapsed_sections:
+            self._collapsed_sections.discard(section_id)
+        else:
+            self._collapsed_sections.add(section_id)
+        self._rebuild_logical_map()
+        self.endResetModel()
+
+    def expand_all(self):
+        self.beginResetModel()
+        self._collapsed_sections.clear()
+        self._rebuild_logical_map()
+        self.endResetModel()
+
+    def collapse_all(self):
+        self.beginResetModel()
+        for section in self._raw_sections:
+            self._collapsed_sections.add(section.section_id)
+        self._rebuild_logical_map()
+        self.endResetModel()
+
+    def _rebuild_logical_map(self):
+        self._logical_items = []
+        
+        # If we only have one section, don't prepend a redundant HEADER row
+        # unless it's the main grid section.
+        multi_section = len(self._raw_sections) > 1
+
+        for section in self._raw_sections:
+            sid = section.section_id
             
-        # Notify view that these rows changed (replaces Skeletons with real cards)
-        self.dataChanged.emit(
-            self.index(start_row), 
-            self.index(start_row + len(items) - 1)
-        )
+            # 1. Add Header row only in multi-section mode
+            if multi_section:
+                self._logical_items.append(CompositeItem(CompositeItemType.HEADER, sid, section))
+            
+            if sid in self._collapsed_sections:
+                continue
+                
+            # 2. Content row(s)
+            if sid == self._grid_section_id:
+                # This is the massive grid. Flatten every single potential item.
+                for i in range(self._total_grid_items):
+                    self._logical_items.append(CompositeItem(CompositeItemType.GRID_ITEM, sid, absolute_index=i))
+            else:
+                from models.feed_page import SectionLayout
+                if getattr(section, 'layout', None) == SectionLayout.RIBBON:
+                    # Ribbons are a single row (the ribbon widget)
+                    # Note: In Dashboard mode, the 'view' is the ribbon, so it shouldn't contain itself
+                    if multi_section:
+                        self._logical_items.append(CompositeItem(CompositeItemType.RIBBON, sid, section))
+                    else:
+                        # Single-section ribbon: the model just holds the items
+                        for i, item in enumerate(section.items):
+                            self._logical_items.append(CompositeItem(CompositeItemType.GRID_ITEM, sid, data=item))
+                else:
+                    # Small grids: add individual items
+                    for i, item in enumerate(section.items):
+                        self._logical_items.append(CompositeItem(CompositeItemType.GRID_ITEM, sid, data=item))
+
+    @property
+    def items(self):
+        """Compatibility property for older code accessing the item buffer."""
+        return self._sparse_items
+
+    def rowCount(self, parent=QModelIndex()):
+        if self._logical_items:
+            return len(self._logical_items)
+        return len(self._sparse_items)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid(): return None
+        row = index.row()
+        
+        # 1. Handle Composite Type Role
+        if role == self.CompositeTypeRole:
+            if row < len(self._logical_items):
+                return self._logical_items[row].type
+            return CompositeItemType.GRID_ITEM # Default for standard/dashboard models
+            
+        if row >= len(self._logical_items):
+            # Fallback for standard/dashboard models without logical map
+            if role == self.IsCollapsedRole: return False
+            
+            # Simple list behavior
+            abs_idx = row
+            item = self._sparse_items.get(abs_idx)
+            
+            if role == Qt.ItemDataRole.DisplayRole:
+                return item.title if item else "Loading..."
+            if role == self.ItemDataRole:
+                return item
+            return None
+
+        logical_item = self._logical_items[row]
+
+        # For Headers and Ribbons, return the section object
+        if logical_item.type in (CompositeItemType.HEADER, CompositeItemType.RIBBON):
+            if role == self.ItemDataRole:
+                return logical_item.data
+            return None
+
+        # For Grid Items, handle the sparse buffer
+        if logical_item.type == CompositeItemType.GRID_ITEM:
+            item = None
+            abs_idx = -1
+            
+            if logical_item.section_id == self._grid_section_id:
+                # Main Grid (Sparse)
+                abs_idx = logical_item.absolute_index
+                item = self._sparse_items.get(abs_idx)
+            else:
+                # Small Grid (Pre-loaded)
+                item = logical_item.data
+
+            if role == Qt.ItemDataRole.DisplayRole:
+                return item.title if item else "Loading..."
+
+            if role == self.ItemDataRole:
+                if item is None and abs_idx != -1:
+                    # Trigger pagination
+                    page_idx = (abs_idx // self._items_per_page) + 1
+                    if page_idx not in self._requested_pages:
+                        self._requested_pages.add(page_idx)
+                        self.page_request_needed.emit(page_idx)
+                    
+                    return FeedItem(type=FeedItemType.EMPTY, title="Loading...", identifier=f"empty_{abs_idx}")
+                
+                if item and item.cover_url and item.cover_url not in self._requested_covers:
+                    self._requested_covers.add(item.cover_url)
+                    self.cover_request_needed.emit(item.cover_url)
+                    
+                return item
+                
+        # Fallback for simple models (e.g. ribbon) that use sparse_items directly
+        return self._sparse_items.get(row)
+
+    def set_items_for_page(self, page_index: int, items: List[FeedItem], offset: int = 0):
+        """Injects fetched items into the sparse buffer."""
+        start_row = (page_index - 1) * self._items_per_page
+        for i, item in enumerate(items):
+            self._sparse_items[start_row + i] = item
+        
+        self.layoutChanged.emit() # Notify the view
 
     def clear(self):
         self.beginResetModel()
-        self._items = {}
+        self._sparse_items = {}
+        self._logical_items = []
+        self._raw_sections = []
         self._requested_pages = set()
         self._requested_covers = set()
-        self._total_count = 0
         self.endResetModel()
-        
+
     def get_item(self, row: int) -> Optional[FeedItem]:
-        return self._items.get(row)
+        if 0 <= row < len(self._logical_items):
+            logical = self._logical_items[row]
+            if logical.type == CompositeItemType.GRID_ITEM:
+                if logical.section_id == self._grid_section_id:
+                    return self._sparse_items.get(logical.absolute_index)
+                return logical.data
+        # Fallback for simple models (e.g. ribbon) that populate sparse_items directly
+        return self._sparse_items.get(row)

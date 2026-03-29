@@ -1,228 +1,93 @@
-# Agentic UI Testing Techniques
+# ComicCatcher — Agent Testing Guide
 
-This document describes the techniques used for headless visual testing of the ComicCatcher PyQt6 UI during agentic development sessions.
+A practical reference for agents running visual, behavioural, and unit tests against the ComicCatcher PyQt6 UI in a headless environment.
 
 ---
 
-## Environment
+## Table of Contents
 
-### Virtual Environment
+1. [Quick Start](#1-quick-start)
+2. [Environment](#2-environment)
+3. [Standard Mock Objects](#3-standard-mock-objects)
+4. [Standard Test Data](#4-standard-test-data)
+5. [Screenshot Testing](#5-screenshot-testing)
+6. [Behavioural / Signal Testing](#6-behavioural--signal-testing)
+7. [Widget Coordinate & Alignment Testing](#7-widget-coordinate--alignment-testing)
+8. [Unit Tests (pytest)](#8-unit-tests-pytest)
+9. [Common Issues](#9-common-issues)
 
-All Python test scripts use the project venv at `~/cc/test/venv`:
+---
 
-```bash
-source ~/cc/test/venv/bin/activate
-```
+## 1. Quick Start
 
-This venv contains PyQt6 and all project dependencies. Always activate it before running any UI test script.
-
-### Virtual Display (Xvfb)
-
-PyQt6 requires a display server. In a headless environment (no physical screen), use Xvfb:
-
-```bash
-Xvfb :99 -screen 0 1280x800x24 &
-sleep 1
-DISPLAY=:99 python /tmp/my_script.py
-```
-
-Check if Xvfb is already running before starting a new instance:
+Copy-paste to verify the environment is ready before writing any test:
 
 ```bash
+# Check Xvfb is running (start it if not)
 pgrep Xvfb || Xvfb :99 -screen 0 1280x800x24 &
+
+# Smoke-test: render the settings view and save a screenshot
+DISPLAY=:99 /home/tony/cc/test/venv/bin/python - <<'EOF'
+import sys, os
+sys.path.insert(0, '/home/tony/cc/comiccatcher')
+os.chdir('/home/tony/cc/comiccatcher')
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QTimer
+from ui.theme_manager import ThemeManager, UIConstants
+app = QApplication(sys.argv)
+UIConstants.init_scale()
+ThemeManager.apply_theme(app, 'dark')
+from ui.views.settings import SettingsView
+from config import ConfigManager
+v = SettingsView(ConfigManager())
+v.resize(800, 600)
+v.show()
+QTimer.singleShot(400, lambda: (app.primaryScreen().grabWindow(v.winId()).save('/tmp/smoke.png'), app.quit()))
+app.exec()
+EOF
 ```
+
+Then `Read /tmp/smoke.png` to confirm rendering worked.
 
 ---
 
-## Screenshot Patterns
+## 2. Environment
 
-### Pattern 1: Single-widget screenshot
+### Paths
 
-The simplest pattern — create one widget, show it, capture after a short delay, then quit.
+| Resource | Path |
+|---|---|
+| Project root | `/home/tony/cc/comiccatcher` |
+| Test venv | `/home/tony/cc/test/venv` |
+| Python binary | `/home/tony/cc/test/venv/bin/python` |
+| Screenshots (convention) | `/tmp/*.png` |
+| Log files (convention) | `/tmp/*.log` |
+
+Always use the **absolute Python path** — do not rely on `python` or `python3`
+from `PATH`, and do not use `source activate` (shell state does not persist
+between tool calls in most agent environments).
+
+### Every test script must start with
 
 ```python
 import sys, os
 sys.path.insert(0, '/home/tony/cc/comiccatcher')
 os.chdir('/home/tony/cc/comiccatcher')
-
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QTimer
-
-app = QApplication(sys.argv)
-from ui.theme_manager import ThemeManager
-from ui.views.settings import SettingsView
-from config import ConfigManager
-
-config = ConfigManager()
-ThemeManager.apply_theme(app, "dark")
-
-view = SettingsView(config)
-view.resize(800, 600)
-view.show()
-
-def capture():
-    app.primaryScreen().grabWindow(view.winId()).save('/tmp/settings_dark.png')
-    app.quit()
-
-QTimer.singleShot(400, capture)
-app.exec()
 ```
 
-Key points:
-- Apply the theme **before** creating the widget, so all icons and colors initialize with the correct theme
-- Use `QTimer.singleShot` to defer capture until after the event loop has processed the initial paint
-- 300–500ms delay is usually sufficient; use more if the view loads data asynchronously
+### Virtual display
 
-### Pattern 2: Multi-theme loop (single reused window)
+All PyQt6 code requires a display. Use Xvfb on the headless machine:
 
-Efficient for capturing the same view across all four themes without recreating widgets.
-
-```python
-themes = ['light', 'dark', 'oled', 'blue']
-idx = [0]
-
-view = SettingsView(config)
-view.resize(800, 600)
-view.show()
-
-def next_theme():
-    if idx[0] >= len(themes):
-        app.quit()
-        return
-    t = themes[idx[0]]
-    ThemeManager.apply_theme(app, t)
-    # Force all widgets to re-evaluate the new stylesheet
-    for widget in app.allWidgets():
-        widget.style().unpolish(widget)
-        widget.style().polish(widget)
-        widget.update()
-    QTimer.singleShot(300, lambda: capture(t))
-
-def capture(t):
-    app.primaryScreen().grabWindow(view.winId()).save(f'/tmp/view_{t}.png')
-    idx[0] += 1
-    QTimer.singleShot(50, next_theme)
-
-QTimer.singleShot(200, next_theme)
-app.exec()
+```bash
+pgrep Xvfb || Xvfb :99 -screen 0 1280x800x24 &
+DISPLAY=:99 /home/tony/cc/test/venv/bin/python /tmp/my_script.py
 ```
 
-**Caveat:** Icons set programmatically during `__init__` (e.g. via `item.setIcon(ThemeManager.get_icon(...))`) are not automatically refreshed when the stylesheet changes. Call the relevant refresh methods manually after each theme switch, or use Pattern 3 for accurate icon rendering.
+### Async patch (required for most views)
 
-### Pattern 3: Per-theme separate instances (accurate icon colors)
-
-The most accurate approach. Applies the theme first, then creates a fresh widget so all icons initialize with the correct color.
-
-```python
-themes = ['light', 'dark', 'oled', 'blue']
-idx = [0]
-win = [None]
-
-def next_theme():
-    if idx[0] >= len(themes):
-        app.quit()
-        return
-    t = themes[idx[0]]
-    if win[0]:
-        win[0].close()
-    ThemeManager.apply_theme(app, t)
-    w = SettingsView(config)
-    win[0] = w
-    w.resize(800, 600)
-    w.show()
-    QTimer.singleShot(400, lambda: capture(t))
-
-def capture(t):
-    app.primaryScreen().grabWindow(win[0].winId()).save(f'/tmp/view_{t}.png')
-    idx[0] += 1
-    QTimer.singleShot(100, next_theme)
-
-QTimer.singleShot(200, next_theme)
-app.exec()
-```
-
-### Pattern 4: Simulating live theme switching
-
-Tests what happens when the user switches themes at runtime — the most realistic test for live-switch bugs (e.g. GroupBox backgrounds not updating, icons staying the wrong color).
-
-```python
-ThemeManager.apply_theme(app, "light")
-view = SettingsView(config)
-view.show()
-
-def switch_to_dark():
-    ThemeManager.apply_theme(app, "dark")
-    for widget in app.allWidgets():
-        widget.style().unpolish(widget)
-        widget.style().polish(widget)
-        widget.update()
-    # Also refresh any programmatically-set icons
-    view.feed_management.refresh_feeds()
-    QTimer.singleShot(400, capture_dark)
-
-def capture_dark():
-    app.primaryScreen().grabWindow(view.winId()).save('/tmp/switched_dark.png')
-    app.quit()
-
-QTimer.singleShot(300, switch_to_dark)
-app.exec()
-```
-
-This pattern was used to diagnose and verify the fix for the dark-mode GroupBox background regression that appeared only after switching from light mode.
-
----
-
-## Capturing the Full App Window
-
-For testing the main `MainWindow` (sidebar, toolbar, navigation):
-
-```python
-from ui.app_layout import MainWindow
-from config import ConfigManager
-
-config = ConfigManager()
-w = MainWindow(config)
-w.resize(900, 650)
-w.show()
-
-# Apply theme AFTER show so all widgets exist
-def do_apply():
-    ThemeManager.apply_theme(app, "oled")
-    for widget in app.allWidgets():
-        widget.style().unpolish(widget)
-        widget.style().polish(widget)
-        widget.update()
-    QTimer.singleShot(500, capture)
-
-QTimer.singleShot(200, do_apply)
-```
-
-Applying the theme after `show()` (rather than before) is necessary for `MainWindow` because it calls `_apply_theme()` internally during `__init__`. Post-show application ensures the full widget tree exists and is polished with the target theme.
-
----
-
-## Capturing Popup Menus
-
-Menus close immediately if focus is lost, so capture must happen while the menu is open:
-
-```python
-def show_menu():
-    menu.popup(win.mapToGlobal(QPoint(10, 10)))
-    QTimer.singleShot(400, capture)
-
-def capture():
-    # Grab the entire screen — the menu is a top-level window
-    app.primaryScreen().grabWindow(0).save('/tmp/menu.png')
-    menu.close()
-```
-
-Use `grabWindow(0)` (the root window) rather than a specific widget's `winId()` to capture floating popups like `QMenu`.
-
----
-
-## Handling Async Code in Test Scripts
-
-Views that use `asyncio.create_task` at construction time (e.g. `FeedManagementView`) will crash in a plain `QApplication` context because there is no running event loop. Patch `asyncio.create_task` to be a no-op before importing these views:
+Many widgets call `asyncio.create_task` during `__init__`. Without a running
+qasync loop this raises `RuntimeError`. Patch it **before any project imports**:
 
 ```python
 import asyncio
@@ -236,37 +101,381 @@ def _safe(coro, **kw):
 asyncio.create_task = _safe
 ```
 
-Apply this patch at the top of the script, before any project imports.
+### UIConstants initialisation
+
+Always call `UIConstants.init_scale()` before creating any widget — it
+initialises all pixel constants (card sizes, spacing, font sizes, etc.).
+
+```python
+from ui.theme_manager import ThemeManager, UIConstants
+app = QApplication(sys.argv)
+UIConstants.init_scale()
+ThemeManager.apply_theme(app, 'dark')
+```
 
 ---
 
-## Reading Screenshots
+## 3. Standard Mock Objects
 
-After saving screenshots to `/tmp`, use the `Read` tool to view them. The tool renders images inline, allowing direct visual inspection without leaving the session.
+Copy these verbatim — they satisfy the constructor requirements of all feed
+views without any network access.
 
+```python
+class MockImageManager:
+    api_client = None
+    def get_image_sync(self, url): return None
+    async def get_image_b64(self, url): pass
+
+class MockOPDSClient:
+    async def get_feed(self, url, **kw):
+        raise RuntimeError("no network")
 ```
-Read /tmp/settings_dark.png
-```
-
-Compare multiple themes side-by-side by reading them sequentially and noting differences in:
-- GroupBox background colors (dark/OLED should not show white/light-gray boxes)
-- Icon visibility (SVG icons are colored at runtime via `ThemeManager.get_icon()`)
-- Text contrast (nav labels, dim text on dark sidebars)
-- Button states (normal, hover, checked, disabled)
-- Menu separators and item backgrounds
-- Radio button and checkbox indicators
 
 ---
 
-## Common Issues and Fixes
+## 4. Standard Test Data
+
+### Minimal FeedPage (RIBBON sections only)
+
+Use this for dashboard-style views and anything that doesn't need pagination.
+
+```python
+from models.feed_page import FeedPage, FeedSection, FeedItem, ItemType, SectionLayout
+
+def make_page():
+    sections = []
+    for i, (title, n) in enumerate([("Keep Reading", 8), ("Latest Unread", 6), ("Oldest Unread", 5)]):
+        items = [
+            FeedItem(identifier=f"s{i}_i{j}", title=f"Comic {j+1}", type=ItemType.BOOK)
+            for j in range(n)
+        ]
+        sections.append(FeedSection(
+            section_id=f"sec_{i}",
+            title=title,
+            items=items,
+            layout=SectionLayout.RIBBON,
+            items_per_page=n,
+            current_page=1,
+        ))
+    return FeedPage(title="Test Feed", sections=sections)
+```
+
+### Large GRID section (for scrolled-view pagination testing)
+
+```python
+def make_large_page(total=500):
+    # First page of items — the model fills in the rest sparsely
+    first_page = [
+        FeedItem(identifier=f"item_{j}", title=f"Issue {j+1}", type=ItemType.BOOK)
+        for j in range(50)
+    ]
+    grid_section = FeedSection(
+        section_id="all_issues",
+        title="All Issues",
+        items=first_page,
+        layout=SectionLayout.RIBBON,   # server default; render() promotes to GRID
+        total_items=total,
+        items_per_page=50,
+        current_page=1,
+    )
+    ribbon = FeedSection(
+        section_id="keep_reading",
+        title="Keep Reading",
+        items=[FeedItem(identifier=f"kr_{j}", title=f"Comic {j+1}", type=ItemType.BOOK) for j in range(8)],
+        layout=SectionLayout.RIBBON,
+        items_per_page=8,
+        current_page=1,
+    )
+    return FeedPage(title="Library", sections=[ribbon, grid_section])
+```
+
+> **Note:** `ScrolledFeedView.render()` promotes the largest section to GRID
+> regardless of its `layout` attribute — the server's default is RIBBON.
+
+---
+
+## 5. Screenshot Testing
+
+### Pattern 1: Single widget
+
+```python
+import sys, os, asyncio
+# async patch here ...
+sys.path.insert(0, '/home/tony/cc/comiccatcher')
+os.chdir('/home/tony/cc/comiccatcher')
+
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QTimer
+from ui.theme_manager import ThemeManager, UIConstants
+
+app = QApplication(sys.argv)
+UIConstants.init_scale()
+ThemeManager.apply_theme(app, 'dark')
+
+from ui.views.paged_feed_view import PagedFeedView
+
+img = MockImageManager()
+view = PagedFeedView(img, set())
+view.resize(1100, 700)
+view.show()
+view.render(make_page())
+
+QTimer.singleShot(500, lambda: (
+    app.primaryScreen().grabWindow(view.winId()).save('/tmp/paged.png'),
+    app.quit()
+))
+app.exec()
+```
+
+Key rules:
+- Apply theme **before** creating widgets (icons colour at init time)
+- `QTimer.singleShot` delay: 400–600 ms is enough for synchronous views;
+  use 1 000+ ms if the view triggers async cover loading
+- `UIConstants.init_scale()` must come before any widget creation
+
+### Pattern 2: Stepped sequence
+
+Use a `step` counter when you need to render multiple states in order
+(e.g. render → interact → capture).
+
+```python
+step = [0]
+
+def run():
+    s = step[0]; step[0] += 1
+    if s == 0:
+        view.render(make_page())
+        QTimer.singleShot(500, run)
+    elif s == 1:
+        app.primaryScreen().grabWindow(view.winId()).save('/tmp/state1.png')
+        # change state ...
+        QTimer.singleShot(300, run)
+    elif s == 2:
+        app.primaryScreen().grabWindow(view.winId()).save('/tmp/state2.png')
+        app.quit()
+
+QTimer.singleShot(200, run)
+app.exec()
+```
+
+### Pattern 3: Per-theme comparison
+
+Most accurate — applies theme before creating each fresh widget.
+
+```python
+themes = ['light', 'dark', 'oled', 'blue']
+idx = [0]; win = [None]
+
+def next_theme():
+    if idx[0] >= len(themes):
+        app.quit(); return
+    t = themes[idx[0]]
+    if win[0]: win[0].close()
+    ThemeManager.apply_theme(app, t)
+    w = MyView(...)
+    win[0] = w
+    w.resize(800, 600); w.show()
+    QTimer.singleShot(400, lambda: capture(t))
+
+def capture(t):
+    app.primaryScreen().grabWindow(win[0].winId()).save(f'/tmp/view_{t}.png')
+    idx[0] += 1
+    QTimer.singleShot(100, next_theme)
+
+QTimer.singleShot(200, next_theme)
+app.exec()
+```
+
+### Reading screenshots
+
+Use the `Read` tool directly on the saved path — screenshots render inline:
+
+```
+Read /tmp/paged.png
+Read /tmp/scrolled.png
+```
+
+---
+
+## 6. Behavioural / Signal Testing
+
+Test that signals fire correctly and that clicks propagate through the full
+chain without running a full application.
+
+### Signal capture pattern
+
+```python
+received = []
+view.item_clicked.connect(lambda item, ctx: received.append(item.title))
+
+# ... trigger the action ...
+
+# Assert after a short delay
+QTimer.singleShot(200, lambda: (
+    print(f"received: {received}"),
+    assert received == ["Expected Title"],
+    app.quit()
+))
+```
+
+### Simulating a click via the model index
+
+When you need to trigger a `clicked` signal without a real mouse event:
+
+```python
+ribbon = list(scrolled._ribbons.values())[0]
+idx = ribbon.model().index(0)       # first item
+ribbon.clicked.emit(idx)            # fires _on_ribbon_clicked
+```
+
+For grid views:
+
+```python
+view = scrolled._grids['all_issues']
+view.clicked.emit(view.model().index(0))
+```
+
+### Verifying model state
+
+After `render()`, check that models are populated correctly:
+
+```python
+# Ribbon section
+ribbon = scrolled._ribbons['keep_reading']
+model = ribbon.model()
+print(f"rowCount={model.rowCount()}")
+print(f"get_item(0)={model.get_item(0)}")
+
+# Grid section
+grid_model = scrolled._models['all_issues']
+print(f"grid rows={grid_model.rowCount()}")
+print(f"sparse_items keys={sorted(grid_model._sparse_items.keys())}")
+```
+
+### Full end-to-end signal test example
+
+```python
+def check():
+    # Verify render populated the models
+    assert len(scrolled._ribbons) == 1
+    assert len(scrolled._grids) == 1
+
+    # Verify clicking a ribbon item emits item_clicked
+    clicked = []
+    scrolled.item_clicked.connect(lambda item, ctx: clicked.append(item))
+    ribbon = list(scrolled._ribbons.values())[0]
+    ribbon.clicked.emit(ribbon.model().index(0))
+    assert len(clicked) == 1
+    assert clicked[0].type != ItemType.EMPTY
+
+    print("All assertions passed")
+    app.quit()
+
+QTimer.singleShot(400, check)
+```
+
+---
+
+## 7. Widget Coordinate & Alignment Testing
+
+Use `DebugOverlay` to dump every widget's position in global coordinates.
+This is the primary tool for diagnosing alignment and spacing issues.
+
+### Activating at runtime
+
+Press **Ctrl+Shift+D** in the running application to toggle the debug overlay.
+Outlines are drawn on-screen and coordinates are logged to the `ui.debug_overlay`
+logger.
+
+### Programmatic coordinate dump
+
+```python
+import logging
+logging.basicConfig(level=logging.INFO, handlers=[
+    logging.FileHandler('/tmp/align.log', mode='w'),
+    logging.StreamHandler(),
+])
+
+from ui.debug_overlay import DebugOverlay
+
+overlay = DebugOverlay(my_widget)
+overlay.show()
+
+def dump():
+    overlay._log_coords()   # writes to ui.debug_overlay logger
+    overlay.deleteLater()
+    app.quit()
+
+QTimer.singleShot(400, dump)
+```
+
+### Reading the log
+
+```
+ui.debug_overlay   SectionHeader    x=    0  y=    0  w= 1090  h=   29
+ui.debug_overlay   BaseCardRibbon   x=    0  y=   29  w= 1090  h=  260
+```
+
+- All coordinates are **in the parent widget's coordinate space** (not screen).
+- `x=0, y=0` for the first section header means flush alignment — no leading gap.
+- Gap between `SectionHeader` bottom and `BaseCardRibbon` top should be 0 for
+  both paged and scrolled views.
+
+### Reference: expected coordinates at 1100×700
+
+| Widget | x | y | Notes |
+|---|---|---|---|
+| First SectionHeader | 0 | 0 | Flush top |
+| BaseCardRibbon (same section) | 0 | 29 | Immediately below header |
+| Second SectionHeader | 0 | 296 | After ribbon height (260) + 2px section spacing |
+| QScrollBar (vertical) | 1090 | 0 | Right edge |
+
+---
+
+## 8. Unit Tests (pytest)
+
+Run the full test suite:
+
+```bash
+cd /home/tony/cc/comiccatcher
+/home/tony/cc/test/venv/bin/pytest tests/ -v
+```
+
+Run a specific test file:
+
+```bash
+/home/tony/cc/test/venv/bin/pytest tests/test_reader_logic_unit.py -v
+```
+
+Tests live in `tests/` and cover:
+
+| File | What it tests |
+|---|---|
+| `test_reader_logic_unit.py` | `ReaderSession` state machine + 5 000-op fuzz |
+| `test_viewport_paging_logic.py` | ReFit virtual-page maths |
+| `test_download_filename.py` | Content-Disposition parsing |
+| `test_reader_integration_manifest.py` | Full manifest parsing |
+| `test_local_archive_cbz.py` | CBZ extraction |
+| `test_local_comicbox_flatten.py` | comicbox metadata flattening |
+| `test_config_library_dir.py` | Cross-platform path resolution |
+
+Unit tests do **not** require Xvfb or a QApplication — they test pure logic
+with no UI dependencies.
+
+---
+
+## 9. Common Issues
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Icons appear white in light mode | Icons set before theme applied | Apply theme before creating widget (Pattern 3) |
-| GroupBox shows white background in dark mode | No `background-color` on `QGroupBox` CSS rule | Add `background-color: {theme['bg_main']}` to `QGroupBox` rule |
-| Live theme switch leaves stale colors | Qt caches widget style | Call `unpolish/polish/update` on all widgets after stylesheet change |
-| Radio button circles invisible | No `QRadioButton::indicator` CSS rule | Add explicit indicator rules with border and background states |
-| Menu separator invisible in dark mode | Separator color same as background | Use `text_dim` instead of `border` for `QMenu::separator` background |
-| `ModuleNotFoundError` in test script | Wrong working directory | Add `sys.path.insert(0, ...)` and `os.chdir(...)` at script top |
-| `RuntimeError: no running event loop` | `asyncio.create_task` in widget `__init__` | Patch `asyncio.create_task` before imports (see above) |
-| App crashes on `Aborted (core dumped)` | Xvfb not running or xcb plugin missing | Start Xvfb first; ensure `DISPLAY=:99` is set |
+| `AttributeError: 'ScrolledFeedView' object has no attribute 'view'` | Code references old `.view` attribute | Use `._vp` (viewport) or `._grids[sid]` (grid view) |
+| `get_item()` returns `None` for ribbon items | Model has no `_logical_items` (ribbon models use `_sparse_items` directly) | Fixed in `FeedBrowserModel.get_item` — falls back to `_sparse_items.get(row)` |
+| Cards rendered as a horizontal ribbon instead of a grid | Section layout not promoted to GRID | `ScrolledFeedView.render()` uses `_main_grid_sid`; check `_descs[i].is_grid` |
+| `RuntimeError: no running event loop` | `asyncio.create_task` called before qasync loop | Apply the async patch at top of script (see §2) |
+| `Aborted (core dumped)` | No display server | `pgrep Xvfb || Xvfb :99 -screen 0 1280x800x24 &` then set `DISPLAY=:99` |
+| `ModuleNotFoundError` | Wrong working directory or missing `sys.path` | Add `sys.path.insert(0, '/home/tony/cc/comiccatcher')` and `os.chdir(...)` |
+| Icons appear wrong colour after theme switch | Icons set at init time, not refreshed | Recreate widget after applying theme (Pattern 3), or call `ThemeManager.get_icon` again |
+| `GroupBox` shows white background in dark mode | Missing `background-color` in CSS rule | Add `background-color: {theme['bg_main']}` to the `QGroupBox` stylesheet rule |
+| Live theme switch leaves stale colours | Qt caches widget style | Call `unpolish/polish/update` on all widgets after stylesheet change |
+| Popup menu not captured in screenshot | Menu closes when focus lost | Use `grabWindow(0)` (root window) and capture while menu is open |
+| `UIConstants` values are 0 or default | `init_scale()` not called | Call `UIConstants.init_scale()` before creating any widget |

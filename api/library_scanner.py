@@ -104,7 +104,7 @@ class LibraryScanner:
             
             if not self._cancel_flag:
                 # Always cleanup missing files
-                self.on_progress(total_files, total_files, "Cleaning up database...")
+                self.on_progress(total_files, total_files, "")
                 removed_count = await asyncio.to_thread(self.db.remove_missing_comics, list(current_paths))
                 if removed_count > 0:
                     has_changes = True

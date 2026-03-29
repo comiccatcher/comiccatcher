@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.getcwd(), "comiccatcher"))
 
 from comiccatcher.config import ConfigManager
 from comiccatcher.ui.app_layout import MainWindow
-from comiccatcher.ui.views.local_library import LocalLibraryView, SeriesSection
+from comiccatcher.ui.views.local_library import LocalLibraryView, LibrarySection
 
 def create_mock_comic(path: Path):
     import zipfile
@@ -70,7 +70,7 @@ async def verify_library_stability():
         print("Finding sections...")
         sections = []
         for _ in range(20):
-            sections = view.grouped_container.findChildren(SeriesSection)
+            sections = view.grouped_container.findChildren(LibrarySection)
             if sections: break
             # Try triggering a load if empty
             await view._load_grouped()
@@ -89,7 +89,7 @@ async def verify_library_stability():
         await asyncio.sleep(1)
 
         def get_y_positions():
-            sects = view.grouped_container.findChildren(SeriesSection)
+            sects = view.grouped_container.findChildren(LibrarySection)
             sects.sort(key=lambda s: s.mapToGlobal(s.rect().topLeft()).y())
             return [s.mapTo(view.grouped_container, s.rect().topLeft()).y() for s in sects]
 

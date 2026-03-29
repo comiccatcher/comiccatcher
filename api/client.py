@@ -1,13 +1,14 @@
 import httpx
 from typing import Optional, Dict, Any
 from models.feed import FeedProfile
+from config import NETWORK_TIMEOUT
 
 class APIClient:
     def __init__(self, profile: FeedProfile):
         self.profile = profile
         self.client = httpx.AsyncClient(
             base_url=self.profile.get_base_url(), 
-            timeout=30.0,
+            timeout=NETWORK_TIMEOUT,
             follow_redirects=True
         )
         

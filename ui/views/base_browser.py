@@ -1,3 +1,4 @@
+from typing import Optional, Callable
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QProgressBar, QSizePolicy, QFrame
@@ -35,22 +36,23 @@ class BaseBrowserView(QWidget):
         self.header_layout.setContentsMargins(UIConstants.LAYOUT_MARGIN_DEFAULT, 0, UIConstants.LAYOUT_MARGIN_DEFAULT, 0)
         self.layout.addWidget(self.header_widget)
 
+        self.status_label = QLabel("")
+        self.header_layout.addWidget(self.status_label)
+
         # 2. Status & Progress Area (Floating Overlay)
         self.status_area = QWidget(self)
         self.status_area.setFixedHeight(UIConstants.STATUS_HEIGHT)
         self.status_area.setVisible(False)
         self.status_area.setObjectName("status_overlay")
-        self.status_layout = QHBoxLayout(self.status_area)
-        self.status_layout.setContentsMargins(UIConstants.LAYOUT_MARGIN_DEFAULT, 0, UIConstants.LAYOUT_MARGIN_DEFAULT, 0)
-        
-        self.status_label = QLabel("")
-        self.status_layout.addWidget(self.status_label)
+        self.status_layout = QVBoxLayout(self.status_area)
+        self.status_layout.setContentsMargins(0, 0, 0, 0)
+        self.status_layout.setSpacing(0)
         
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
         self.progress_bar.setFixedHeight(UIConstants.PROGRESS_BAR_HEIGHT)
         self.progress_bar.setTextVisible(False)
-        self.status_layout.addWidget(self.progress_bar, 1)
+        self.status_layout.addWidget(self.progress_bar)
         
         self.status_area.raise_()
 
@@ -140,10 +142,20 @@ class BaseBrowserView(QWidget):
     def set_status(self, text: str, busy: bool = False):
         """Standardized status/progress display."""
         self.status_label.setText(text)
-        self.status_area.setVisible(bool(text) or busy)
+        self.status_area.setVisible(busy)
         self.progress_bar.setVisible(busy)
-        if bool(text) or busy:
+        if busy:
             self.status_area.raise_()
+
+    def create_action_button(self, text: str, callback: Optional[Callable] = None, object_name: str = "action_button") -> QPushButton:
+        """Creates a standardized, themed action button (e.g., 'See All')."""
+        btn = QPushButton(text)
+        btn.setObjectName(object_name) # Triggers themed style from ThemeManager
+        btn.setFlat(True)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        if callback:
+            btn.clicked.connect(callback)
+        return btn
 
     def create_header_button(self, icon_name: str, tooltip: str, checkable: bool = False) -> QPushButton:
         """Helper to create standardized header buttons."""
@@ -167,6 +179,12 @@ class BaseBrowserView(QWidget):
         self.selection_bar.setVisible(enabled)
         if hasattr(self, 'btn_select'):
             self.btn_select.setChecked(enabled)
+
+    def set_all_sections_collapsed(self, collapsed: bool):
+        """Universal helper to expand/collapse all CollapsibleSection children."""
+        from ui.components.collapsible_section import CollapsibleSection
+        for section in self.findChildren(CollapsibleSection):
+            section.set_collapsed(collapsed)
 
     def _style_segmented_group(self, buttons: list[QPushButton]):
         """Applies a 'segmented' (joined) look to a list of buttons."""

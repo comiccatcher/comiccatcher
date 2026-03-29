@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Optional, List, Dict, Any
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 

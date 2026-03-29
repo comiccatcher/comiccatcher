@@ -61,17 +61,19 @@ class BaseCardRibbon(QListView):
         self.doItemsLayout()
 
     def update_ribbon_height(self):
-        """Calculates and sets the fixed height based on label visibility."""
+        """Calculates and sets the fixed height based on label visibility and OS scrollbar height."""
         from ui.theme_manager import UIConstants
         if self._show_labels:
             h = UIConstants.CARD_HEIGHT
         else:
             h = UIConstants.CARD_COVER_HEIGHT + (UIConstants.CARD_PADDING * 2)
             
-        # Add a buffer for the horizontal scrollbar (typically s(10) in our theme)
-        # s(12) ensures that the scrollbar has enough room without extra dead space.
-        s = UIConstants.scale
-        total_h = h + s(12)
+        # Use the centralized metric from UIConstants
+        scrollbar_h = UIConstants.SCROLLBAR_SIZE
+        
+        # Total height = Content + Scrollbar + Themed Spacing (breathing room)
+        total_h = h + scrollbar_h + UIConstants.GRID_SPACING
+        
         self.setFixedHeight(total_h)
         self.setMinimumHeight(total_h)
         self.setMaximumHeight(total_h)
@@ -82,6 +84,15 @@ class BaseCardRibbon(QListView):
     def setModel(self, model):
         super().setModel(model)
         self.update_ribbon_height()
+
+    def mouseMoveEvent(self, event):
+        """Change cursor to pointing hand only when hovering over a valid item."""
+        index = self.indexAt(event.pos())
+        if index.isValid():
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().mouseMoveEvent(event)
 
     def wheelEvent(self, event):
         """Redirect vertical scroll events to parent to prevent internal jitter."""

@@ -49,6 +49,8 @@ class FeedSection(BaseModel):
 class FeedPage(BaseModel):
     """The entire state of a feed view."""
     title: str
+    current_page: int = 1
+    total_pages: Optional[int] = None
     sections: List[FeedSection] = []
     facets: List[Any] = [] # List of Group objects or dicts for filters
     

@@ -7,6 +7,9 @@ from logger import get_logger
 
 logger = get_logger("api.feed_reconciler")
 
+# Threshold for choosing GRID layout over RIBBON for results sets
+# MOVED TO UI LAYER
+
 class FeedReconciler:
     """
     Transforms raw OPDS feeds into a unified structure.
@@ -53,6 +56,9 @@ class FeedReconciler:
         if feed.navigation:
             nav_items = []
             for link in feed.navigation:
+                rel_str = "".join(link.rel or []) if isinstance(link.rel, list) else (link.rel or "")
+                if "start" in rel_str or (link.title and link.title.lower() == "start"):
+                    continue
                 nav_items.append(FeedItem(
                     type=ItemType.FOLDER,
                     title=link.title or "Untitled",
@@ -63,22 +69,9 @@ class FeedReconciler:
             if nav_items:
                 sec_id = feed.metadata.identifier or f"nav_{logical_id}"
                 
-                # Heuristic: Is this a Dashboard (Start page) or a pure Folder List (All Series)?
-                # If there are any publications anywhere (top-level or in groups), the top navigation is just a menu ribbon.
-                # If there are NO publications anywhere, this navigation list IS the main content (e.g. Series list).
-                has_any_pubs = bool(feed.publications) or any(bool(g.publications) for g in (feed.groups or []))
-                
-                if not has_any_pubs:
-                    # It's a pure folder list, inherit global counts
-                    total = feed.metadata.numberOfItems if feed.metadata.numberOfItems is not None else len(nav_items)
-                    next_url = FeedReconciler._find_next(feed.links, base_url)
-                    # Folders in a pure folder list should be a grid
-                    layout = SectionLayout.GRID
-                else:
-                    # It's a dashboard menu, don't inherit global counts
-                    total = len(nav_items)
-                    next_url = None
-                    layout = SectionLayout.RIBBON
+                # It's a pure folder list, inherit global counts
+                total = feed.metadata.numberOfItems if feed.metadata.numberOfItems is not None else len(nav_items)
+                next_url = FeedReconciler._find_next(feed.links, base_url)
                 
                 sections.append(FeedSection(
                     title="Subsections",
@@ -87,8 +80,7 @@ class FeedReconciler:
                     total_items=total,
                     items_per_page=feed.metadata.itemsPerPage,
                     current_page=feed.metadata.currentPage or 1,
-                    next_url=next_url,
-                    layout=layout
+                    next_url=next_url
                 ))
 
         # 2. Handle Groups
@@ -117,9 +109,6 @@ class FeedReconciler:
                     g_self = next((urllib.parse.urljoin(base_url, l.href) for l in (group.links or []) if l.rel == "self"), None)
                     g_next = FeedReconciler._find_next(group.links, base_url)
                     
-                    # If the group is paginated, it's a main results set, use GRID.
-                    layout = SectionLayout.GRID if g_next else SectionLayout.RIBBON
-                    
                     sections.append(FeedSection(
                         title=group.metadata.title or "Group",
                         section_id=group.metadata.identifier or f"group_{group.metadata.title}",
@@ -128,8 +117,7 @@ class FeedReconciler:
                         items_per_page=group.metadata.itemsPerPage,
                         current_page=group.metadata.currentPage or 1,
                         next_url=g_next,
-                        self_url=g_self,
-                        layout=layout
+                        self_url=g_self
                     ))
 
         # 3. Handle Top-level Publications
@@ -142,11 +130,6 @@ class FeedReconciler:
                 sec_id = feed.metadata.identifier or f"pubs_{logical_id}"
                 next_url = FeedReconciler._find_next(feed.links, base_url)
                 
-                # If there's a next page or many items, use a GRID.
-                # If it's the "Main Results" (top-level pubs usually are), use a GRID.
-                is_paginated = bool(next_url) or (feed.metadata.numberOfItems or 0) > (feed.metadata.itemsPerPage or 50)
-                layout = SectionLayout.GRID if is_paginated else SectionLayout.RIBBON
-
                 sections.append(FeedSection(
                     title="Items",
                     section_id=sec_id,
@@ -154,12 +137,55 @@ class FeedReconciler:
                     total_items=feed.metadata.numberOfItems,
                     items_per_page=feed.metadata.itemsPerPage,
                     current_page=feed.metadata.currentPage or 1,
-                    next_url=next_url,
-                    layout=layout
+                    next_url=next_url
                 ))
+
+        # 4. Data Cleaning / Optimization
+        # Prune redundant server-side nesting (e.g. Codex grouping items that duplicate section titles)
+        for section in sections:
+            if len(section.items) > 1:
+                first = section.items[0]
+                # If the first item is a folder/header and matches the section title, it's redundant
+                if first.type in (ItemType.FOLDER, ItemType.FOLDER): # Using ItemType.FOLDER as proxy for grouping
+                    clean_first = re.sub(r'[^a-z0-9]', '', first.title.lower())
+                    clean_sec = re.sub(r'[^a-z0-9]', '', section.title.lower())
+                    if clean_first == clean_sec:
+                        logger.info(f"FeedReconciler: Pruned redundant grouping item '{first.title}' in section '{section.title}'")
+                        section.items.pop(0)
+                        if section.total_items: section.total_items -= 1
+
+        # 4. Determine Global Page
+        curr_page = feed.metadata.currentPage or 1
+        if curr_page == 1 and base_url:
+            # Fallback: Parse from URL if metadata is missing or stuck at 1
+            parsed = urllib.parse.urlparse(base_url)
+            path_parts = parsed.path.rstrip('/').split('/')
+            # e.g. /opds/v2.0/p/0/1
+            if len(path_parts) >= 3:
+                prefix, group_id, page_num = path_parts[-3], path_parts[-2], path_parts[-1]
+                if len(prefix) == 1 and page_num.isdigit() and group_id.isdigit():
+                    curr_page = int(page_num)
+            
+            if curr_page == 1:
+                # Try query params
+                params = urllib.parse.parse_qs(parsed.query)
+                if 'page' in params:
+                    curr_page = int(params['page'][0])
+                elif 'offset' in params:
+                    offset = int(params['offset'][0])
+                    limit = int(params.get('limit', [GRID_LAYOUT_THRESHOLD])[0])
+                    curr_page = (offset // limit) + 1
+
+        # 5. Determine Total Pages
+        total_pages = None
+        if feed.metadata.numberOfItems and feed.metadata.itemsPerPage:
+            import math
+            total_pages = math.ceil(feed.metadata.numberOfItems / feed.metadata.itemsPerPage)
 
         return FeedPage(
             title=page_title,
+            current_page=curr_page,
+            total_pages=total_pages,
             sections=sections,
             facets=facets
         )

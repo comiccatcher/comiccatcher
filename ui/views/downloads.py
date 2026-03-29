@@ -72,8 +72,8 @@ class DownloadTaskWidget(QFrame):
         # Progress bar colors are handled in update_ui based on task status, 
         # but we should ensure the base background is themed.
         self.progress_bar.setStyleSheet(f"""
-            QProgressBar {{ height: {s(4)}px; border: none; background-color: {theme['bg_item_hover']}; border-radius: {s(2)}px; }}
-            QProgressBar::chunk {{ background-color: {theme['accent']}; border-radius: {s(2)}px; }}
+            QProgressBar {{ height: {s(2)}px; border: none; background-color: {theme['bg_item_hover']}; border-radius: 0px; }}
+            QProgressBar::chunk {{ background-color: {theme['accent']}; border-radius: 0px; }}
         """)
 
     def update_ui(self, task: DownloadTask):
@@ -97,13 +97,13 @@ class DownloadTaskWidget(QFrame):
             theme = ThemeManager.get_current_theme_colors()
             if task.status == "Completed":
                 self.progress_bar.setStyleSheet(f"""
-                    QProgressBar {{ height: 4px; border: none; background-color: {theme['bg_item_hover']}; border-radius: 2px; }}
-                    QProgressBar::chunk {{ background-color: {theme['success']}; border-radius: 2px; }}
+                    QProgressBar {{ height: {s(2)}px; border: none; background-color: {theme['bg_item_hover']}; border-radius: 0px; }}
+                    QProgressBar::chunk {{ background-color: {theme['success']}; border-radius: 0px; }}
                 """)
             elif task.status == "Failed" or task.status == "Cancelled":
                 self.progress_bar.setStyleSheet(f"""
-                    QProgressBar {{ height: 4px; border: none; background-color: {theme['bg_item_hover']}; border-radius: 2px; }}
-                    QProgressBar::chunk {{ background-color: {theme['danger']}; border-radius: 2px; }}
+                    QProgressBar {{ height: {s(2)}px; border: none; background-color: {theme['bg_item_hover']}; border-radius: 0px; }}
+                    QProgressBar::chunk {{ background-color: {theme['danger']}; border-radius: 0px; }}
                 """)
 
 class DownloadsView(QWidget):

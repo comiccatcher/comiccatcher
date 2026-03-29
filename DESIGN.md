@@ -92,7 +92,10 @@ ui/
   views/
     feed_list.py             Feed selection root view
     feed_management.py       Add / edit / delete feeds with connection testing
-    browser.py               Feed browser (ReFit / Continuous / Traditional modes)
+    feed_browser.py          FeedBrowser coordinator (switches between paged/scrolled)
+    base_feed_subview.py     Shared base for PagedFeedView and ScrolledFeedView
+    paged_feed_view.py       Dashboard layout: CollapsibleSections in QScrollArea
+    scrolled_feed_view.py    Virtual scroll view: section-level QAbstractScrollArea
     feed_detail.py           Online publication detail view (metadata, cover, Read/Download)
     feed_reader.py           OPDS streaming reader (extends BaseReaderView)
     local_library.py         Local library browser with thumbnails and grouping
@@ -178,7 +181,89 @@ SQLite database for library metadata and reading progress.
 
 ## 8. UI Architecture
 
-### `MainWindow` (`ui/app_layout.py`)
+### 8.1 Class Hierarchies
+
+The UI is structured around a centralized orchestrator (`AppLayout`) and a set of specialized sub-views.
+
+#### Feed Browser View Hierarchy
+Supports both "Paged" (Dashboard-style) and "Scrolled" (Virtualized continuous) rendering.
+
+```text
+QWidget (Qt)
+└── BaseFeedSubView (Shared signals, configure_list_view, gather_context_pubs)
+    ├── PagedFeedView   (Dashboard mode: CollapsibleSections in QScrollArea)
+    └── ScrolledFeedView (Continuous mode: section-level virtual scroll)
+
+QWidget (Qt)
+└── FeedBrowser (Traffic Cop coordinator)
+    ├── Instantiates PagedFeedView
+    └── Instantiates ScrolledFeedView
+```
+
+**ScrolledFeedView virtual scroll architecture**
+
+Rather than one giant composite `QListView`, `ScrolledFeedView` uses a
+`QAbstractScrollArea` (`_impl`) whose viewport (`_vp`) holds real per-section
+widget pairs positioned by a single vertical `QScrollBar`. This avoids Qt's
+16 777 215 px (`QWIDGETSIZE_MAX`) content-widget limit entirely.
+
+```
+ScrolledFeedView (QWidget / BaseFeedSubView)
+└── _impl (_ScrollImpl : QAbstractScrollArea)   ← provides clipping viewport
+    └── _vp (viewport QWidget)
+        ├── SectionHeader  ─┐ one pair per section,
+        ├── BaseCardRibbon  ─┘ repositioned on every scroll event (RIBBON sections)
+        ├── SectionHeader  ─┐
+        └── QListView       ─┘ height = visible slice only (large GRID section)
+```
+
+Key design points:
+
+- **Section-level virtualisation**: only widgets whose section overlaps the
+  viewport are shown; others are hidden.
+- **Large GRID sections** (up to 30 k items): the `QListView` widget height is
+  capped to the visible slice height. Its internal `verticalScrollBar` is
+  synced to `outer_scroll − section.y − header_height`, preserving full
+  QListView item-level virtualisation without creating a tall widget.
+- **Height estimation**: `_grid_content_height` approximates content height
+  from column count and row height; `_calibrate_grid_heights` corrects this
+  from the QListView's actual scroll range after first layout.
+- **Wheel forwarding**: an `eventFilter` on each grid view's viewport
+  redirects vertical wheel events to `_sb` (the outer scrollbar).
+- **Page fetching / debouncing / cover loading**: logic is identical to the
+  previous implementation, operating on the main grid section's
+  `FeedBrowserModel`.
+
+#### Main Application Structure
+The top-level shell managing navigation and primary workspaces.
+
+```text
+QMainWindow (Qt)
+└── ComicCatcherApp (main.py)
+
+QWidget (Qt)
+└── AppLayout (Central orchestrator: sidebar, header, stacked views)
+    └── QStackedWidget (View switching)
+        ├── FeedBrowser (OPDS browser)
+        ├── LibraryView (Local files)
+        ├── SettingsView
+        └── ReaderView (Comic viewer)
+```
+
+#### Component Hierarchy (Shared UI)
+Reusable building blocks across different view modes.
+
+```text
+QStyledItemDelegate (Qt)
+└── FeedCardDelegate (Paints cards, titles, and covers)
+
+QWidget (Qt)
+├── CollapsibleSection (Expandable section container)
+└── QListView (Qt)
+    └── BaseCardRibbon (Horizontal carousel with "See All" support)
+```
+
+### 8.2 MainWindow (`ui/app_layout.py`)
 
 The root window containing the sidebar and stacked content views. Uses the `ViewIndex` enum for reliable navigation.
 
@@ -208,9 +293,12 @@ Stack Index (ViewIndex):
 
 Root screen for feed selection.
 
-### BrowserView (`views/browser.py`)
+### 9.2 FeedBrowser (`ui/views/feed_browser.py`)
 
-Primary content browser supporting ReFit, Continuous, and Traditional modes.
+A high-level "Traffic Cop" that coordinates feed rendering. It does not perform rendering directly; instead, it delegates to specialized sub-views based on the active feed profile's `paging_mode`.
+
+- **PagedFeedView**: Traditional dashboard layout with stacked `CollapsibleSection` widgets in a `QScrollArea`. Used for highly structured, mixed-content feeds.
+- **ScrolledFeedView**: High-performance continuous scroll using a section-level virtual scroll area (`QAbstractScrollArea`). Each `FeedSection` becomes a real `SectionHeader` + content widget pair positioned directly in the viewport. Large GRID sections (up to 30 k items) use an internal `QListView` whose height is capped to the visible slice and whose scroll position is synced to the outer scrollbar — avoiding Qt's `QWIDGETSIZE_MAX` content-widget limit. Supports sparse page fetching, debounced scrubbing, and lazy thumbnail loading.
 
 ### FeedDetailView (`views/feed_detail.py`)
 
