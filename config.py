@@ -43,6 +43,12 @@ class ConfigManager:
             "last_folder_path": None,
             "theme": "dark", # "light", "dark", "oled", "blue"
             "library_label_focus": "series", # "series" or "title"
+            "reader_scaling_mode": "smooth", # "fast", "smooth"
+            "reader_fit_mode": "fit_page",
+            "reader_layout": "single",
+            "reader_flow": "ltr",
+            "reader_auto_hide_controls": True,
+            "reader_thumbs_visible": True,
         }
         self._ensure_dirs()
         self.load_feeds()
@@ -135,6 +141,48 @@ class ConfigManager:
 
     def set_library_label_focus(self, focus: str):
         self.settings["library_label_focus"] = focus
+        self.save_settings()
+
+    def get_reader_scaling_mode(self) -> str:
+        return self.settings.get("reader_scaling_mode", "smooth")
+
+    def set_reader_scaling_mode(self, mode: str):
+        self.settings["reader_scaling_mode"] = mode
+        self.save_settings()
+
+    def get_reader_fit_mode(self) -> str:
+        return self.settings.get("reader_fit_mode", "fit_page")
+
+    def set_reader_fit_mode(self, mode: str):
+        self.settings["reader_fit_mode"] = mode
+        self.save_settings()
+
+    def get_reader_layout(self) -> str:
+        return self.settings.get("reader_layout", "single")
+
+    def set_reader_layout(self, layout: str):
+        self.settings["reader_layout"] = layout
+        self.save_settings()
+
+    def get_reader_flow(self) -> str:
+        return self.settings.get("reader_flow", "ltr")
+
+    def set_reader_flow(self, flow: str):
+        self.settings["reader_flow"] = flow
+        self.save_settings()
+
+    def get_reader_auto_hide_controls(self) -> bool:
+        return self.settings.get("reader_auto_hide_controls", True)
+
+    def set_reader_auto_hide_controls(self, auto_hide: bool):
+        self.settings["reader_auto_hide_controls"] = auto_hide
+        self.save_settings()
+
+    def get_reader_thumbs_visible(self) -> bool:
+        return self.settings.get("reader_thumbs_visible", True)
+
+    def set_reader_thumbs_visible(self, visible: bool):
+        self.settings["reader_thumbs_visible"] = visible
         self.save_settings()
 
     def get_show_labels(self) -> bool:
