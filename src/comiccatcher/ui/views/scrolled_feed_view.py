@@ -154,7 +154,7 @@ class ScrolledFeedView(BaseFeedSubView):
         self._main_grid_sid  = main.section_id if main else None
         self._items_per_page = (main.items_per_page or 100) if main else 100
         
-        logger.debug(f"ScrolledFeedView: Interpreting '{page.title}' - is_dashboard={page.is_dashboard}, main_grid_section='{main.title if main else 'None'}'")
+        logger.debug(f"ScrolledFeedView: Interpreting '{page.title}' - is_paginated={page.is_paginated}, main_grid_section='{main.title if main else 'None'}'")
 
         self._clear_section_widgets()
         self._build_section_widgets(page.sections)

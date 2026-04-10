@@ -3,9 +3,11 @@
 * adjacentbook popover - use title (and maybe subtitle)
 * details views - handle wide covers
 * details views - use more metadata (web, genre...)
+* details viw
 
-* test stump and komga more
-* komga/stump - better metadata.  Find series and position/issue number for display
+* Bad OPDS pages to maybe work around:
+   paged sections?  https://www.lirtuel.be/v1/bundles.opds2
+   komga > Latest Series See All, somehow goes to publications
 
 * keystrokes for feed and library
 * reader keystrokes and controls fixing

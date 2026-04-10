@@ -38,15 +38,20 @@ class FeedReconciler:
                 if "start" in rels:
                     start_url = urllib.parse.urljoin(base_url, l.href)
         
-        # Dashboard Heuristic: If start link refers to itself (or base_url), it's a dashboard
-        is_dashboard = False
-        if start_url:
-            # Normalize for comparison
-            s_norm = start_url.rstrip('/')
-            self_norm = self_url.rstrip('/')
-            if s_norm == self_norm:
-                is_dashboard = True
-                logger.debug(f"FeedReconciler: Dashboard detected via self-referencing 'start' link: {s_norm}")
+        # Check if the feed indicates pagination at the root level
+        is_paginated = False
+        if feed.links:
+            for l in feed.links:
+                rels = [l.rel] if isinstance(l.rel, str) else (l.rel or [])
+                if any(r in ["next", "previous", "first", "last"] for r in rels):
+                    is_paginated = True
+                    break
+
+        # Capture root-level pagination metadata for later assignment
+        m = feed.metadata
+        root_total = m.numberOfItems if m else None
+        root_next = FeedReconciler._find_next(feed.links, base_url)
+        root_ipp = m.itemsPerPage if m else None
 
         # Sanitize to create a stable ID for the entire logical feed.
         # Example: /codex/opds/v2.0/p/0/1 -> /codex/opds/v2.0/p/
@@ -86,23 +91,16 @@ class FeedReconciler:
                 ))
             
             if nav_items:
-                m = feed.metadata
                 sec_id = (m.identifier if m else None) or f"nav_{logical_id}"
-                
-                # Navigation links are almost never paginated themselves, 
-                # even if the top-level feed has a 'next' link.
-                # Always use the local count for this specific section.
-                total = len(nav_items)
-                next_url = FeedReconciler._find_next(feed.links, base_url)
                 
                 sections.append(FeedSection(
                     title="Browse",
                     section_id=sec_id,
                     items=nav_items,
-                    total_items=total,
+                    total_items=len(nav_items),
                     items_per_page=len(nav_items),
                     current_page=1,
-                    next_url=None, # Navigation doesn't page
+                    next_url=None, # Will be assigned to main_section later if applicable
                     source_element="root:navigation"
                 ))
 
@@ -171,22 +169,16 @@ class FeedReconciler:
                 pub_items.append(FeedReconciler._pub_to_item(pub, base_url))
             
             if pub_items:
-                m = feed.metadata
                 sec_id = (m.identifier if m else None) or f"pubs_{logical_id}"
-                next_url = FeedReconciler._find_next(feed.links, base_url)
-                
-                # total_items logic:
-                # Use the server's numberOfItems for the entire feed if provided.
-                total = (m.numberOfItems if m else None) or len(pub_items)
                 
                 sections.append(FeedSection(
                     title="Items",
                     section_id=sec_id,
                     items=pub_items,
-                    total_items=total,
-                    items_per_page=m.itemsPerPage if m else None,
+                    total_items=len(pub_items),
+                    items_per_page=len(pub_items),
                     current_page=(m.currentPage if m else None) or 1,
-                    next_url=next_url,
+                    next_url=None, # Will be assigned to main_section later if applicable
                     source_element="root:publications"
                 ))
 
@@ -250,26 +242,27 @@ class FeedReconciler:
             total_pages=total_pages,
             sections=sections,
             facets=facets,
-            is_dashboard=is_dashboard,
+            is_paginated=is_paginated,
+            feed_items_per_page=root_ipp,
             pagination_template=pagination_template,
             search_template=search_template,
             is_offset_based=is_offset_based
         )
         
-        # Determine logical main section
+        # Determine logical main section and attach root pagination metadata to it
         main_sec = temp_page.main_section
         if main_sec:
             temp_page.main_section_id = main_sec.section_id
             main_sec.is_main = True
-
-        is_dash_context = is_dashboard or len(sections) > 1
+            
+            # Transfer root metadata to the main section
+            if root_total is not None:
+                main_sec.total_items = root_total
+            if root_next:
+                main_sec.next_url = root_next
         
         for section in sections:
-            # A section should be a GRID if:
-            # - It's paginated (has a next link)
-            # - It's explicitly marked as the Main section
-            # - It's NOT a dashboard/multi-section view
-            if not is_dash_context or section.next_url or section.is_main:
+            if section.is_main or section.source_element in ("root:publications", "root:navigation"):
                 section.layout = SectionLayout.GRID
             else:
                 section.layout = SectionLayout.RIBBON

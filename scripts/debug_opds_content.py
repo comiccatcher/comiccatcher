@@ -284,7 +284,7 @@ def handle_feed(raw_data, url, console, args):
 
     console.print(f"\n[bold yellow]--- Reconciled Feed Page ---[/bold yellow]")
     console.print(f"Title:        [bold white]{page.title}[/bold white]")
-    console.print(f"Dashboard:    {'[green]Yes[/green]' if page.is_dashboard else '[red]No[/red]'}")
+    console.print(f"Paginated:    {'[green]Yes[/green]' if page.is_paginated else '[red]No[/red]'}")
     
     # Pagination Details
     paging_links = {}
@@ -295,8 +295,6 @@ def handle_feed(raw_data, url, console, args):
                 paging_links[rel] = urllib.parse.urljoin(url, link.href)
     
     m = feed.metadata
-    is_paginated = len(paging_links) > 0
-    console.print(f"Paginated:    {'[green]Yes[/green]' if is_paginated else '[red]No[/red]'}")
     if m:
         total_items = getattr(m, "numberOfItems", None)
         items_per_page = getattr(m, "itemsPerPage", None)
@@ -319,6 +317,9 @@ def handle_feed(raw_data, url, console, args):
         console.print(f"Search Templ: [bold green]{page.search_template}[/bold green]")
     else:
         console.print(f"Search Templ: [red]None (Server-side Search Unsupported)[/red]")
+
+    main = page.main_section
+    console.print(f"Main Section: {'[green]' + main.title + '[/green]' if main else '[red]None[/red]'}")
     
     if page.breadcrumbs:
         console.print(f"Breadcrumbs:  {' > '.join(b['title'] for b in page.breadcrumbs)}")
@@ -327,8 +328,10 @@ def handle_feed(raw_data, url, console, args):
         layout_name = "GRID" if section.layout == SectionLayout.GRID else "RIBBON"
         layout_style = "bold yellow" if section.layout == SectionLayout.GRID else "dim cyan"
 
+        is_main = (main and section.section_id == main.section_id)
+        main_info = " [bold green][MAIN][/bold green]" if is_main else ""
         source_info = f" [dim]({section.source_element})[/dim]" if section.source_element else ""
-        table = Table(title=f"\nSection {i+1}: {section.title} (Layout: [{layout_style}]{layout_name}[/{layout_style}]){source_info}", box=None)
+        table = Table(title=f"\nSection {i+1}: {section.title} (Layout: [{layout_style}]{layout_name}[/{layout_style}]){main_info}{source_info}", box=None)
         table.add_column("Type", style="cyan")
         table.add_column("Title", style="magenta")
         table.add_column("Identifier", style="green")
