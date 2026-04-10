@@ -136,8 +136,9 @@ class DebugOverlay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
+        from comiccatcher.ui.theme_manager import UIConstants
         font = painter.font()
-        font.setPixelSize(9)
+        font.setPixelSize(UIConstants.scale(9))
         painter.setFont(font)
 
         for rect, color, label in self._entries:

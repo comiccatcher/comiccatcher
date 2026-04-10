@@ -32,7 +32,7 @@ async def test_url(url, token=None):
         page = FeedReconciler.reconcile(feed, url)
         
         print(f"\n--- Result for '{page.title}' ---")
-        print(f"Is Dashboard: {page.is_dashboard}")
+        print(f"Is Paginated: {page.is_paginated}")
         
         main = page.main_section
         print(f"Main Section: {main.title if main else 'None (All Ribbons)'}")
@@ -45,13 +45,13 @@ async def test_url(url, token=None):
             count = len(s.items)
             print(f"  - {s.title:25} | items={count:3} | main={str(is_main):5} | has_link={str(has_link):5} | has_next={str(has_next):5}")
 
-        if page.is_dashboard:
+        if page.is_paginated:
             if main is None:
-                print("\n✅ Dashboard: All sections are preview ribbons.")
+                print("\n✅ Paginated: No main section detected (no items matched).")
             else:
-                print(f"\nℹ️ Dashboard: Section '{main.title}' promoted to Main Grid (likely large or paginated).")
+                print(f"\nℹ️ Paginated: Section '{main.title}' promoted to Main Grid.")
         else:
-            print("\n📄 List View: All sections will render as Grids.")
+            print("\n📄 List View: Not paginated.")
 
     except Exception as e:
         print(f"❌ ERROR: {e}")

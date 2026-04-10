@@ -1,6 +1,6 @@
 from typing import Set, List
 from PyQt6.QtWidgets import QWidget, QListView, QFrame, QAbstractItemView
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QEvent
 from comiccatcher.ui.theme_manager import UIConstants
 from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
 from comiccatcher.ui.components.feed_card_delegate import FeedCardDelegate
@@ -13,15 +13,18 @@ class BaseFeedSubView(QWidget):
     Centralizes shared UI configuration, signals, and context gathering logic.
     """
     item_clicked = pyqtSignal(FeedItem, list) # item, context_pubs
-    navigate_requested = pyqtSignal(str, str, bool) # url, title, replace
+    navigate_requested = pyqtSignal(str, str, bool, str) # url, title, replace, icon_name
     cover_request_needed = pyqtSignal(str)
     selection_changed = pyqtSignal()
+    scrolled = pyqtSignal()
+    mini_detail_requested = pyqtSignal(object, object, object, object) # item, index, view, model
 
     def __init__(self, image_manager, collapsed_sections: Set[str], parent=None):
         super().__init__(parent)
         self.image_manager = image_manager
         self._collapsed_sections = collapsed_sections
         self._show_labels = True
+        self._selection_mode = False
 
     def configure_list_view(self, view: QListView):
         """Applies standardized settings to a QListView for consistent card rendering."""
@@ -35,28 +38,77 @@ class BaseFeedSubView(QWidget):
         view.viewport().setContentsMargins(0, 0, 0, 0)
         view.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         view.setMouseTracking(True)
+        view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        view.viewport().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        # Register for unified event handling
+        view.viewport().installEventFilter(self)
+
+    def eventFilter(self, source, event):
+        """Unified handling for wheel forwarding and cursor management across all feed sub-views."""
+        # 1. Forward wheel events to the primary vertical scrollbar to prevent "wobble"
+        if event.type() == QEvent.Type.Wheel:
+            dy = event.angleDelta().y()
+            if dy != 0:
+                sb = self._get_target_scrollbar()
+                if sb:
+                    step = UIConstants.scale(20)
+                    sb.setValue(sb.value() - (dy * step) // 120)
+                    return True # Eat the event so the internal widget doesn't nudge
+
+        # 2. Shared cursor management for all list viewports
+        if event.type() == QEvent.Type.MouseMove:
+            # Find which view this viewport belongs to
+            views = self._get_all_subviews()
+            for view in views:
+                if source is view.viewport():
+                    index = view.indexAt(event.pos())
+                    view.setCursor(
+                        Qt.CursorShape.PointingHandCursor if index.isValid()
+                        else Qt.CursorShape.ArrowCursor)
+                    break
+
+        return super().eventFilter(source, event)
+
+    def _get_target_scrollbar(self):
+        """Returns the vertical scrollbar that should handle global scrolling."""
+        # For ScrolledFeedView
+        if hasattr(self, '_sb'):
+            return self._sb
+        # For PagedFeedView
+        if hasattr(self, 'scroll_area'):
+            return self.scroll_area.verticalScrollBar()
+        return None
+
+    def _get_all_subviews(self) -> List[QListView]:
+        """Helper to collect all list widgets managed by the subview."""
+        views = []
+        if hasattr(self, '_section_views'): views.extend(self._section_views)
+        if hasattr(self, '_grids'): views.extend(list(self._grids.values()))
+        if hasattr(self, '_ribbons'): views.extend(list(self._ribbons.values()))
+        return views
 
     def get_grid_layout_info(self, vp_w: int):
         """Returns (cols, row_h, spacing) for grid sections."""
         sp = UIConstants.GRID_GUTTER
-        
+
         # We account for a bit of horizontal padding to avoid tight fits
         effective_w = UIConstants.CARD_WIDTH + sp
         cols = max(1, vp_w // effective_w)
-        
-        # Use the centralized height helper
-        row_h = UIConstants.get_card_height(self._show_labels) + sp
-            
+
+        # Use the centralized height helper - disable progress space for feeds
+        row_h = UIConstants.get_card_height(self._show_labels, reserve_progress_space=False) + sp
+
         return cols, row_h, sp
 
     def get_ribbon_height(self) -> int:
         """Returns consistent height for ribbon sections."""
         # Use the centralized metric from UIConstants
         scrollbar_h = UIConstants.SCROLLBAR_SIZE
-        card_h = UIConstants.get_card_height(self._show_labels)
+        # Feed ribbons NEVER show progress bars
+        card_h = UIConstants.get_card_height(self._show_labels, reserve_progress_space=False)
 
-        return card_h + scrollbar_h + UIConstants.GRID_SPACING
-
+        # Ribbon height = Card + Gutter + Scrollbar
+        return card_h + UIConstants.RIBBON_SCROLLBAR_GUTTER + scrollbar_h
     def update_header_margins(self, scroll_bar):
         """Standardized helper to update header margins for scrollbar awareness."""
         if not scroll_bar: return
@@ -86,6 +138,7 @@ class BaseFeedSubView(QWidget):
 
     def toggle_selection_mode(self, enabled: bool):
         """Standardized selection mode toggle for sub-views."""
+        self._selection_mode = enabled
         mode = QAbstractItemView.SelectionMode.MultiSelection if enabled else QAbstractItemView.SelectionMode.NoSelection
         
         # Collect all active views (grids, ribbons, or paged sections)

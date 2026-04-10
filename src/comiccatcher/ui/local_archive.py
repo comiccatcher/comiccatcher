@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
-import zipfile
+from typing import List, Optional, Tuple
 
+from comiccatcher.logger import get_logger
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
-
+logger = get_logger("ui.local_archive")
 
 @dataclass(frozen=True)
 class LocalPage:
@@ -15,47 +15,54 @@ class LocalPage:
     index: int
 
 
-def list_cbz_pages(path: Path) -> List[LocalPage]:
+def list_archive_pages(path: Path) -> List[LocalPage]:
     """
-    List image entries in a CBZ, sorted for reading order.
+    List image entries in a comic archive (CBZ, CBR, CB7, CBT, PDF), 
+    sorted for reading order via comicbox.
     """
     p = Path(path)
     if not p.exists() or not p.is_file():
         return []
 
-    pages: List[str] = []
-    with zipfile.ZipFile(p, "r") as z:
-        for info in z.infolist():
-            if info.is_dir():
-                continue
-            name = info.filename
-            ext = Path(name).suffix.lower()
-            if ext in IMAGE_EXTS:
-                pages.append(name)
-
-    # Sort by path/name; ComicTagger outputs typically use zero-padded names.
-    pages.sort(key=lambda s: s.lower())
-    return [LocalPage(name=n, index=i) for i, n in enumerate(pages)]
+    try:
+        from comicbox.box import Comicbox  # type: ignore
+        with Comicbox(str(p)) as cb:
+            # Comicbox already filters out metadata files and sorts case-insensitively.
+            pages = cb.get_page_filenames()
+            return [LocalPage(name=n, index=i) for i, n in enumerate(pages)]
+    except Exception as e:
+        logger.error(f"Failed to list pages for {path}: {e}")
+        return []
 
 
-def read_cbz_entry_bytes(path: Path, name: str) -> Optional[bytes]:
+def read_archive_entry_bytes(path: Path, name: str) -> Optional[bytes]:
+    """
+    Read the bytes of a specific entry (page) from the archive.
+    """
     p = Path(path)
     if not p.exists() or not p.is_file():
         return None
-    with zipfile.ZipFile(p, "r") as z:
-        with z.open(name, "r") as f:
-            return f.read()
+
+    try:
+        from comicbox.box import Comicbox  # type: ignore
+        with Comicbox(str(p)) as cb:
+            # comicbox's get_page_by_filename returns bytes.
+            # It also handles decompression for ZIP, RAR, 7Z, and TAR.
+            return cb.get_page_by_filename(name)
+    except Exception as e:
+        logger.error(f"Failed to read entry {name} from {path}: {e}")
+        return None
 
 
-def read_first_image(path: Path) -> Optional[tuple[str, bytes]]:
+def read_archive_first_image(path: Path) -> Optional[Tuple[str, bytes]]:
     """
-    Returns (name, bytes) for the first image entry in the CBZ, or None if unavailable.
+    Returns (name, bytes) for the first image entry in the archive, or None if unavailable.
     """
-    pages = list_cbz_pages(path)
+    pages = list_archive_pages(path)
     if not pages:
         return None
     first = pages[0]
-    data = read_cbz_entry_bytes(path, first.name)
+    data = read_archive_entry_bytes(path, first.name)
     if data is None:
         return None
     return first.name, data

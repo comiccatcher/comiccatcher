@@ -1,5 +1,8 @@
 import httpx
+import locale
+import platform
 from typing import Optional, Dict, Any
+from comiccatcher import __version__
 from comiccatcher.models.feed import FeedProfile
 from comiccatcher.config import NETWORK_TIMEOUT
 
@@ -11,15 +14,45 @@ class APIClient:
             timeout=NETWORK_TIMEOUT,
             follow_redirects=True
         )
-        
+
+        self._setup_headers()
         self._setup_auth()
+
+    def _setup_headers(self):
+        """Sets up default headers, including system language and User-Agent."""
+        # 1. User-Agent
+        ua = f"comiccatcher/{__version__} ({platform.system()}; Desktop)"
+        self.client.headers.update({"User-Agent": ua})
+
+        # 2. Accept-Language
+        try:
+            # Try to get the system's preferred language/region (e.g. ('en_US', 'UTF-8'))
+            lang, encoding = locale.getlocale()
+            if lang:
+                # Standardize to RFC 2616 format: primary-subtag (e.g. en-US)
+                accept_lang = lang.replace('_', '-')
+                self.client.headers.update({"Accept-Language": f"{accept_lang}, *;q=0.5"})
+        except Exception:
+            # Fallback if locale detection fails
+            pass
 
     def _setup_auth(self):
         # Determine authentication method based on provided credentials
-        if self.profile.bearer_token:
+        mode = self.profile.auth_type
+        
+        if mode == "apikey" and self.profile.api_key:
+            self.client.headers.update({"X-API-Key": self.profile.api_key})
+        elif mode == "bearer" and self.profile.bearer_token:
             self.client.headers.update({"Authorization": f"Bearer {self.profile.bearer_token}"})
-        elif self.profile.username and self.profile.password:
+        elif mode == "basic" and self.profile.username and self.profile.password:
             self.client.auth = httpx.BasicAuth(self.profile.username, self.profile.password)
+        
+        # Legacy fallback if auth_type is not set (e.g. older config files)
+        if mode == "none":
+            if self.profile.bearer_token:
+                self.client.headers.update({"Authorization": f"Bearer {self.profile.bearer_token}"})
+            elif self.profile.username and self.profile.password:
+                self.client.auth = httpx.BasicAuth(self.profile.username, self.profile.password)
 
     async def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None) -> httpx.Response:
         return await self.client.get(endpoint, params=params, timeout=timeout)

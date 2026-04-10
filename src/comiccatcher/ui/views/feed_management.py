@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlparse
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QLineEdit, QPushButton, QFormLayout, QGroupBox, QMessageBox,
-    QDialog, QApplication, QStyle, QFrame
+    QDialog, QApplication, QStyle, QFrame, QComboBox
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
@@ -57,7 +57,6 @@ class ConnectionTestResultDialog(QDialog):
         self.btn_ok.setObjectName("secondary_button")
         self.btn_ok.setFixedWidth(s(120))
         self.btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_ok.setMinimumHeight(s(40))
         self.btn_ok.clicked.connect(self.accept)
         
         btn_row = QHBoxLayout()
@@ -99,66 +98,122 @@ class FeedEditDialog(QDialog):
         layout.setSpacing(s(15))
 
         form_group = QGroupBox("Feed Details")
-        form_layout = QFormLayout(form_group)
-        form_layout.setSpacing(s(10))
+        self.form_layout = QFormLayout(form_group)
+        self.form_layout.setSpacing(s(10))
 
         self.name_input = QLineEdit()
         self.url_input = QLineEdit()
+        
+        # 1. Initialize ALL Auth fields and labels FIRST
+        self.user_label = QLabel("Username:")
         self.user_input = QLineEdit()
-        self.user_input.setPlaceholderText("(optional)")
+        self.pass_label = QLabel("Password:")
         self.pass_input = QLineEdit()
         self.pass_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.pass_input.setPlaceholderText("(optional)")
+        self.token_label = QLabel("Token:")
         self.token_input = QLineEdit()
         self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.token_input.setPlaceholderText("(optional)")
+        self.apikey_label = QLabel("API Key:")
+        self.apikey_input = QLineEdit()
+        self.apikey_input.setEchoMode(QLineEdit.EchoMode.Password)
 
+        # 2. Setup Type Selector
+        self.auth_type_combo = QComboBox()
+        self.auth_type_combo.addItem("None", "none")
+        self.auth_type_combo.addItem("Username / Password", "basic")
+        self.auth_type_combo.addItem("Bearer Token", "bearer")
+        self.auth_type_combo.addItem("API Key", "apikey")
+        
         if feed:
             self.name_input.setText(feed.name)
             self.url_input.setText(feed.url)
             self.user_input.setText(feed.username or "")
             self.pass_input.setText(feed.password or "")
             self.token_input.setText(feed.bearer_token or "")
+            self.apikey_input.setText(feed.api_key or "")
+            
+            # Set combo index based on model (Signals blocked during setup)
+            self.auth_type_combo.blockSignals(True)
+            idx = self.auth_type_combo.findData(feed.auth_type)
+            if idx >= 0:
+                self.auth_type_combo.setCurrentIndex(idx)
+            else:
+                # Legacy migration logic
+                if feed.bearer_token: self.auth_type_combo.setCurrentIndex(2)
+                elif feed.username: self.auth_type_combo.setCurrentIndex(1)
+                else: self.auth_type_combo.setCurrentIndex(0)
+            self.auth_type_combo.blockSignals(False)
 
-        form_layout.addRow("Name:", self.name_input)
-        form_layout.addRow("URL:", self.url_input)
-        form_layout.addRow("Username:", self.user_input)
-        form_layout.addRow("Password:", self.pass_input)
-        form_layout.addRow("Token:", self.token_input)
+        # Connect signal AFTER setup
+        self.auth_type_combo.currentIndexChanged.connect(self._update_auth_field_visibility)
+
+        self.form_layout.addRow("Name:", self.name_input)
+        self.form_layout.addRow("URL:", self.url_input)
+        self.form_layout.addRow("Auth Type:", self.auth_type_combo)
+        
+        # Add all dynamic rows once (they will be hidden/shown by _update_auth_field_visibility)
+        self.form_layout.addRow(self.user_label, self.user_input)
+        self.form_layout.addRow(self.pass_label, self.pass_input)
+        self.form_layout.addRow(self.token_label, self.token_input)
+        self.form_layout.addRow(self.apikey_label, self.apikey_input)
+        
         layout.addWidget(form_group)
+        self._update_auth_field_visibility()
 
+        # 3. Action Buttons
         btn_layout = QHBoxLayout()
         self.btn_test = QPushButton("Test Connection")
         self.btn_test.setObjectName("secondary_button")
+        self.btn_test.setIcon(ThemeManager.get_icon("refresh", "accent"))
+        self.btn_test.setIconSize(QSize(s(18), s(18)))
+        self.btn_test.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_test.clicked.connect(self.test_connection)
         
-        s = UIConstants.scale
-        self.btn_save = QPushButton("Save Feed" if feed else "Add Feed")
+        is_edit = feed is not None
+        self.btn_save = QPushButton("Save Feed" if is_edit else "Add Feed")
         self.btn_save.setObjectName("primary_button")
-        self.btn_save.setMinimumHeight(s(40))
+        self.btn_save.setIcon(ThemeManager.get_icon("action_read" if is_edit else "plus", "white"))
+        self.btn_save.setIconSize(QSize(s(18), s(18)))
+        self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.clicked.connect(self.save_and_close)
         
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setObjectName("secondary_button")
-        self.btn_cancel.setMinimumHeight(s(40))
+        self.btn_cancel.setIcon(ThemeManager.get_icon("close", "accent"))
+        self.btn_cancel.setIconSize(QSize(s(18), s(18)))
+        self.btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cancel.clicked.connect(self.reject)
-        
+
         btn_layout.addWidget(self.btn_test)
         btn_layout.addStretch()
         btn_layout.addWidget(self.btn_cancel)
         btn_layout.addWidget(self.btn_save)
         layout.addLayout(btn_layout)
+        
+        self.adjustSize()
 
-        self.reapply_theme()
+    def _update_auth_field_visibility(self):
+        """Dynamically shows/hides credential fields based on selected auth type."""
+        mode = self.auth_type_combo.currentData()
+        
+        # Toggle visibility - QFormLayout automatically collapses hidden rows
+        is_basic = (mode == "basic")
+        is_bearer = (mode == "bearer")
+        is_apikey = (mode == "apikey")
 
-    def reapply_theme(self):
-        theme = ThemeManager.get_current_theme_colors()
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {theme['bg_main']}; color: {theme['text_main']}; }}
-            QGroupBox {{ font-weight: bold; font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; color: {theme['text_main']}; }}
-            QLabel {{ font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; color: {theme['text_main']}; }}
-            QLineEdit {{ font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; padding: {UIConstants.scale(4)}px; }}
-        """)
+        self.user_label.setVisible(is_basic)
+        self.user_input.setVisible(is_basic)
+        self.pass_label.setVisible(is_basic)
+        self.pass_input.setVisible(is_basic)
+        
+        self.token_label.setVisible(is_bearer)
+        self.token_input.setVisible(is_bearer)
+        
+        self.apikey_label.setVisible(is_apikey)
+        self.apikey_input.setVisible(is_apikey)
+        
+        # Ensure dialog shrinks/expands to fit the new rows
+        self.adjustSize()
 
     def test_connection(self):
         url = self.url_input.text().strip()
@@ -166,23 +221,25 @@ class FeedEditDialog(QDialog):
             QMessageBox.warning(self, "Test Connection", "Please enter a URL first.")
             return
         
+        auth_type = self.auth_type_combo.currentData()
         username = self.user_input.text() or None
         password = self.pass_input.text() or None
         token = self.token_input.text() or None
+        api_key = self.apikey_input.text() or None
         
         self.btn_test.setEnabled(False)
         self.btn_test.setText("Testing...")
-        asyncio.create_task(self._run_connection_test(url, username, password, token))
+        asyncio.create_task(self._run_connection_test(url, auth_type, username, password, token, api_key))
 
-    async def _run_connection_test(self, url, username, password, token):
+    async def _run_connection_test(self, url, auth_type, username, password, token, api_key):
         try:
-            temp_feed = FeedProfile(id="temp", name="temp", url=url, username=username, password=password, bearer_token=token)
+            temp_feed = FeedProfile(id="temp", name="temp", url=url, auth_type=auth_type, username=username, password=password, bearer_token=token, api_key=api_key)
             async with APIClient(temp_feed) as client:
                 response = await client.get(url)
                 
                 pixmap = None
                 if response.status_code < 400:
-                    icon_url, source = await self._discover_icon(url, username, password, token)
+                    icon_url, source = await self._discover_icon(url, auth_type, username, password, token, api_key)
                     if icon_url:
                         await self.shared_image_manager.get_image_b64(icon_url, api_client=client)
                         full_path = self.shared_image_manager._get_cache_path(icon_url)
@@ -206,13 +263,13 @@ class FeedEditDialog(QDialog):
             self.btn_test.setEnabled(True)
             self.btn_test.setText("Test Connection")
 
-    async def _discover_icon(self, url: str, username: str = None, password: str = None, token: str = None) -> tuple[Optional[str], str]:
+    async def _discover_icon(self, url: str, auth_type: str = "none", username: str = None, password: str = None, token: str = None, api_key: str = None) -> tuple[Optional[str], str]:
         """Discover feed icon via OPDS Auth Doc or root feed. Returns (url, source_name)."""
         logger.debug(f"Starting icon discovery for {url}")
         icon_url = None
         source = "None"
         try:
-            temp_feed = FeedProfile(id="temp", name="temp", url=url, username=username, password=password, bearer_token=token)
+            temp_feed = FeedProfile(id="temp", name="temp", url=url, auth_type=auth_type, username=username, password=password, bearer_token=token, api_key=api_key)
             async with APIClient(temp_feed) as client:
                 response = await client.get(url)
                 
@@ -307,26 +364,30 @@ class FeedEditDialog(QDialog):
             QMessageBox.warning(self, "Validation Error", "Name and URL are required.")
             return
 
+        auth_type = self.auth_type_combo.currentData()
         username = self.user_input.text() or None
         password = self.pass_input.text() or None
         token = self.token_input.text() or None
+        api_key = self.apikey_input.text() or None
 
         if self.feed:
             self.feed.name = name
             self.feed.url = url
+            self.feed.auth_type = auth_type
             self.feed.username = username
             self.feed.password = password
             self.feed.bearer_token = token
+            self.feed.api_key = api_key
             self.config_manager.update_feed(self.feed)
             asyncio.create_task(self._discover_and_save_icon(self.feed))
         else:
-            new_feed = self.config_manager.add_feed(name, url, username, password, token)
+            new_feed = self.config_manager.add_feed(name, url, auth_type, username, password, token, api_key)
             asyncio.create_task(self._discover_and_save_icon(new_feed))
         
         self.accept()
 
     async def _discover_and_save_icon(self, feed: FeedProfile):
-        icon_url, _ = await self._discover_icon(feed.url, feed.username, feed.password, feed.bearer_token)
+        icon_url, _ = await self._discover_icon(feed.url, feed.auth_type, feed.username, feed.password, feed.bearer_token, feed.api_key)
         if icon_url:
             feed.icon_url = icon_url
             self.config_manager.update_feed(feed)
@@ -340,25 +401,20 @@ class FeedManagementView(QWidget):
         self.shared_image_manager = image_manager
 
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-
         s = UIConstants.scale
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(s(8))
+
         header = QHBoxLayout()
-        self.title_label = QLabel("Configured Feeds")
+        header.setContentsMargins(0, 0, 0, 0)
+        self.title_label = QLabel("Content Feeds (OPDS)")
         header.addWidget(self.title_label)
         header.addStretch()
-        
-        self.btn_add = QPushButton("Add New Feed")
-        self.btn_add.setObjectName("secondary_button")
-        self.btn_add.setIcon(ThemeManager.get_icon("plus", "accent"))
-        self.btn_add.setMinimumHeight(s(35))
-        self.btn_add.clicked.connect(self.add_feed)
-        header.addWidget(self.btn_add)
         self.layout.addLayout(header)
 
         self.feeds_list = QListWidget()
-        self.feeds_list.setIconSize(QSize(s(32), s(32)))
-        self.feeds_list.setMinimumHeight(s(180)) # Roughly 3 items
+        self.feeds_list.setIconSize(QSize(UIConstants.FEED_ICON_SIZE_SMALL, UIConstants.FEED_ICON_SIZE_SMALL))
+        self.feeds_list.setMinimumHeight(s(160)) # Roughly 3 items
         self.feeds_list.itemDoubleClicked.connect(self.edit_selected)
         self.layout.addWidget(self.feeds_list)
 
@@ -366,18 +422,28 @@ class FeedManagementView(QWidget):
         self.btn_edit = QPushButton("Edit")
         self.btn_edit.setObjectName("secondary_button")
         self.btn_edit.setIcon(ThemeManager.get_icon("label", "accent"))
-        self.btn_edit.setMinimumHeight(s(35))
+        self.btn_edit.setIconSize(QSize(s(18), s(18)))
+        self.btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_edit.clicked.connect(self.edit_selected)
         
         self.btn_delete = QPushButton("Delete")
         self.btn_delete.setObjectName("secondary_button")
-        self.btn_delete.setIcon(ThemeManager.get_icon("action_delete", "accent"))
-        self.btn_delete.setMinimumHeight(s(35))
+        self.btn_delete.setIcon(ThemeManager.get_icon("action_delete", "danger"))
+        self.btn_delete.setIconSize(QSize(s(18), s(18)))
+        self.btn_delete.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_delete.clicked.connect(self.delete_selected)
+        
+        self.btn_add = QPushButton("Add New Feed")
+        self.btn_add.setObjectName("primary_button")
+        self.btn_add.setIcon(ThemeManager.get_icon("plus", "white"))
+        self.btn_add.setIconSize(QSize(s(18), s(18)))
+        self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_add.clicked.connect(self.add_feed)
         
         self.list_btns.addWidget(self.btn_edit)
         self.list_btns.addWidget(self.btn_delete)
         self.list_btns.addStretch()
+        self.list_btns.addWidget(self.btn_add)
         self.layout.addLayout(self.list_btns)
 
         self.reapply_theme()
@@ -386,28 +452,26 @@ class FeedManagementView(QWidget):
     def reapply_theme(self):
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
-        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
+        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_SUBTITLE}px; font-weight: bold; color: {theme['accent']}; margin-bottom: {s(5)}px;")
         
-        # Explicitly set the font for the list widget to ensure the text scales
+        # Scale list font
         font = self.feeds_list.font()
         font.setPixelSize(UIConstants.FONT_SIZE_FEED_LIST)
         self.feeds_list.setFont(font)
-        
-        # Scale buttons
-        for btn in [self.btn_add, self.btn_edit, self.btn_delete]:
-            btn.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;")
         
         self.feeds_list.setStyleSheet(f"""
             QListWidget {{ 
                 background-color: {theme['bg_sidebar']};
                 border: {max(1, s(1))}px solid {theme['border']};
-                border-radius: {s(4)}px; 
+                border-radius: {s(8)}px; 
+                padding: {s(5)}px;
+                margin-top: {s(10)}px;
                 color: {theme['text_main']};
             }}
             QListWidget::item {{ 
-                padding: {s(10)}px; 
+                padding: 0px; 
                 border-bottom: {max(1, s(1))}px solid {theme['border']}; 
-                font-size: {UIConstants.FONT_SIZE_FEED_LIST}px;
+                color: {theme['text_main']};
             }}
             QListWidget::item:selected {{
                 background-color: {theme['bg_item_selected']};
@@ -417,22 +481,64 @@ class FeedManagementView(QWidget):
 
     def refresh_feeds(self):
         default_icon = ThemeManager.get_icon("feeds")
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
         
         self.feeds_list.clear()
         for f in self.config_manager.feeds:
-            item = QListWidgetItem(f"{f.name}\n{f.url}")
-            item.setData(Qt.ItemDataRole.UserRole, f)
-            item.setIcon(default_icon)
-            self.feeds_list.addItem(item)
-            if f.icon_url:
-                asyncio.create_task(self._load_cached_icon(f, item))
+            name_fs = UIConstants.FONT_SIZE_FEED_NAME_SMALL
+            url_fs = UIConstants.FONT_SIZE_FEED_URL_SMALL
+            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: {theme["text_dim"]};">{f.url}</span>'
 
-    async def _load_cached_icon(self, feed: FeedProfile, item: QListWidgetItem):
-        try:
-            # Optimization: Check disk cache first. 
-            # If it's there, we don't need to create a heavy APIClient (which sets up SSL contexts).
-            icon_path = self.shared_image_manager._get_cache_path(feed.icon_url)
+            item = QListWidgetItem()
+            self.feeds_list.addItem(item)
             
+            widget = QWidget()
+            layout = QHBoxLayout(widget)
+            layout.setContentsMargins(s(15), s(6), s(15), s(6))
+            layout.setSpacing(s(10))
+            
+            icon_size = UIConstants.FEED_ICON_SIZE_SMALL
+            icon_label = QLabel()
+            icon_label.setFixedSize(icon_size, icon_size)
+            icon_label.setScaledContents(False)
+            icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            text_label = QLabel(rich_text)
+            text_label.setStyleSheet("background: transparent; border: none;")
+            text_label.setWordWrap(True)
+            
+            layout.addWidget(icon_label)
+            layout.addWidget(text_label, 1)
+            
+            # Ensure the widget's layout calculates the correct size
+            sh = widget.sizeHint()
+            # Add a small vertical buffer for safety with rich text
+            sh.setHeight(sh.height() + s(2))
+            item.setSizeHint(sh)
+            item.setData(Qt.ItemDataRole.UserRole, f)
+            self.feeds_list.setItemWidget(item, widget)
+
+            # Handle Icon
+            icon_pixmap = None
+            if f.icon_url:
+                cache_path = self.shared_image_manager._get_cache_path(f.icon_url)
+                if cache_path.exists():
+                    icon_pixmap = QPixmap(str(cache_path))
+            
+            if icon_pixmap and not icon_pixmap.isNull():
+                scaled = icon_pixmap.scaled(icon_size, icon_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                icon_label.setPixmap(scaled)
+                f._cached_icon = icon_pixmap
+            else:
+                icon_label.setPixmap(default_icon.pixmap(icon_size, icon_size))
+
+            if f.icon_url and (not icon_pixmap or icon_pixmap.isNull()):
+                asyncio.create_task(self._load_cached_icon_widget(f, icon_label))
+
+    async def _load_cached_icon_widget(self, feed: FeedProfile, label: QLabel):
+        try:
+            icon_path = self.shared_image_manager._get_cache_path(feed.icon_url)
             if not icon_path.exists():
                 client = APIClient(feed)
                 await self.shared_image_manager.get_image_b64(feed.icon_url, api_client=client)
@@ -442,13 +548,14 @@ class FeedManagementView(QWidget):
                 pixmap = QPixmap(str(icon_path))
                 if not pixmap.isNull():
                     feed._cached_icon = pixmap
-                    if item:
-                        item.setIcon(QIcon(pixmap))
+                    s = UIConstants.scale
+                    scaled = pixmap.scaled(UIConstants.FEED_ICON_SIZE_SMALL, UIConstants.FEED_ICON_SIZE_SMALL, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    label.setPixmap(scaled)
                     self.icon_loaded.emit(feed.id, pixmap)
         except: pass
 
     def add_feed(self):
-        dialog = FeedEditDialog(self, self.config_manager, self.shared_image_manager)
+        dialog = FeedEditDialog(self.window(), self.config_manager, self.shared_image_manager)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.refresh_feeds()
 
@@ -456,7 +563,7 @@ class FeedManagementView(QWidget):
         item = self.feeds_list.currentItem()
         if item:
             feed = item.data(Qt.ItemDataRole.UserRole)
-            dialog = FeedEditDialog(self, self.config_manager, self.shared_image_manager, feed)
+            dialog = FeedEditDialog(self.window(), self.config_manager, self.shared_image_manager, feed)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.refresh_feeds()
 

@@ -279,14 +279,16 @@ class ConfigManager:
         self.settings["ui_scale"] = float(scale)
         self.save_settings()
 
-    def add_feed(self, name: str, url: str, username: Optional[str] = None, password: Optional[str] = None, token: Optional[str] = None) -> FeedProfile:
+    def add_feed(self, name: str, url: str, auth_type: str = "none", username: Optional[str] = None, password: Optional[str] = None, token: Optional[str] = None, api_key: Optional[str] = None) -> FeedProfile:
         feed = FeedProfile(
             id=str(uuid.uuid4()),
             name=name,
             url=url,
+            auth_type=auth_type,
             username=username,
             password=password,
-            bearer_token=token
+            bearer_token=token,
+            api_key=api_key
         )
         self.feeds.append(feed)
         self.save_feeds()

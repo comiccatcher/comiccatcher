@@ -105,6 +105,22 @@ async def async_main(args):
     window.show()
     asyncio.create_task(asyncio.to_thread(_warmup_comicbox_sync))
     
+    # E2E Driver Injection
+    if args.e2e_driver:
+        try:
+            import importlib.util
+            driver_path = Path(args.e2e_driver).resolve()
+            log.info(f"Injecting E2E Driver: {driver_path}")
+            spec = importlib.util.spec_from_file_location("e2e_driver_module", str(driver_path))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            if hasattr(module, "drive"):
+                asyncio.create_task(module.drive(window))
+            else:
+                log.error("E2E Driver script must define an 'async def drive(window)' function.")
+        except Exception as e:
+            log.error(f"Failed to load E2E Driver: {e}")
+
     # Create an event that we'll wait on until the app quits
     exit_event = asyncio.Event()
     QApplication.instance().aboutToQuit.connect(exit_event.set)
@@ -125,6 +141,7 @@ def main():
     parser.add_argument('--debug', nargs='?', const=1, type=int, default=0, help='Enable debug logging.')
     parser.add_argument('--auto-open-local', type=str, default="", help='Debug: auto-open a local CBZ.')
     parser.add_argument('--timeout', type=int, default=0, help='Exit after N seconds (useful for CI/testing).')
+    parser.add_argument('--e2e-driver', type=str, default="", help='Path to a python script to drive the app (async def drive(window)).')
     args = parser.parse_args()
     
     is_debug = args.debug > 0 or os.getenv("DEBUG") == "1"
@@ -145,7 +162,7 @@ def main():
         app.setWindowIcon(QIcon(str(icon_path)))
 
     # Ensure .desktop file exists so GNOME dock shows the right icon
-    # _ensure_desktop_entry()
+    _ensure_desktop_entry()
 
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)

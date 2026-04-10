@@ -17,6 +17,7 @@ from qasync import QEventLoop
 from comiccatcher.config import ConfigManager, CACHE_DIR
 from comiccatcher.ui.app_layout import MainWindow, ViewIndex
 from comiccatcher.models.feed import FeedProfile
+from comiccatcher.models.feed_page import ItemType
 import comiccatcher.logger as logger
 
 async def inspect_ui():

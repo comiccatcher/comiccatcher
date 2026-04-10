@@ -67,7 +67,8 @@ class CollapsibleSection(QWidget):
             self.on_context_menu = on_context_menu
 
         self.layout.addWidget(self.header_widget)
-        self.layout.addWidget(self.content_widget)
+        if self.content_widget:
+            self.layout.addWidget(self.content_widget)
 
         self._update_ui_state()
 

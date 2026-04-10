@@ -40,8 +40,13 @@ async def drive_selection_download():
     window.show()
     
     # 2. Add/Find a Feed (Stump)
-    target_url = "https://anville.duckdns.org:2702/opds/v2.0/catalog"
-    target_token = "stump_AhV1GZvssKY_E1XYm6ATyUTHbX6jtr3boBe8pF3357nnD"
+    target_url = os.environ.get("CC_STUMP_URL")
+    target_token = os.environ.get("CC_STUMP_TOKEN")
+    
+    if not target_url or not target_token:
+        print("❌ FAILED: CC_STUMP_URL and CC_STUMP_TOKEN must be set in environment.")
+        app.quit()
+        return
     
     feed = next((f for f in config_manager.feeds if f.url == target_url), None)
     if not feed:

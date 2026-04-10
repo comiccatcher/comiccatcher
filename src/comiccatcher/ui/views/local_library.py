@@ -9,13 +9,13 @@ from PyQt6.QtWidgets import (
     QScrollArea, QApplication, QStyledItemDelegate, QStyle,
     QAbstractItemView, QSizePolicy, QFrame, QSpacerItem, QListView
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect, QModelIndex, QPoint, QTimer
+from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect, QModelIndex, QPoint, QTimer, QItemSelectionModel
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QPen, QImage, QPixmapCache, QKeyEvent, QStandardItemModel, QStandardItem
 
 from comiccatcher.config import ConfigManager, CONFIG_DIR
 from comiccatcher.logger import get_logger
 from comiccatcher.api.image_manager import ImageManager
-from comiccatcher.ui.local_archive import read_first_image
+from comiccatcher.ui.local_archive import read_archive_first_image
 from comiccatcher.ui.local_comicbox import flatten_comicbox, read_comicbox_dict, subtitle_from_flat, read_comicbox_cover, generate_comic_labels
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
 from comiccatcher.api.local_db import LocalLibraryDB
@@ -27,7 +27,7 @@ from comiccatcher.ui.components.mini_detail_popover import MiniDetailPopover
 
 logger = get_logger("ui.local_library")
 
-COMIC_EXTS = {".cbz", ".cbr", ".cb7", ".pdf"}
+COMIC_EXTS = {".cbz", ".cbr", ".cb7", ".cbt", ".pdf"}
 _COVER_URL_SUFFIX = "_cover_thumb"
 
 
@@ -125,7 +125,7 @@ def populate_item_from_row(item, row_dict, label_focus, is_folder_mode, image_ma
     set_item_data(item, ItemRoles.LABELS, (card_primary, secondary))
 
     # 2. Try synchronous cache check to prevent pop-in
-    url = f"local-cbz://{file_path.absolute()}/{_COVER_URL_SUFFIX}"
+    url = f"local-archive://{file_path.absolute()}/{_COVER_URL_SUFFIX}"
     cache_path = image_manager._get_cache_path(url)
     cached = QPixmapCache.find(str(cache_path))
     if cached:
@@ -137,10 +137,10 @@ def populate_item_from_row(item, row_dict, label_focus, is_folder_mode, image_ma
 
 async def load_item_thumbnail(path: Path, item, image_manager, meta_sem):
     """Shared async logic to extract, save, and load a comic thumbnail."""
-    if path.suffix.lower() not in (".cbz", ".cbr", ".cb7"):
+    if path.suffix.lower() not in COMIC_EXTS:
         return
 
-    url = f"local-cbz://{path.absolute()}/{_COVER_URL_SUFFIX}"
+    url = f"local-archive://{path.absolute()}/{_COVER_URL_SUFFIX}"
     cache_path = image_manager._get_cache_path(url)
 
     # Secondary check in case it was cached while we were waiting for semaphore
@@ -152,7 +152,7 @@ async def load_item_thumbnail(path: Path, item, image_manager, meta_sem):
             try:
                 data = await asyncio.to_thread(read_comicbox_cover, path)
                 if not data:
-                    res = await asyncio.to_thread(read_first_image, path)
+                    res = await asyncio.to_thread(read_archive_first_image, path)
                     if res: _, data = res
                 if data:
                     await asyncio.to_thread(_save_thumbnail, data, cache_path)
@@ -473,12 +473,16 @@ class LocalLibraryView(BaseBrowserView):
         self.btn_select = self.create_header_button("select", "Select Mode", checkable=True)
         self.btn_select.clicked.connect(self.toggle_selection_mode)
         
-        self.header_layout.addWidget(self.btn_up)
-        self.header_layout.addWidget(self.path_breadcrumb, 1)
+        # Populate Left
+        self.left_layout.insertWidget(0, self.btn_up)
+        self.left_layout.addWidget(self.path_breadcrumb, 1) # Expanding breadcrumb on left
+        
+        # Populate Center (Not used in Library, center is kept empty but centered)
         
         # Standard spacing between distinct elements
         GROUP_GAP = s(12)
         
+        # Populate Right
         # 1. Mode Selection (3 buttons)
         view_mode_layout = QHBoxLayout()
         view_mode_layout.setSpacing(0)
@@ -486,19 +490,19 @@ class LocalLibraryView(BaseBrowserView):
         view_mode_layout.addWidget(self.btn_view_file)
         view_mode_layout.addWidget(self.btn_view_grid)
         view_mode_layout.addWidget(self.btn_view_group)
-        self.header_layout.addLayout(view_mode_layout)
+        self.right_layout.addLayout(view_mode_layout)
         
-        self.header_layout.addSpacing(GROUP_GAP)
+        self.right_layout.addSpacing(GROUP_GAP)
         
         # 2. Group Selection (Solo Dropdown)
-        self.header_layout.addWidget(self.btn_group_by)
+        self.right_layout.addWidget(self.btn_group_by)
         
-        self.header_layout.addSpacing(GROUP_GAP)
+        self.right_layout.addSpacing(GROUP_GAP)
         
         # 3. Misc Group Toggle (Solo)
-        self.header_layout.addWidget(self.btn_group_misc)
+        self.right_layout.addWidget(self.btn_group_misc)
         
-        self.header_layout.addSpacing(GROUP_GAP)
+        self.right_layout.addSpacing(GROUP_GAP)
         
         # 4. Sort By (3 buttons)
         sort_by_layout = QHBoxLayout()
@@ -507,9 +511,9 @@ class LocalLibraryView(BaseBrowserView):
         sort_by_layout.addWidget(self.btn_sort_alpha)
         sort_by_layout.addWidget(self.btn_sort_date)
         sort_by_layout.addWidget(self.btn_sort_added)
-        self.header_layout.addLayout(sort_by_layout)
+        self.right_layout.addLayout(sort_by_layout)
         
-        self.header_layout.addSpacing(GROUP_GAP)
+        self.right_layout.addSpacing(GROUP_GAP)
         
         # 5. Sort Order (2 buttons)
         sort_dir_layout = QHBoxLayout()
@@ -517,14 +521,14 @@ class LocalLibraryView(BaseBrowserView):
         sort_dir_layout.setContentsMargins(0, 0, 0, 0)
         sort_dir_layout.addWidget(self.btn_sort_asc)
         sort_dir_layout.addWidget(self.btn_sort_desc)
-        self.header_layout.addLayout(sort_dir_layout)
+        self.right_layout.addLayout(sort_dir_layout)
         
-        self.header_layout.addSpacing(GROUP_GAP)
+        self.right_layout.addSpacing(GROUP_GAP)
         
         # 6. Label Toggle (Solo)
-        self.header_layout.addWidget(self.btn_labels)
+        self.right_layout.addWidget(self.btn_labels)
         
-        self.header_layout.addSpacing(GROUP_GAP)
+        self.right_layout.addSpacing(GROUP_GAP)
         
         # 7. Focus (2 buttons)
         label_focus_layout = QHBoxLayout()
@@ -532,12 +536,12 @@ class LocalLibraryView(BaseBrowserView):
         label_focus_layout.setContentsMargins(0, 0, 0, 0)
         label_focus_layout.addWidget(self.btn_focus_series)
         label_focus_layout.addWidget(self.btn_focus_title)
-        self.header_layout.addLayout(label_focus_layout)
+        self.right_layout.addLayout(label_focus_layout)
         
-        self.header_layout.addSpacing(GROUP_GAP)
+        self.right_layout.addSpacing(GROUP_GAP)
         
-        self.header_layout.addWidget(self.btn_select)
-        self.header_layout.addWidget(self.btn_refresh)
+        self.right_layout.addWidget(self.btn_select)
+        self.right_layout.addWidget(self.btn_refresh)
         
         self._refresh_toolbar_states()
 
@@ -782,7 +786,7 @@ class LocalLibraryView(BaseBrowserView):
 
     def _save_cover_to_cache(self, path: Path, cover_bytes: bytes) -> None:
         """Called from scanner worker thread to save a resized thumbnail to disk cache."""
-        url = f"local-cbz://{path.absolute()}/{_COVER_URL_SUFFIX}"
+        url = f"local-archive://{path.absolute()}/{_COVER_URL_SUFFIX}"
         cache_path = self.image_manager._get_cache_path(url)
         if not cache_path.exists():
             _save_thumbnail(cover_bytes, cache_path)
@@ -1392,6 +1396,8 @@ class LocalLibraryView(BaseBrowserView):
         self.go_up()
 
     def _on_item_context_menu(self, pos, list_widget):
+        if self._selection_mode: return
+        
         logger.info(f"--- Entering _on_item_context_menu ---")
         logger.info(f"  Pos: {pos}, Widget: {list_widget.objectName()}")
         if isinstance(list_widget, QListWidget):
@@ -1404,6 +1410,21 @@ class LocalLibraryView(BaseBrowserView):
             
         if not item: return
         
+        # Gather context paths for navigation
+        context_paths = []
+        if isinstance(list_widget, QListWidget):
+            for i in range(list_widget.count()):
+                p = list_widget.item(i).data(Qt.ItemDataRole.UserRole)
+                if isinstance(p, Path) and not p.is_dir():
+                    context_paths.append(p)
+        else:
+            model = list_widget.model()
+            if model:
+                for i in range(model.rowCount()):
+                    p = model.index(i, 0).data(Qt.ItemDataRole.UserRole)
+                    if isinstance(p, Path) and not p.is_dir():
+                        context_paths.append(p)
+
         path_or_data = item.data(Qt.ItemDataRole.UserRole)
         # If it's a folder, ignore for now
         if isinstance(path_or_data, Path) and path_or_data.is_dir():
@@ -1432,8 +1453,35 @@ class LocalLibraryView(BaseBrowserView):
         self.detail_popover.clear_actions()
         
         # Add Actions
-        self.detail_popover.add_action("action_read", "Mark Read", lambda: [self.db.mark_as_read(file_path), self._reload_current_view()])
-        self.detail_popover.add_action("action_unread", "Mark Unread", lambda: [self.db.mark_as_unread(file_path), self._reload_current_view()])
+        # 1. Details Action
+        if file_path:
+            p = Path(file_path)
+            self.detail_popover.add_action("eye", "Details", lambda: self.on_open_comic(p, context_paths))
+
+        # 2. Select Action
+        def do_select():
+            # Find index of this item in current list
+            if isinstance(list_widget, QListWidget):
+                list_widget.setCurrentItem(item)
+            else:
+                list_widget.setCurrentIndex(idx)
+            
+            # This logic should mimic single item selection in current view
+            # If not in selection mode, enter it and select this one
+            if not self._selection_mode:
+                self.toggle_selection_mode(True)
+            
+            # Selection might need to be explicit if toggle_selection_mode clears it
+            if isinstance(list_widget, QListWidget):
+                item.setSelected(True)
+            else:
+                list_widget.selectionModel().select(idx, QItemSelectionModel.SelectionFlag.Select)
+
+        self.detail_popover.add_action("select", "Select", do_select)
+
+        if file_path:
+            self.detail_popover.add_action("action_read", "Mark Read", lambda: [self.db.mark_as_read(file_path), self._reload_current_view()])
+            self.detail_popover.add_action("action_unread", "Mark Unread", lambda: [self.db.mark_as_unread(file_path), self._reload_current_view()])
         
         def do_delete():
             from PyQt6.QtWidgets import QMessageBox

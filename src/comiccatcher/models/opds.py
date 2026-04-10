@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any, Union
-from pydantic import BaseModel, Field, HttpUrl, ConfigDict, field_validator
+from pydantic import BaseModel, Field, HttpUrl, ConfigDict, field_validator, model_validator
 
 class Link(BaseModel):
     model_config = ConfigDict(extra='allow')
@@ -30,6 +30,30 @@ class BelongsTo(BaseModel):
     model_config = ConfigDict(extra='allow')
     series: Optional[List[Collection]] = None
     collection: Optional[List[Collection]] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def standardize(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            return {"series": [{"name": data}]}
+        if not isinstance(data, dict):
+            return data
+            
+        new_data = data.copy()
+        for key in ["series", "collection"]:
+            val = data.get(key)
+            if val:
+                if not isinstance(val, list):
+                    val = [val]
+                
+                standard_list = []
+                for item in val:
+                    if isinstance(item, str):
+                        standard_list.append({"name": item})
+                    else:
+                        standard_list.append(item)
+                new_data[key] = standard_list
+        return new_data
 
 class Presentation(BaseModel):
     model_config = ConfigDict(extra='allow')
@@ -101,31 +125,6 @@ class Metadata(BaseModel):
                 result.append(Contributor(name=str(item)))
         return result
 
-    @field_validator("belongsTo", mode='before')
-    @classmethod
-    def standardize_belongs_to(cls, v):
-        if v is None:
-            return None
-        if not isinstance(v, dict):
-            return None
-            
-        # Ensure 'series' and 'collection' inside belongsTo are lists of objects
-        new_v = v.copy()
-        for key in ["series", "collection"]:
-            val = v.get(key)
-            if val:
-                if not isinstance(val, list):
-                    val = [val]
-                
-                standard_list = []
-                for item in val:
-                    if isinstance(item, str):
-                        standard_list.append({"name": item})
-                    else:
-                        standard_list.append(item)
-                new_v[key] = standard_list
-        return new_v
-
 class Publication(BaseModel):
     model_config = ConfigDict(extra='allow')
     metadata: Optional[Metadata] = None
@@ -151,8 +150,10 @@ class Publication(BaseModel):
 
         # 2. Heuristic: Check if readingOrder contains images
         if self.readingOrder and len(self.readingOrder) > 0:
-            first_type = (self.readingOrder[0].type or "").lower()
-            if "image/" in first_type:
+            first_item = self.readingOrder[0]
+            # Handle both Link object and dict (if it hasn't been parsed yet)
+            first_type = getattr(first_item, "type", None) or (first_item.get("type") if isinstance(first_item, dict) else "")
+            if first_type and "image/" in str(first_type).lower():
                 return True
                 
         return False
@@ -181,5 +182,5 @@ class OPDSFeed(BaseModel):
     publications: Optional[List[Publication]] = None
     navigation: Optional[List[Link]] = None
     groups: Optional[List[Group]] = None
-    facets: Optional[List[Dict[str, Any]]] = None
+    facets: Optional[List[Union[Group, Dict[str, Any]]]] = None
     authentication: Optional[List[Dict[str, Any]]] = None

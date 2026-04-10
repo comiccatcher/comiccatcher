@@ -23,6 +23,9 @@ dependencies = [
     "pydantic>=2.6.4",
     "comicbox>=2.2.1",
     "Pillow>=10.2.0",
+    "rarfile>=4.2",
+    "py7zr>=1.1.0",
+    "PyMuPDF>=1.24.0",
 ]
 
 [project.scripts]

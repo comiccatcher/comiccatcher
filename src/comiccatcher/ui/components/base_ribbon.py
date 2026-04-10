@@ -7,9 +7,10 @@ class BaseCardRibbon(QListView):
     Standardized horizontal scrolling ribbon for cards.
     Handles consistent flow, wrapping, and dynamic height sizing.
     """
-    def __init__(self, parent=None, show_labels=True):
+    def __init__(self, parent=None, show_labels=True, reserve_progress_space=True):
         super().__init__(parent)
         self._show_labels = show_labels
+        self._reserve_progress_space = reserve_progress_space
         
         # Standard configuration
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -63,13 +64,13 @@ class BaseCardRibbon(QListView):
     def update_ribbon_height(self):
         """Calculates and sets the fixed height based on label visibility and OS scrollbar height."""
         from comiccatcher.ui.theme_manager import UIConstants
-        h = UIConstants.get_card_height(self._show_labels)
+        h = UIConstants.get_card_height(self._show_labels, self._reserve_progress_space)
             
         # Use the centralized metric from UIConstants
         scrollbar_h = UIConstants.SCROLLBAR_SIZE
         
-        # Total height = Card + Scrollbar + Breathing Room
-        total_h = h + scrollbar_h + UIConstants.GRID_SPACING
+        # Total height = Card + Gutter + Scrollbar
+        total_h = h + UIConstants.RIBBON_SCROLLBAR_GUTTER + scrollbar_h
         
         self.setFixedHeight(total_h)
         self.setMinimumHeight(total_h)

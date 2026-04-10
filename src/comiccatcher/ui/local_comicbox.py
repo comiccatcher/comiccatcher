@@ -132,14 +132,25 @@ def flatten_comicbox(d: Dict[str, Any]) -> Dict[str, Any]:
     flat["month"] = _get(inner, "date", "month")
     flat["publisher"] = _get(inner, "publisher", "name")
     flat["summary"] = _get(inner, "summary")
+    if not flat["summary"]:
+        # PDF fallback: comicbox often maps PDF:Subject to genres
+        flat["summary"] = _get(inner, "genres")
+
+    if isinstance(flat["summary"], (list, set)):
+        flat["summary"] = ", ".join(str(s) for s in flat["summary"])
+    elif isinstance(flat["summary"], dict):
+        flat["summary"] = ", ".join(str(s) for s in flat["summary"].keys())
+
     flat["page_count"] = _get(inner, "page_count")
     flat["manga"] = _get(inner, "manga")
     flat["notes"] = _get(inner, "notes")
     flat["imprint"] = _get(inner, "publisher", "imprint")
     
     genres = _get(inner, "genres")
-    if isinstance(genres, list):
+    if isinstance(genres, (list, set)):
         flat["genre"] = ", ".join(str(g) for g in genres)
+    elif isinstance(genres, dict):
+        flat["genre"] = ", ".join(str(g) for g in genres.keys())
     else:
         flat["genre"] = str(genres) if genres else ""
 

@@ -9,7 +9,7 @@ def format_artist_credits(roles: Dict[str, str]) -> List[str]:
     """
     final_creds = []
     if "Writer" in roles: final_creds.append(f"Writer: {roles['Writer']}")
-    if "Author" in roles: final_creds.append(f"Author: {roles['Author']}")
+    if "Author" in roles: final_creds.append(f"Writer: {roles['Author']}")
     
     # Combine Artist roles if they match
     # OPDS often uses 'Artist', local often uses 'Penciller'
@@ -60,15 +60,16 @@ def format_file_size(size_bytes: int) -> str:
 def parse_opds_date(date_str: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     """Try to extract month and year from OPDS date strings (ISO or YYYY-MM)."""
     if not date_str: return None, None
-    
+
     # Try YYYY-MM first
     match = re.search(r"(\d{4})-(\d{2})", date_str)
     if match:
         return match.group(2), match.group(1)
-    
+
     # Fallback to just YYYY
     match_y = re.search(r"(\d{4})", date_str)
     if match_y:
         return None, match_y.group(1)
-        
+
     return None, None
+

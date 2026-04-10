@@ -38,8 +38,33 @@ class BaseBrowserView(QWidget):
         self.header_layout.setContentsMargins(UIConstants.LAYOUT_MARGIN_DEFAULT, 0, UIConstants.LAYOUT_MARGIN_DEFAULT, 0)
         self.layout.addWidget(self.header_widget)
 
+        # 1.1 Left Group (Status)
+        self.left_group = QWidget()
+        self.left_layout = QHBoxLayout(self.left_group)
+        self.left_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.status_label = QLabel("")
-        self.header_layout.addWidget(self.status_label)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.left_layout.addWidget(self.status_label)
+        self.header_layout.addWidget(self.left_group)
+
+        # 1.2 Center Group (Navigation/Paging) - Stretches to keep centered
+        self.header_layout.addStretch(1)
+        
+        self.center_group = QWidget()
+        self.center_layout = QHBoxLayout(self.center_group)
+        self.center_layout.setContentsMargins(0, 0, 0, 0)
+        self.center_layout.setSpacing(0)
+        self.header_layout.addWidget(self.center_group)
+        
+        self.header_layout.addStretch(1)
+
+        # 1.3 Right Group (Actions/Modes) - Right aligned
+        self.right_group = QWidget()
+        self.right_layout = QHBoxLayout(self.right_group)
+        self.right_layout.setContentsMargins(0, 0, 0, 0)
+        self.right_layout.setSpacing(UIConstants.scale(10))
+        self.header_layout.addWidget(self.right_group)
 
         # 2. Status & Progress Area (Floating Overlay)
         self.status_area = QWidget(self)
@@ -84,6 +109,19 @@ class BaseBrowserView(QWidget):
         self.selection_layout.addStretch()
         
         self.layout.addWidget(self.selection_bar)
+
+        # 5. Bottom Status Bar (VS Code style)
+        self.bottom_status_bar = QFrame()
+        self.bottom_status_bar.setObjectName("bottom_status_bar")
+        self.bottom_status_layout = QHBoxLayout(self.bottom_status_bar)
+        self.bottom_status_layout.setContentsMargins(UIConstants.LAYOUT_MARGIN_DEFAULT, 0, UIConstants.LAYOUT_MARGIN_DEFAULT, 0)
+        self.bottom_status_layout.setSpacing(0)
+        
+        self.bottom_status_label = QLabel("")
+        self.bottom_status_label.setObjectName("bottom_status_label")
+        self.bottom_status_layout.addWidget(self.bottom_status_label)
+        
+        self.layout.addWidget(self.bottom_status_bar)
         
         # Initial theme application
         QTimer.singleShot(0, self.reapply_theme)
@@ -134,6 +172,21 @@ class BaseBrowserView(QWidget):
             self.status_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_STATUS}px; font-weight: bold; color: {theme['text_dim']};")
             self.label_sel_count.setStyleSheet(f"font-weight: bold; font-size: {UIConstants.FONT_SIZE_STATUS}px; color: {theme['text_main']};")
             self.status_area.setStyleSheet(f"QWidget#status_overlay {{ background-color: {theme['bg_sidebar']}; border-bottom: {max(1, UIConstants.scale(1))}px solid {theme['border']}; }}")
+
+            self.bottom_status_bar.setFixedHeight(UIConstants.BOTTOM_BAR_HEIGHT)
+            self.bottom_status_bar.setStyleSheet(f"""
+                QFrame#bottom_status_bar {{ 
+                    background-color: {theme['bg_sidebar']}; 
+                    border-top: {max(1, UIConstants.scale(1))}px solid {theme['border']};
+                }}
+            """)
+            self.bottom_status_label.setStyleSheet(f"""
+                QLabel#bottom_status_label {{ 
+                    font-size: {UIConstants.FONT_SIZE_BOTTOM_BAR}px; 
+                    font-weight: bold; 
+                    color: {theme['text_dim']};
+                }}
+            """)
 
             for btn, icon_name in self._header_buttons.items():
                 btn.setIcon(ThemeManager.get_icon(icon_name))
@@ -194,6 +247,7 @@ class BaseBrowserView(QWidget):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setFixedWidth(UIConstants.HEADER_BUTTON_SIZE)
         btn.setFixedHeight(UIConstants.HEADER_BUTTON_SIZE)
+        btn.setIconSize(QSize(UIConstants.ICON_SIZE_STANDARD, UIConstants.ICON_SIZE_STANDARD))
         
         self._header_buttons[btn] = icon_name
         
@@ -226,10 +280,9 @@ class BaseBrowserView(QWidget):
     def _style_segmented_group(self, buttons: list[QPushButton]):
         """Applies a 'segmented' (joined) look to a list of buttons using global stylesheets."""
         if not buttons: return
-        s = UIConstants.scale
         
         for i, btn in enumerate(buttons):
-            btn.setIconSize(QSize(s(18), s(18)))
+            btn.setIconSize(QSize(UIConstants.ICON_SIZE_STANDARD, UIConstants.ICON_SIZE_STANDARD))
             # Remove any specific object name that might conflict with [segment] styling
             if btn.objectName() == "icon_button":
                 btn.setObjectName("")

@@ -37,12 +37,10 @@ class FeedCardDelegate(BaseCardDelegate):
             if ctype == CompositeItemType.HEADER:
                 h = self.header_height
             else:
-                # Ribbon height must match BaseCardRibbon's internal calculation
-                if self.show_labels:
-                    # card_h + label_h + scrollbar_h + spacing
-                    h = UIConstants.CARD_HEIGHT + s(25) + UIConstants.GRID_SPACING
-                else:
-                    h = UIConstants.CARD_COVER_HEIGHT + (UIConstants.CARD_PADDING * 2) + s(25) + UIConstants.GRID_SPACING
+                # Ribbon height must match BaseCardRibbon's internal calculation exactly
+                card_h = UIConstants.get_card_height(self.show_labels, reserve_progress_space=False)
+                # Total height = Card + Gutter + Scrollbar
+                h = card_h + UIConstants.RIBBON_SCROLLBAR_GUTTER + UIConstants.SCROLLBAR_SIZE
                     
             return QSize(vp_width - s(20), h)
             

@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Set, Any
 from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, pyqtSignal
 from comiccatcher.models.feed_page import FeedItem, ItemType as FeedItemType
+from comiccatcher.ui.theme_manager import UIConstants
 from enum import Enum
 
 class CompositeItemType(Enum):
@@ -28,9 +29,9 @@ class FeedBrowserModel(QAbstractListModel):
     page_request_needed = pyqtSignal(int)
     cover_request_needed = pyqtSignal(str)
 
-    def __init__(self, items_per_page: int = 100, collapsed_sections: Optional[Set[str]] = None):
+    def __init__(self, items_per_page: int = None, collapsed_sections: Optional[Set[str]] = None):
         super().__init__()
-        self._items_per_page = items_per_page
+        self._items_per_page = items_per_page or UIConstants.DEFAULT_PAGING_STRIDE
         
         # Sparse buffer for the MAIN grid section: { absolute_index: FeedItem }
         self._sparse_items: Dict[int, FeedItem] = {}
@@ -38,6 +39,7 @@ class FeedBrowserModel(QAbstractListModel):
         self._grid_section_id = None
         
         self._requested_pages = set()
+        self._loaded_pages = set()
         self._requested_covers = set()
         
         # The flattened list of items currently visible in the QListView
@@ -65,6 +67,8 @@ class FeedBrowserModel(QAbstractListModel):
         for s in sections:
             if s.section_id == main_grid_section_id:
                 self._total_grid_items = s.total_items or len(s.items)
+                if s.items and s.current_page:
+                    self._loaded_pages.add(s.current_page)
                 break
         
         self._rebuild_logical_map()
@@ -216,24 +220,51 @@ class FeedBrowserModel(QAbstractListModel):
                 self.cover_request_needed.emit(item.cover_url)
         return item
 
+    def append_items(self, items: List[FeedItem]):
+        """Appends items dynamically to the end of the sparse buffer for infinite scrolling."""
+        self.beginResetModel()
+        
+        start_row = self._total_grid_items
+        for i, item in enumerate(items):
+            idx = start_row + i
+            self._sparse_items[idx] = item
+            # Mark the page containing this index as loaded
+            page_idx = (idx // self._items_per_page) + 1
+            self._loaded_pages.add(page_idx)
+        
+        self._total_grid_items += len(items)
+        self._rebuild_logical_map()
+        self.endResetModel()
+
     def set_items_for_page(self, page_index: int, items: List[FeedItem], offset: int = 0):
         """Injects fetched items into the sparse buffer."""
         start_row = (page_index - 1) * self._items_per_page
         for i, item in enumerate(items):
             self._sparse_items[start_row + i] = item
 
-        self.layoutChanged.emit() # Notify the view
+        self._loaded_pages.add(page_index)
+
+        # If we just loaded items beyond our current total, expand the total
+        max_idx = start_row + len(items)
+        if max_idx > self._total_grid_items:
+            self.beginResetModel()
+            self._total_grid_items = max_idx
+            self._rebuild_logical_map()
+            self.endResetModel()
+        else:
+            self.layoutChanged.emit() # Notify the view
 
     def is_page_loaded(self, page_index: int) -> bool:
         """Checks if a page has already been loaded into the sparse buffer."""
-        start_row = (page_index - 1) * self._items_per_page
-        return start_row in self._sparse_items
+        return page_index in self._loaded_pages
+
     def clear(self):
         self.beginResetModel()
         self._sparse_items = {}
         self._logical_items = []
         self._raw_sections = []
         self._requested_pages = set()
+        self._loaded_pages = set()
         self._requested_covers = set()
         self.endResetModel()
 

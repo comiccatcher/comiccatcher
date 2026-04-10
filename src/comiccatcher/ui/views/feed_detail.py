@@ -15,6 +15,7 @@ from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
 
 from comiccatcher.logger import get_logger
 from comiccatcher.api.image_manager import ImageManager
+from comiccatcher.api.opds_v2 import OPDSClientError
 from comiccatcher.api.progression import ProgressionSync
 from comiccatcher.models.opds import Publication, Contributor, Link
 from comiccatcher.models.feed_page import FeedItem
@@ -91,47 +92,59 @@ class FeedDetailView(BaseDetailView):
         self._current_pub = None
         self._current_base_url = None
         self._active_load_id = None
-        self._pending_covers: Set[str] = set()
+        self._pending_covers: Dict[str, asyncio.Task] = {} # url -> Task
         
         # Monitor scrolling to trigger cover fetches for carousels
         self.scroll.verticalScrollBar().valueChanged.connect(lambda: self._on_scroll_debounced())
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setSingleShot(True)
-        self._scroll_timer.setInterval(150)
+        self._scroll_timer.setInterval(UIConstants.SCROLL_DEBOUNCE_MS)
         self._scroll_timer.timeout.connect(self.ensure_visible_covers)
 
     def _on_scroll_debounced(self):
         self._scroll_timer.start()
 
     def _on_cover_request(self, url):
-        # Trigger async fetch via helper
+        # Primary reconciliation happens in ensure_visible_covers.
+        if self.image_manager.get_image_sync(url):
+            return
+        if url in self._pending_covers:
+            return
+
         def on_done():
+            self._pending_covers.pop(url, None)
             if self.isVisible():
                 for ribbon in self.findChildren(BaseCardRibbon):
                     ribbon.viewport().update()
 
-        asyncio.create_task(ViewportHelper.fetch_cover_async(
-            url, self.image_manager, self._pending_covers, 
+        task = asyncio.create_task(ViewportHelper.fetch_cover_async(
+            url, self.image_manager, set(), 
             on_done_callback=on_done, max_dim=300
         ))
+        self._pending_covers[url] = task
 
     def ensure_visible_covers(self):
-        """Triggers a fetch for all covers currently visible in any carousel ribbon."""
+        """Reconciles currently visible covers in all ribbons: cancels off-screen, starts on-screen."""
         if not self.isVisible():
             return
             
+        # 1. Identify what's visible now across all ribbons
+        visible_urls = set()
         for ribbon in self.findChildren(BaseCardRibbon):
             if not ribbon.isVisible():
                 continue
-            
-            first, last = ViewportHelper.get_visible_range(ribbon)
-            model = ribbon.model()
-            if not model: continue
-            
-            for row in range(first, last + 1):
-                item = model.get_item(row)
-                if isinstance(item, FeedItem) and item.cover_url:
-                    self._on_cover_request(item.cover_url)
+            visible_urls.update(ViewportHelper.get_visible_urls(ribbon))
+
+        # 2. Cancel tasks for URLs no longer visible
+        to_cancel = [url for url in self._pending_covers if url not in visible_urls]
+        for url in to_cancel:
+            task = self._pending_covers.pop(url)
+            task.cancel()
+        
+        # 3. Start tasks for visible URLs not yet cached or pending
+        for url in visible_urls:
+            if url not in self._pending_covers and not self.image_manager.get_image_sync(url):
+                self._on_cover_request(url)
 
     def reapply_theme(self):
         super().reapply_theme()
@@ -171,9 +184,26 @@ class FeedDetailView(BaseDetailView):
         device_id = self.config_manager.get_device_id()
         self.progression_sync = ProgressionSync(api_client, device_id)
         
+        # If the publication is already enriched (from mini-popover), 
+        # its links might be relative to the manifest itself.
+        # Check for a 'self' link to get the true base URL for this publication.
+        actual_base_url = base_url or ""
+        if pub.links:
+            for link in pub.links:
+                rels = [link.rel] if isinstance(link.rel, str) else (link.rel or [])
+                if "self" in rels and link.href:
+                    # Resolve 'self' relative to the base we were given
+                    actual_base_url = urljoin(actual_base_url, link.href)
+                    break
+
         self._current_pub = pub
-        self._current_base_url = base_url
+        self._current_base_url = actual_base_url
         self._active_load_id = str(uuid.uuid4())
+        
+        # 1. Cancel existing fetches
+        for task in self._pending_covers.values():
+            task.cancel()
+        self._pending_covers.clear()
         
         self.setUpdatesEnabled(False)
         try:
@@ -181,11 +211,13 @@ class FeedDetailView(BaseDetailView):
             self.progress.setVisible(True)
             
             if not (pub.readingOrder and len(pub.readingOrder) > 0) or force_refresh:
+                # We fetch full metadata using the ORIGINAL base_url from the feed
                 asyncio.create_task(self._fetch_full_metadata(pub, base_url, self._active_load_id, force_refresh))
             else:
-                self._render_details(pub, base_url)
+                # But we render and fetch progression using the ACTUAL base of this enriched object
+                self._render_details(pub, actual_base_url)
                 self.progress.setVisible(False)
-                asyncio.create_task(self._fetch_progression(pub, base_url, self._active_load_id))
+                asyncio.create_task(self._fetch_progression(pub, actual_base_url, self._active_load_id))
             
             if force_refresh:
                 QTimer.singleShot(500, self.ensure_visible_covers)
@@ -215,42 +247,42 @@ class FeedDetailView(BaseDetailView):
                     elif not full_pub.metadata and pub.metadata:
                         full_pub.metadata = pub.metadata
                     fetched_pub = full_pub
+            except OPDSClientError as e:
+                logger.error(f"OPDS Error upgrading metadata from {full_url}: {e}")
             except Exception as e:
-                logger.error(f"Error upgrading metadata: {e}")
+                logger.error(f"Unexpected error upgrading metadata: {e}")
         
         if load_id == self._active_load_id:
+            # If we fetched a full manifest, subsequent links (like progression) 
+            # should be resolved relative to that manifest URL.
+            actual_base_url = full_url if manifest_url and 'full_url' in locals() else base_url
+            
             self._current_pub = fetched_pub
+            self._current_base_url = actual_base_url
             self.setUpdatesEnabled(False)
             try:
-                self._render_details(fetched_pub, base_url)
+                self._render_details(fetched_pub, actual_base_url)
             finally:
                 self.setUpdatesEnabled(True)
             self.progress.setVisible(False)
-            asyncio.create_task(self._fetch_progression(fetched_pub, base_url, load_id))
+            asyncio.create_task(self._fetch_progression(fetched_pub, actual_base_url, load_id))
 
     async def _fetch_progression(self, pub: Publication, base_url: str, load_id: str):
         prog_url = None
-        for link in pub.links:
-            rels = [link.rel] if isinstance(link.rel, str) else (link.rel or [])
-            if any(r in rels for r in ["http://librarysimplified.org/terms/rel/state", "http://www.cantook.com/api/progression", "http://readium.org/rel/progression"]):
-                prog_url = urljoin(base_url, link.href)
-                break
+        if pub.links:
+            for link in pub.links:
+                rels = [link.rel] if isinstance(link.rel, str) else (link.rel or [])
+                if any(r in rels for r in ["http://librarysimplified.org/terms/rel/state", "http://www.cantook.com/api/progression", "http://readium.org/rel/progression"]):
+                    prog_url = urljoin(base_url, link.href)
+                    break
         
         if prog_url and load_id == self._active_load_id:
             try:
                 data = await self.progression_sync.get_progression(prog_url)
                 if data and load_id == self._active_load_id:
-                    # Check for nested Readium Locator structure first
-                    loc = data.get("locator", {}).get("locations", {})
-                    pct = loc.get("progression")
-                    pos = loc.get("position")
-                    
-                    # Fallback to flat structure
-                    if pct is None:
-                        pct = data.get("progression")
-                    
+                    pct, pos = ProgressionSync.extract_locations(data)
                     if pct is not None:
-                        self._update_progression_ui(float(pct), pub, pos)
+                        self._update_progression_ui(pct, pub, pos)
             except Exception as e:
                 logger.error(f"Error fetching progression: {e}")
 
@@ -421,23 +453,27 @@ class FeedDetailView(BaseDetailView):
             # Action Buttons
             manifest_url = next((urljoin(base_url, l.href) for l in (pub.links or []) if l.type in ["application/webpub+json", "application/divina+json", "application/opds-publication+json"]), None)
             
-            # Use FeedReconciler to find best download link and its format
-            download_url, download_format = FeedReconciler._find_acquisition_link(pub, base_url)
+            # Use FeedReconciler to find best download link
+            download_url, _ = FeedReconciler._find_acquisition_link(pub, base_url)
             
+            # Check if links claim this is streamable (before manifest is fully fetched)
+            has_divina_link = any(l.type == "application/divina+json" for l in (pub.links or []))
+            
+            # If we have an empty reading order, it's not streamable even if the links say so
+            if pub.readingOrder is not None and len(pub.readingOrder) == 0:
+                has_divina_link = False
+
+            is_streamable = pub.is_divina or has_divina_link
+
             self.btn_read = self.create_action_button(
                 "Read Now",
                 lambda: self.on_read(pub, manifest_url or base_url, self._context_pubs),
                 icon_name="book"
             )
+            self.btn_read.setEnabled(is_streamable)
             
-            # Disable Read button if not Divina (image-based).
-            # We also enable if the manifest link type is explicitly application/divina+json.
-            is_divina_link = any(l.type == "application/divina+json" for l in (pub.links or []))
-            self.btn_read.setEnabled(pub.is_divina or is_divina_link)
-            
-            down_label = f"Download ({download_format})" if download_format else "Download"
             btn_down = self.create_action_button(
-                down_label,
+                "Download",
                 lambda: self.on_start_download(pub, download_url),
                 icon_name="download"
             )
@@ -455,21 +491,23 @@ class FeedDetailView(BaseDetailView):
 
             # Support Status Labels
             theme = ThemeManager.get_current_theme_colors()
+            notes = []
             
             # 1. Streaming Support Hint
-            if not (pub.is_divina or is_divina_link):
-                streaming_hint = QLabel("Note: This server does not support page streaming for this item.")
-                streaming_hint.setObjectName("meta_status_hint")
-                streaming_hint.setWordWrap(True)
-                self.info_layout.addWidget(streaming_hint)
+            if not is_streamable:
+                notes.append("Page streaming not available")
 
-            # 2. Purchase Support Hint
-            has_buy = any((action.rel or "").lower() == "http://opds-spec.org/acquisition/buy" for action in (pub.actions or []))
-            if has_buy and not download_url:
-                buy_hint = QLabel("Note: This item requires purchase, which is not supported in this app.")
-                buy_hint.setObjectName("meta_status_hint")
-                buy_hint.setWordWrap(True)
-                self.info_layout.addWidget(buy_hint)
+            # 2. Detailed acquisition notes (Borrow, Purchase, Unsupported Formats)
+            acq_note = FeedReconciler.get_acquisition_note(pub)
+            if acq_note:
+                notes.append(acq_note)
+            
+            if notes:
+                full_note_text = "Note: " + " • ".join(notes)
+                status_hint = QLabel(full_note_text)
+                status_hint.setObjectName("meta_status_hint")
+                status_hint.setWordWrap(True)
+                self.info_layout.addWidget(status_hint)
             
             # Check if already downloaded (if link exists)
             self._file_size_str = None
@@ -498,20 +536,11 @@ class FeedDetailView(BaseDetailView):
             if prog_parts:
                 self.progression_label.setText(" • ".join(prog_parts))
 
-            # Summary (Description)
-            if m.description:
-                self._add_description(m.description)
-                
-            # Cover
-            img_url = self._get_image_url(pub)
-            if img_url:
-                asyncio.create_task(self._load_cover(urljoin(base_url, img_url)))
-
             # Metadata
             roles = {}
             roles_orig = {}
             role_map = {
-                "author": "Author", "artist": "Artist", "penciler": "Penciller", 
+                "author": "Writer", "artist": "Artist", "penciler": "Penciller", 
                 "inker": "Inker", "colorist": "Colorist", "letterer": "Letterer", 
                 "editor": "Editor", "publisher": "Publisher", "imprint": "Imprint"
             }
@@ -538,6 +567,15 @@ class FeedDetailView(BaseDetailView):
             if m.subject:
                 self._add_subjects(info_layout, m.subject, base_url)
 
+            # Summary (Description)
+            if m.description:
+                self._add_description(m.description)
+                
+            # Cover
+            img_url = self._get_image_url(pub)
+            if img_url:
+                asyncio.create_task(self._load_cover(urljoin(base_url, img_url)))
+
             self.info_layout.addStretch()
 
             # carousels
@@ -554,7 +592,7 @@ class FeedDetailView(BaseDetailView):
         if full_path.exists():
             pixmap = QPixmap(str(full_path))
             if not pixmap.isNull():
-                self.cover_label.setPixmap(pixmap)
+                self.set_cover_pixmap(pixmap)
 
     def _get_image_url(self, pub: Publication) -> Optional[str]:
         if pub.images: return pub.images[0].href
@@ -644,9 +682,7 @@ class FeedDetailView(BaseDetailView):
         super().update_header_margins()
 
         # 2. Specialized logic for manual carousel layouts
-        sb = self.scroll.verticalScrollBar()
-        sb_width = sb.width() if sb.isVisible() else 0
-        header_margin = sb_width + UIConstants.scale(10)
+        header_margin = UIConstants.scale(10)
 
         # Look for the QHBoxLayouts we created manually for carousels
         for i in range(self.content_layout.count()):
@@ -675,7 +711,6 @@ class FeedDetailView(BaseDetailView):
                     if not l_href: continue
 
                     label_text = item.name or rel_type.capitalize()
-                    if rel_type == "series": label_text = f"More from {label_text}"
 
                     header = QHBoxLayout()
                     l_title = QLabel(label_text)
@@ -716,19 +751,21 @@ class FeedDetailView(BaseDetailView):
         model = index.model()
         item = model.data(index, FeedBrowserModel.ItemDataRole)
         if item and item.raw_pub:
-            self.on_open_detail(item.raw_pub, None)
+            self.on_open_detail(item.raw_pub, self._current_base_url)
 
     async def _load_carousel_data(self, url, model):
         try:
             feed = await self.opds_client.get_feed(url)
             
-            # Use FeedReconciler to get FeedItems
-            base_feed_url = self.api_client.profile.get_base_url()
-            feed_page = FeedReconciler.reconcile(feed, base_feed_url)
+            # Use the carousel's own URL as the base for items in this section.
+            # This follows OPDS spec where links are relative to the current document.
+            feed_page = FeedReconciler.reconcile(feed, url)
             
-            # Use centralized main_section helper to find relevant items
-            main_sec = feed_page.main_section
-            items = main_sec.items if main_sec else []
+            # Only show cards from the root-level publications
+            items = []
+            for section in feed_page.sections:
+                if section.source_element == "root:publications":
+                    items.extend(section.items)
             
             if not items:
                 return
@@ -739,5 +776,7 @@ class FeedDetailView(BaseDetailView):
             # Seed visibility check once data is in the model
             QTimer.singleShot(300, self.ensure_visible_covers)
             
+        except OPDSClientError as e:
+            logger.error(f"OPDS Carousel error for {url}: {e}")
         except Exception as e:
-            logger.error(f"Carousel error: {e}")
+            logger.error(f"Unexpected carousel error: {e}")

@@ -14,8 +14,10 @@ class ViewportHelper:
     def get_visible_range(view: QListView, buffer: int = 0) -> Tuple[int, int]:
         """
         Calculates the range of visible row indices (first, last) in a QListView.
-        Robust against margins and gutters by using small corner offsets.
+        Robust against margins and gutters by checking multiple probe points
+        and adding a small safety buffer.
         """
+        from comiccatcher.ui.theme_manager import UIConstants
         if not view or not view.isVisible():
             return 0, -1
             
@@ -24,34 +26,76 @@ class ViewportHelper:
             return 0, -1
             
         rect = vp.rect()
-        # Use 10px offsets to ensure we hit the actual card content
-        first_idx = view.indexAt(rect.topLeft() + QPoint(10, 10))
-        last_idx = view.indexAt(rect.bottomRight() - QPoint(10, 10))
+        w = rect.width()
+        h = rect.height()
+        
+        # 1. Detect First Visible Item
+        # Check top-left and top-center
+        fi = view.indexAt(QPoint(UIConstants.VIEWPORT_MARGIN, UIConstants.VIEWPORT_MARGIN))
+        if not fi.isValid():
+            fi = view.indexAt(QPoint(w // 2, UIConstants.VIEWPORT_MARGIN))
+            
+        # 2. Detect Last Visible Item
+        # Check bottom-right, bottom-center, and bottom-left
+        li = view.indexAt(QPoint(w - UIConstants.VIEWPORT_MARGIN, h - UIConstants.VIEWPORT_MARGIN))
+        if not li.isValid():
+            li = view.indexAt(QPoint(w // 2, h - UIConstants.VIEWPORT_MARGIN))
+        if not li.isValid():
+            li = view.indexAt(QPoint(UIConstants.VIEWPORT_MARGIN, h - UIConstants.VIEWPORT_MARGIN))
         
         model = view.model()
         row_count = model.rowCount() if model else 0
-        
         if row_count == 0:
             return 0, -1
 
-        first = first_idx.row() if first_idx.isValid() else 0
+        first = fi.row() if fi.isValid() else 0
         
-        if last_idx.isValid():
-            last = last_idx.row()
+        if li.isValid():
+            last = li.row()
         else:
-            # Fallback: If bottomRight didn't hit an item, use a safe estimate
-            # based on current view mode.
-            if view.viewMode() == QListView.ViewMode.IconMode:
-                # Conservative estimate for grids/ribbons
-                last = min(row_count - 1, first + 30)
-            else:
-                last = min(row_count - 1, first + 15)
+            # Fallback estimation: use viewport height and scroll position
+            # We assume a standard card height if we can't detect one
+            from comiccatcher.ui.theme_manager import UIConstants
+            # Use unscaled BASE_CARD_HEIGHT as a safe minimum if scaling isn't init'd
+            card_h = UIConstants.get_card_height(True) or 300 
+            
+            inner_scroll = view.verticalScrollBar().value()
+            # Estimate row based on scroll
+            first_est = max(0, (inner_scroll // card_h) * 2) # conservative 2 cols
+            visible_rows = (h // card_h) + 2 # +2 rows for safety
+            last = min(row_count - 1, first_est + (visible_rows * 10)) # very safe 10 cols
+
+        # 3. Add safety buffer (usually 1 row) to prevent cancellation flickering
+        # We assume 2-10 columns, so +10 is a safe "one row" buffer
+        first = max(0, first - 5)
+        last = min(row_count - 1, last + 10)
             
         if buffer > 0:
             first = max(0, first - buffer)
             last = min(row_count - 1, last + buffer)
             
         return first, last
+
+    @staticmethod
+    def get_visible_urls(view: QListView) -> Set[str]:
+        """Returns a set of all cover URLs currently visible in the view's viewport."""
+        urls = set()
+        if not view or not view.isVisible():
+            return urls
+            
+        model = view.model()
+        if not model:
+            return urls
+            
+        first, last = ViewportHelper.get_visible_range(view)
+        if last < 0:
+            return urls
+            
+        for row in range(first, last + 1):
+            item = model.get_item(row)
+            if isinstance(item, FeedItem) and item.cover_url:
+                urls.add(item.cover_url)
+        return urls
 
     @staticmethod
     async def fetch_cover_async(

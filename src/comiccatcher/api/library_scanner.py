@@ -9,7 +9,7 @@ from comiccatcher.logger import get_logger
 
 logger = get_logger("api.library_scanner")
 
-COMIC_EXTS = {".cbz", ".cbr", ".cb7", ".pdf"}
+COMIC_EXTS = {".cbz", ".cbr", ".cb7", ".cbt", ".pdf"}
 
 class LibraryScanner:
     def __init__(self, db: LocalLibraryDB, library_dir: Path, on_cover: Optional[Callable] = None):

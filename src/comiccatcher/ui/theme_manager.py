@@ -15,6 +15,7 @@ THEMES = {
         "text_main": "#1a1d21",
         "text_dim": "#5a6270",
         "text_selected": "#004bb0",
+        "text_on_accent": "#ffffff",
         "accent": "#004bb0",
         "accent_dim": "rgba(0, 75, 176, 40)",
         "border": "#c8cdd4",
@@ -22,7 +23,9 @@ THEMES = {
         "card_border": "#d1d5db",
         "white": "#ffffff",
         "danger": "#dc3545",
-        "success": "#28a745"
+        "success": "#28a745",
+        "bg_reader": "#ffffff",
+        "text_reader": "#1a1d21"
     },
     "dark": {
         "bg_main": "#1e1e1e",
@@ -33,6 +36,7 @@ THEMES = {
         "text_main": "#e1e1e1",
         "text_dim": "#a0a0a0",
         "text_selected": "#ffffff",
+        "text_on_accent": "#ffffff",
         "accent": "#007fd4",
         "accent_dim": "rgba(0, 127, 212, 40)",
         "border": "#333333",
@@ -40,7 +44,9 @@ THEMES = {
         "card_border": "#3f3f46",
         "white": "#ffffff",
         "danger": "#f44336",
-        "success": "#4caf50"
+        "success": "#4caf50",
+        "bg_reader": "#2d2d2d",
+        "text_reader": "#e1e1e1"
     },
     "oled": {
         "bg_main": "#000000",
@@ -51,6 +57,7 @@ THEMES = {
         "text_main": "#ffffff",
         "text_dim": "#bbbbbb",
         "text_selected": "#ffffff",
+        "text_on_accent": "#ffffff",
         "accent": "#007fd4",
         "accent_dim": "rgba(0, 127, 212, 60)",
         "border": "#404040",
@@ -58,7 +65,9 @@ THEMES = {
         "card_border": "#333333",
         "white": "#ffffff",
         "danger": "#f44336",
-        "success": "#4caf50"
+        "success": "#4caf50",
+        "bg_reader": "#000000",
+        "text_reader": "#ffffff"
     },
     "blue": {
         "bg_main": "#0f172a",
@@ -69,6 +78,7 @@ THEMES = {
         "text_main": "#f1f5f9",
         "text_dim": "#94a3b8",
         "text_selected": "#ffffff",
+        "text_on_accent": "#0f172a",
         "accent": "#0ea5e9",
         "accent_dim": "rgba(14, 165, 233, 40)",
         "border": "#334155",
@@ -76,7 +86,9 @@ THEMES = {
         "card_border": "#334155",
         "white": "#ffffff",
         "danger": "#ef4444",
-        "success": "#10b981"
+        "success": "#10b981",
+        "bg_reader": "#1e293b",
+        "text_reader": "#f1f5f9"
     },
     "light_blue": {
         "bg_main": "#f0f7ff",
@@ -87,6 +99,7 @@ THEMES = {
         "text_main": "#1e3a8a",
         "text_dim": "#3b82f6",
         "text_selected": "#1e3a8a",
+        "text_on_accent": "#ffffff",
         "accent": "#1d4ed8",
         "accent_dim": "rgba(29, 78, 216, 40)",
         "border": "#bfdbfe",
@@ -94,7 +107,9 @@ THEMES = {
         "card_border": "#bfdbfe",
         "white": "#ffffff",
         "danger": "#dc3545",
-        "success": "#16a34a"
+        "success": "#16a34a",
+        "bg_reader": "#ffffff",
+        "text_reader": "#1e3a8a"
     }
 }
 
@@ -108,18 +123,27 @@ class UIConstants:
     _BASE_STATUS_HEIGHT = 2
     
     _BASE_FONT_SIZE_SECTION_HEADER = 14
+    _BASE_FONT_SIZE_DEFAULT = 13
     _BASE_FONT_SIZE_CARD_LABEL = 13
     _BASE_FONT_SIZE_STATUS = 11
+    _BASE_FONT_SIZE_BOTTOM_BAR = 11
     _BASE_FONT_SIZE_DEBUG = 10
     _BASE_FONT_SIZE_DETAIL_TITLE = 24
     _BASE_FONT_SIZE_DETAIL_SUBTITLE = 18
     _BASE_FONT_SIZE_BADGE = 11
+    _BASE_FONT_SIZE_PAGING = 14
     _BASE_FONT_SIZE_DETAIL_INFO = 14
     _BASE_FONT_SIZE_SEARCH_TITLE = 28
     _BASE_FONT_SIZE_SEARCH_INPUT = 16
     _BASE_FONT_SIZE_BREADCRUMB = 13
     _BASE_FONT_SIZE_SIDEBAR = 12
     _BASE_FONT_SIZE_FEED_LIST = 14
+    _BASE_FONT_SIZE_FEED_NAME_LARGE = 18
+    _BASE_FONT_SIZE_FEED_URL_LARGE = 14
+    _BASE_FEED_ICON_SIZE_LARGE = 48
+    _BASE_FONT_SIZE_FEED_NAME_SMALL = 16
+    _BASE_FONT_SIZE_FEED_URL_SMALL = 12
+    _BASE_FEED_ICON_SIZE_SMALL = 32
     
     _BASE_SIDEBAR_WIDTH = 85
     _BASE_NAV_ICON_SIZE = 32
@@ -154,6 +178,7 @@ class UIConstants:
     
     _BASE_GRID_GUTTER = 10
     _BASE_RIBBON_LABEL_GAP = 25
+    _BASE_RIBBON_SCROLLBAR_GUTTER = 8
     _BASE_LARGE_SECTION_THRESHOLD = 200
     _BASE_VIEWPORT_MARGIN = 20
     
@@ -169,8 +194,14 @@ class UIConstants:
     _BASE_TOOLBAR_GAP = 12
     _BASE_TOGGLE_BUTTON_SIZE = 24
     _BASE_HEADER_BUTTON_SIZE = 32
+    
+    _BASE_ICON_SIZE_STANDARD = 18
+    _BASE_ICON_SIZE_ACTION = 20
+    _BASE_ICON_SIZE_SMALL = 16
+    
     _BASE_LAYOUT_MARGIN_DEFAULT = 10
     _BASE_LAYOUT_MARGIN_LARGE = 20
+    _BASE_DETAIL_MAX_WIDTH = 750
     
     _BASE_POPOVER_OFFSET = 10
     _BASE_POPOVER_ROUNDING = 8
@@ -179,18 +210,27 @@ class UIConstants:
     HEADER_HEIGHT = _BASE_HEADER_HEIGHT
     STATUS_HEIGHT = _BASE_STATUS_HEIGHT
     FONT_SIZE_SECTION_HEADER = _BASE_FONT_SIZE_SECTION_HEADER
+    FONT_SIZE_DEFAULT = _BASE_FONT_SIZE_DEFAULT
     FONT_SIZE_CARD_LABEL = _BASE_FONT_SIZE_CARD_LABEL
     FONT_SIZE_STATUS = _BASE_FONT_SIZE_STATUS
+    FONT_SIZE_BOTTOM_BAR = _BASE_FONT_SIZE_BOTTOM_BAR
     FONT_SIZE_DEBUG = _BASE_FONT_SIZE_DEBUG
     FONT_SIZE_DETAIL_TITLE = _BASE_FONT_SIZE_DETAIL_TITLE
     FONT_SIZE_DETAIL_SUBTITLE = _BASE_FONT_SIZE_DETAIL_SUBTITLE
     FONT_SIZE_BADGE = _BASE_FONT_SIZE_BADGE
+    FONT_SIZE_PAGING = _BASE_FONT_SIZE_PAGING
     FONT_SIZE_DETAIL_INFO = _BASE_FONT_SIZE_DETAIL_INFO
     FONT_SIZE_SEARCH_TITLE = _BASE_FONT_SIZE_SEARCH_TITLE
     FONT_SIZE_SEARCH_INPUT = _BASE_FONT_SIZE_SEARCH_INPUT
     FONT_SIZE_BREADCRUMB = _BASE_FONT_SIZE_BREADCRUMB
     FONT_SIZE_SIDEBAR = _BASE_FONT_SIZE_SIDEBAR
     FONT_SIZE_FEED_LIST = _BASE_FONT_SIZE_FEED_LIST
+    FONT_SIZE_FEED_NAME_LARGE = _BASE_FONT_SIZE_FEED_NAME_LARGE
+    FONT_SIZE_FEED_URL_LARGE = _BASE_FONT_SIZE_FEED_URL_LARGE
+    FEED_ICON_SIZE_LARGE = _BASE_FEED_ICON_SIZE_LARGE
+    FONT_SIZE_FEED_NAME_SMALL = _BASE_FONT_SIZE_FEED_NAME_SMALL
+    FONT_SIZE_FEED_URL_SMALL = _BASE_FONT_SIZE_FEED_URL_SMALL
+    FEED_ICON_SIZE_SMALL = _BASE_FEED_ICON_SIZE_SMALL
     
     SIDEBAR_WIDTH = _BASE_SIDEBAR_WIDTH
     NAV_ICON_SIZE = _BASE_NAV_ICON_SIZE
@@ -217,6 +257,7 @@ class UIConstants:
     PROGRESS_BAR_GAP = _BASE_PROGRESS_BAR_GAP
     GRID_GUTTER = _BASE_GRID_GUTTER
     RIBBON_LABEL_GAP = _BASE_RIBBON_LABEL_GAP
+    RIBBON_SCROLLBAR_GUTTER = _BASE_RIBBON_SCROLLBAR_GUTTER
     LARGE_SECTION_THRESHOLD = _BASE_LARGE_SECTION_THRESHOLD
     VIEWPORT_MARGIN = _BASE_VIEWPORT_MARGIN
     SKELETON_PADDING = _BASE_SKELETON_PADDING
@@ -230,17 +271,23 @@ class UIConstants:
     TOOLBAR_GAP = _BASE_TOOLBAR_GAP
     TOGGLE_BUTTON_SIZE = _BASE_TOGGLE_BUTTON_SIZE
     HEADER_BUTTON_SIZE = _BASE_HEADER_BUTTON_SIZE
+    
+    ICON_SIZE_STANDARD = _BASE_ICON_SIZE_STANDARD
+    ICON_SIZE_ACTION = _BASE_ICON_SIZE_ACTION
+    ICON_SIZE_SMALL = _BASE_ICON_SIZE_SMALL
+    
     LAYOUT_MARGIN_DEFAULT = _BASE_LAYOUT_MARGIN_DEFAULT
     LAYOUT_MARGIN_LARGE = _BASE_LAYOUT_MARGIN_LARGE
+    DETAIL_MAX_WIDTH = _BASE_DETAIL_MAX_WIDTH
     POPOVER_OFFSET = _BASE_POPOVER_OFFSET
     POPOVER_ROUNDING = _BASE_POPOVER_ROUNDING
 
     # Non-scaled logic constants
     ELIDED_TEXT_WIDTH_FACTOR = 1.7
-    ITEMS_PER_PAGE = 100
+    DEFAULT_PAGING_STRIDE = 50
     SPARSE_FETCH_BUFFER = 1
-    MAX_CONCURRENT_FETCHES = 3
-    SCROLL_DEBOUNCE_MS = 250
+    MAX_CONCURRENT_FETCHES = 1
+    SCROLL_DEBOUNCE_MS = 300
     STATUS_UPDATE_MS = 50
     RESIZE_DEBOUNCE_MS = 200
     DEBUG_OUTLINES = False
@@ -277,6 +324,16 @@ class UIConstants:
         return max(1, int(val * cls._scale_factor)) if val > 0 else 0
 
     @classmethod
+    @property
+    def BOTTOM_BAR_HEIGHT(cls) -> int:
+        from PyQt6.QtGui import QFont, QFontMetrics
+        font = QFont()
+        font.setPixelSize(cls.FONT_SIZE_BOTTOM_BAR)
+        metrics = QFontMetrics(font)
+        # Line spacing + 8px total vertical padding (scaled)
+        return metrics.lineSpacing() + cls.scale(8)
+
+    @classmethod
     def set_scale(cls, factor: float):
         cls._scale_factor = max(0.5, min(3.0, factor))
         cls.init_scale()
@@ -298,18 +355,27 @@ class UIConstants:
         cls.STATUS_HEIGHT = cls.scale(cls._BASE_STATUS_HEIGHT)
         
         cls.FONT_SIZE_SECTION_HEADER = cls.scale(cls._BASE_FONT_SIZE_SECTION_HEADER)
+        cls.FONT_SIZE_DEFAULT = cls.scale(cls._BASE_FONT_SIZE_DEFAULT)
         cls.FONT_SIZE_CARD_LABEL = cls.scale(cls._BASE_FONT_SIZE_CARD_LABEL)
         cls.FONT_SIZE_STATUS = cls.scale(cls._BASE_FONT_SIZE_STATUS)
+        cls.FONT_SIZE_BOTTOM_BAR = cls.scale(cls._BASE_FONT_SIZE_BOTTOM_BAR)
         cls.FONT_SIZE_DEBUG = cls.scale(cls._BASE_FONT_SIZE_DEBUG)
         cls.FONT_SIZE_DETAIL_TITLE = cls.scale(cls._BASE_FONT_SIZE_DETAIL_TITLE)
         cls.FONT_SIZE_DETAIL_SUBTITLE = cls.scale(cls._BASE_FONT_SIZE_DETAIL_SUBTITLE)
         cls.FONT_SIZE_BADGE = cls.scale(cls._BASE_FONT_SIZE_BADGE)
+        cls.FONT_SIZE_PAGING = cls.scale(cls._BASE_FONT_SIZE_PAGING)
         cls.FONT_SIZE_DETAIL_INFO = cls.scale(cls._BASE_FONT_SIZE_DETAIL_INFO)
         cls.FONT_SIZE_SEARCH_TITLE = cls.scale(cls._BASE_FONT_SIZE_SEARCH_TITLE)
         cls.FONT_SIZE_SEARCH_INPUT = cls.scale(cls._BASE_FONT_SIZE_SEARCH_INPUT)
         cls.FONT_SIZE_BREADCRUMB = cls.scale(cls._BASE_FONT_SIZE_BREADCRUMB)
         cls.FONT_SIZE_SIDEBAR = cls.scale(cls._BASE_FONT_SIZE_SIDEBAR)
         cls.FONT_SIZE_FEED_LIST = cls.scale(cls._BASE_FONT_SIZE_FEED_LIST)
+        cls.FONT_SIZE_FEED_NAME_LARGE = cls.scale(cls._BASE_FONT_SIZE_FEED_NAME_LARGE)
+        cls.FONT_SIZE_FEED_URL_LARGE = cls.scale(cls._BASE_FONT_SIZE_FEED_URL_LARGE)
+        cls.FEED_ICON_SIZE_LARGE = cls.scale(cls._BASE_FEED_ICON_SIZE_LARGE)
+        cls.FONT_SIZE_FEED_NAME_SMALL = cls.scale(cls._BASE_FONT_SIZE_FEED_NAME_SMALL)
+        cls.FONT_SIZE_FEED_URL_SMALL = cls.scale(cls._BASE_FONT_SIZE_FEED_URL_SMALL)
+        cls.FEED_ICON_SIZE_SMALL = cls.scale(cls._BASE_FEED_ICON_SIZE_SMALL)
 
         cls.SIDEBAR_WIDTH = cls.scale(cls._BASE_SIDEBAR_WIDTH)
         cls.NAV_ICON_SIZE = cls.scale(cls._BASE_NAV_ICON_SIZE)
@@ -318,6 +384,10 @@ class UIConstants:
         cls.READER_BTN_SIZE = cls.scale(cls._BASE_READER_BTN_SIZE)
         cls.READER_ICON_SIZE = cls.scale(cls._BASE_READER_ICON_SIZE)
         cls.READER_FONT_COUNTER = cls.scale(cls._BASE_READER_FONT_COUNTER)
+
+        cls.ICON_SIZE_STANDARD = cls.scale(cls._BASE_ICON_SIZE_STANDARD)
+        cls.ICON_SIZE_ACTION = cls.scale(cls._BASE_ICON_SIZE_ACTION)
+        cls.ICON_SIZE_SMALL = cls.scale(cls._BASE_ICON_SIZE_SMALL)
         
         # 1. Start with fundamental card metrics
         cls.CARD_WIDTH = cls.scale(cls._BASE_CARD_WIDTH)
@@ -364,6 +434,7 @@ class UIConstants:
         
         cls.GRID_GUTTER = cls.scale(cls._BASE_GRID_GUTTER)
         cls.RIBBON_LABEL_GAP = cls.scale(cls._BASE_RIBBON_LABEL_GAP)
+        cls.RIBBON_SCROLLBAR_GUTTER = cls.scale(cls._BASE_RIBBON_SCROLLBAR_GUTTER)
         cls.LARGE_SECTION_THRESHOLD = cls._BASE_LARGE_SECTION_THRESHOLD
         cls.VIEWPORT_MARGIN = cls.scale(cls._BASE_VIEWPORT_MARGIN)
         
@@ -381,6 +452,7 @@ class UIConstants:
         cls.HEADER_BUTTON_SIZE = cls.scale(cls._BASE_HEADER_BUTTON_SIZE)
         cls.LAYOUT_MARGIN_DEFAULT = cls.scale(cls._BASE_LAYOUT_MARGIN_DEFAULT)
         cls.LAYOUT_MARGIN_LARGE = cls.scale(cls._BASE_LAYOUT_MARGIN_LARGE)
+        cls.DETAIL_MAX_WIDTH = cls.scale(cls._BASE_DETAIL_MAX_WIDTH)
         
         cls.POPOVER_OFFSET = cls.scale(cls._BASE_POPOVER_OFFSET)
         cls.POPOVER_ROUNDING = cls.scale(cls._BASE_POPOVER_ROUNDING)
@@ -495,7 +567,15 @@ class ThemeManager:
                 color: {theme['text_main']};
             }}
             
+            QFormLayout {{
+                background-color: transparent;
+            }}
+            
             /* Broad text settings */
+            QWidget {{
+                font-size: {UIConstants.FONT_SIZE_DEFAULT}px;
+            }}
+
             QLabel, QRadioButton, QCheckBox {{
                 color: {theme['text_main']};
                 background-color: transparent;
@@ -642,24 +722,24 @@ class ThemeManager:
             }}
             
             QPushButton#reader_button {{
-                background-color: #333333;
-                color: #ffffff;
-                border: 1px solid #444444;
+                background-color: {theme['bg_reader']};
+                color: {theme['text_reader']};
+                border: {max(1, s(1))}px solid {theme['border']};
                 border-radius: {s(4)}px;
                 padding: {s(4)}px;
             }}
 
             QPushButton#reader_button:hover {{
-                background-color: #555555;
-                border-color: #666666;
+                background-color: {theme['bg_item_hover']};
             }}
 
             QPushButton#reader_button:pressed {{
-                background-color: #222222;
+                background-color: {theme['accent']};
+                color: {theme['text_on_accent']};
             }}
 
             QPushButton#reader_button:disabled {{
-                color: #555555;
+                color: {theme['text_dim']};
                 background-color: transparent;
             }}
 
@@ -710,6 +790,7 @@ class ThemeManager:
                 color: {theme['text_main']};
                 padding: {s(4)}px;
                 border-radius: {s(4)}px;
+                font-size: {UIConstants.FONT_SIZE_DEFAULT}px;
             }}
 
             QLineEdit, QTextEdit {{
@@ -718,6 +799,7 @@ class ThemeManager:
                 color: {theme['text_main']};
                 padding: {s(4)}px;
                 border-radius: {s(4)}px;
+                font-size: {UIConstants.FONT_SIZE_DEFAULT}px;
             }}
 
             QGroupBox {{
@@ -752,7 +834,7 @@ class ThemeManager:
             QScrollBar:vertical {{
                 border: none;
                 background: transparent;
-                width: {UIConstants.SCROLLBAR_SIZE}px;
+                width: {max(8, s(10))}px;
                 margin: 0px;
             }}
 
@@ -849,8 +931,8 @@ class ThemeManager:
             }}
 
             QSlider#reader_slider::handle:horizontal:hover {{
-                background: {theme['white']};
-                border: {max(1, s(1))}px solid {theme['white']};
+                background: {theme['text_on_accent']};
+                border: {max(1, s(1))}px solid {theme['text_on_accent']};
             }}
 
             QSlider#reader_slider::sub-page:horizontal {{
@@ -961,9 +1043,9 @@ class ThemeManager:
 
             /* UNIFIED ACTION BUTTONS (Read, Download, etc) */
             QPushButton#primary_button {{
-                background-color: {theme['accent']} !important;
-                color: {theme['white']} !important;
-                border: 1px solid {theme['accent']} !important;
+                background-color: {theme['accent']};
+                color: {theme['text_on_accent']};
+                border: {max(1, s(1))}px solid {theme['accent']};
                 border-radius: {s(4)}px;
                 padding: {s(8)}px {s(16)}px;
                 font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
@@ -971,15 +1053,14 @@ class ThemeManager:
             }}
 
             QPushButton#primary_button:hover {{
-                background-color: {theme['bg_item_selected']} !important;
-                border: 1px solid {theme['white']} !important;
-                color: {theme['white']} !important;
+                background-color: {theme['accent']};
+                opacity: 0.85;
             }}
 
             QPushButton#secondary_button {{
-                background-color: {theme['bg_main']} !important;
-                color: {theme['text_main']} !important;
-                border: 1px solid {theme['border']} !important;
+                background-color: {theme['bg_main']};
+                color: {theme['text_main']};
+                border: {max(1, s(1))}px solid {theme['border']};
                 border-radius: {s(4)}px;
                 padding: {s(8)}px {s(16)}px;
                 font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
@@ -987,29 +1068,29 @@ class ThemeManager:
             }}
 
             QPushButton#secondary_button:hover {{
-                background-color: {theme['bg_item_hover']} !important;
-                border: 1px solid {theme['accent']} !important;
+                background-color: {theme['bg_item_hover']};
+                border: {max(1, s(1))}px solid {theme['accent']};
             }}
 
             QPushButton#primary_button:pressed,
             QPushButton#secondary_button:pressed {{
-                background-color: {theme['bg_item_selected']} !important;
-                color: {theme['text_selected']} !important;
-                border-color: {theme['accent']} !important;
+                background-color: {theme['bg_item_selected']};
+                color: {theme['text_selected']};
+                border-color: {theme['accent']};
             }}
 
             QPushButton#primary_button:disabled,
             QPushButton#secondary_button:disabled {{
-                background-color: transparent !important;
-                color: {theme['text_dim']} !important;
-                border: 1px solid {theme['border']} !important;
-                opacity: 0.5;
+                background-color: {theme['bg_item_hover']};
+                color: {theme['text_dim']};
+                border: {max(1, s(1))}px solid {theme['border']};
+                opacity: 0.6;
             }}
 
             QPushButton#danger_button {{
                 background-color: transparent !important;
                 color: {theme['danger']} !important;
-                border: 1px solid {theme['danger']} !important;
+                border: {max(1, s(1))}px solid {theme['danger']} !important;
                 border-radius: {s(4)}px !important;
                 padding: {s(8)}px {s(20)}px !important;
                 font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px !important;
@@ -1045,6 +1126,7 @@ class ThemeManager:
                 color: {theme['text_main']};
                 border: {max(1, s(1))}px solid {theme['border']};
                 padding: {s(5)}px;
+                font-size: {UIConstants.FONT_SIZE_DEFAULT}px;
             }}
 
             QMenu::item {{

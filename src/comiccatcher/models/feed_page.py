@@ -58,15 +58,20 @@ class FeedSection(BaseModel):
 class FeedPage(BaseModel):
     """The entire state of a feed view."""
     title: str
+    subtitle: Optional[str] = None
     current_page: int = 1
     total_pages: Optional[int] = None
+    next_url: Optional[str] = None
     sections: List[FeedSection] = []
     facets: List[Any] = [] # List of Group objects or dicts for filters
 
     pagination_template: Optional[str] = None # {page}
+    pagination_base_number: int = 1           # Does page 1 use index 0 or 1?
+    first_page_url: Optional[str] = None      # Explicit URL for page 1
     search_template: Optional[str] = None     # {query} or {searchTerms}
     is_offset_based: bool = False
-    is_dashboard: bool = False
+    is_paginated: bool = False
+    feed_items_per_page: Optional[int] = None
     main_section_id: Optional[str] = None
 
     # Breadcrumbs for navigation
@@ -75,7 +80,22 @@ class FeedPage(BaseModel):
 
     @property
     def main_section(self) -> Optional[FeedSection]:
-        """Identifies the primary content section based on size and layout."""
+        """
+        Identifies the primary content section for continuous scrolling.
+        
+        Current Logic (Strict Match):
+        1. The feed MUST have pagination links at the root level.
+        2. We iterate through root-level collections first, then grouped collections.
+        3. A section is ONLY considered the "main" section if its exact item count perfectly 
+           matches the server's `itemsPerPage` metadata (`feed_items_per_page`).
+           
+        Known Failure Case:
+        If a server returns fewer items than its stated `itemsPerPage` on the first page 
+        (e.g., due to filtering bugs, deleted items, or being a short feed like the Readino 
+        'space_opera' tag returning 23 items when itemsPerPage=24), this strict heuristic 
+        will FAIL to identify the main section. In ScrolledFeedView, this forces a fallback 
+        to "Infinite Sections" mode rather than the preferred "Infinite Grid" mode.
+        """
         if not self.sections:
             return None
 
@@ -85,30 +105,30 @@ class FeedPage(BaseModel):
                 if s.section_id == self.main_section_id:
                     return s
         
-        from comiccatcher.ui.theme_manager import UIConstants
-        
-        # 1. Look for a section that is ALREADY large in this response
-        # or is explicitly paginated (has a next link)
-        for s in self.sections:
-            # We focus on what we actually HAVE right now. 
-            # If we only have 10 items, it's a ribbon regardless of total_items.
-            if len(s.items) > UIConstants.LARGE_SECTION_THRESHOLD or s.next_url:
-                return s
-
-        # 2. Look for a section explicitly marked as GRID
-        grids = [s for s in self.sections if s.layout == SectionLayout.GRID]
-        if grids:
-            return max(grids, key=lambda s: len(s.items))
-
-        # 3. Fallback: If it's a dashboard, don't force a grid if the sections are just preview links.
-        if self.is_dashboard:
-            # Check the last section. If it has a way to see more (self_url), 
-            # and it's currently small, keep it as a ribbon.
-            last = self.sections[-1]
-            if last.self_url and len(last.items) <= UIConstants.LARGE_SECTION_THRESHOLD:
-                return None
-            return last
+        # 1. Only consider feeds that indicate pagination at the root level
+        if not self.is_paginated:
+            return None
             
-        # For non-dashboards (single results lists), always use the last/only section
-        return self.sections[-1]
+        # 2. Iterate over root candidate sources in priority order
+        for target_source in ("root:publications", "root:navigation"):
+            for s in self.sections:
+                if s.source_element == target_source:
+                    # On the last page, the item count may be less than the per-page stride
+                    if self.feed_items_per_page is not None and 0 < len(s.items) <= self.feed_items_per_page:
+                        return s
+        
+        # 3. If no root candidate found, iterate over groups:
+        # 3a. Grouped publication elements
+        for s in self.sections:
+            if s.source_element and s.source_element.startswith("group[") and "publications" in s.source_element:
+                if self.feed_items_per_page is not None and 0 < len(s.items) <= self.feed_items_per_page:
+                    return s
+        
+        # 3b. Grouped navigation elements
+        for s in self.sections:
+            if s.source_element and s.source_element.startswith("group[") and "navigation" in s.source_element:
+                if self.feed_items_per_page is not None and 0 < len(s.items) <= self.feed_items_per_page:
+                    return s
+                        
+        return None
 

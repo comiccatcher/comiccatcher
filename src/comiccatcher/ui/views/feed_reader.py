@@ -49,27 +49,9 @@ class FeedReaderView(BaseReaderView):
     def _on_header_title_clicked(self):
         if not self._current_pub: return
         
-        m = self._current_pub.metadata
-        if not m: return
+        from comiccatcher.ui.components.mini_detail_popover import format_opds_publication
+        data = format_opds_publication(self._current_pub)
         
-        # Build credits
-        creds = []
-        for role in ["author", "penciler", "artist", "editor", "colorist", "letterer", "inker"]:
-            val = getattr(m, role, None)
-            if val: # Now always a List[Contributor] if present
-                names = [v.name for v in val]
-                creds.append(f"{role.capitalize()}: {', '.join(names)}")
-        
-        # Published date (Month Year)
-        pub_date = ""
-        if m.published:
-            try:
-                from datetime import datetime
-                dt = datetime.fromisoformat(m.published.replace('Z', '+00:00'))
-                pub_date = dt.strftime("%B %Y")
-            except:
-                pub_date = str(m.published)[:7]
-
         # Get actual cover from cache if available
         cover_pixmap = QPixmap()
         if self._current_pub.images:
@@ -79,43 +61,8 @@ class FeedReaderView(BaseReaderView):
             if cache_path.exists():
                 cover_pixmap.load(str(cache_path))
 
-        # Web URLs from links
-        web_urls = []
-        if self._current_pub.links:
-            for link in self._current_pub.links:
-                if link.type == "text/html":
-                    web_urls.append(link.href)
-
-        # Genre from subject
-        genres = []
-        if m.subject:
-            subjects = m.subject if isinstance(m.subject, list) else [m.subject]
-            for s in subjects:
-                if isinstance(s, dict):
-                    genres.append(s.get("name") or s.get("label") or str(s))
-                else:
-                    genres.append(str(s))
-
-        # Imprint string handling
-        imprint_name = ""
-        if m.imprint:
-            imprint_name = ", ".join([p.name for p in m.imprint])
-
-        # Publisher string handling
-        pub_name = ""
-        if m.publisher:
-            pub_name = ", ".join([p.name for p in m.publisher])
-
-        data = {
-            "credits": "\n".join(creds),
-            "publisher": pub_name,
-            "imprint": imprint_name,
-            "published": pub_date,
-            "summary": m.description,
-            "web": ", ".join(web_urls) if web_urls else None,
-            "genre": ", ".join(genres) if genres else None
-        }
-        
+        # We intentionally do NOT pass title/subtitle here as they are already 
+        # shown in the reader header where the user clicked.
         self.meta_popover.populate(cover_pixmap, data)
         
         # Center horizontally below header
@@ -218,8 +165,9 @@ class FeedReaderView(BaseReaderView):
                 resp = await self.api_client.get(self._manifest_url)
                 resp.raise_for_status()
                 data = resp.json()
-                if "readingOrder" in data:
+                if data.get("readingOrder"):
                     self._reading_order = data["readingOrder"]
+
                 # Progression link may live in the manifest itself
                 prog = self._discover_progression_url(data.get("links", []))
                 if prog:
@@ -239,9 +187,7 @@ class FeedReaderView(BaseReaderView):
             if self.progression_url:
                 prog_data = await self.progression_sync.get_progression(self.progression_url)
                 if prog_data:
-                    loc = prog_data.get("locator", {}).get("locations", {})
-                    pct = loc.get("progression") or prog_data.get("progression")
-                    pos = loc.get("position")
+                    pct, pos = ProgressionSync.extract_locations(prog_data)
                     if pos is not None and pos > 0:
                         self._index = pos - 1
                     elif pct is not None:

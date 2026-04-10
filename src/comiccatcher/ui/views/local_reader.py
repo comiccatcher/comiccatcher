@@ -10,7 +10,7 @@ from comiccatcher.api.image_manager import ImageManager
 from comiccatcher.config import ConfigManager
 from comiccatcher.ui.theme_manager import UIConstants
 from comiccatcher.ui.base_reader import BaseReaderView
-from comiccatcher.ui.local_archive import LocalPage, list_cbz_pages, read_cbz_entry_bytes
+from comiccatcher.ui.local_archive import LocalPage, list_archive_pages, read_archive_entry_bytes
 from comiccatcher.ui.local_comicbox import generate_comic_labels
 
 logger = get_logger("ui.local_reader")
@@ -18,9 +18,9 @@ logger = get_logger("ui.local_reader")
 
 class LocalReaderView(BaseReaderView):
     """
-    Local CBZ reader.
+    Local comic archive reader (CBZ, CBR, CB7, CBT, PDF).
 
-    Extracts pages from zip archives on a background thread and caches them
+    Extracts pages from archives on a background thread and caches them
     to disk via ImageManager's cache layout.
     """
 
@@ -65,7 +65,7 @@ class LocalReaderView(BaseReaderView):
         
         # Get cover pixmap from cache
         cover_pixmap = QPixmap()
-        cover_url = f"local-cbz://{self._path.absolute()}/_cover_thumb"
+        cover_url = f"local-archive://{self._path.absolute()}/_cover_thumb"
         cache_path = self._img_mgr._get_cache_path(cover_url)
         if cache_path.exists():
             cover_pixmap.load(str(cache_path))
@@ -134,7 +134,7 @@ class LocalReaderView(BaseReaderView):
     # Loading                                                              #
     # ------------------------------------------------------------------ #
 
-    def load_cbz(self, path: Path, context_paths: List[Path] = None):
+    def load_archive(self, path: Path, context_paths: List[Path] = None):
         self.clear_display()
         self._path  = Path(path)
         self._pages = []
@@ -144,7 +144,7 @@ class LocalReaderView(BaseReaderView):
 
     async def _load_pages(self):
         try:
-            pages = await asyncio.to_thread(list_cbz_pages, self._path)
+            pages = await asyncio.to_thread(list_archive_pages, self._path)
             self._pages = pages
             if not pages:
                 logger.error("No pages found in archive")
@@ -177,7 +177,7 @@ class LocalReaderView(BaseReaderView):
             self._setup_reader(title, len(pages), subtitle, start_index=self._index)
             await self._show_page()
         except Exception as e:
-            logger.error(f"Failed to load CBZ: {e}")
+            logger.error(f"Failed to load archive: {e}")
 
     # ------------------------------------------------------------------ #
     # Cache helpers                                                        #
@@ -187,7 +187,7 @@ class LocalReaderView(BaseReaderView):
         if not self._path:
             return None
         # Use a synthetic URL as a stable cache key
-        url = f"local-cbz://{self._path.absolute()}/{name}"
+        url = f"local-archive://{self._path.absolute()}/{name}"
         cache_path = self._img_mgr._get_cache_path(url)
         if cache_path.exists():
             return cache_path
@@ -195,7 +195,7 @@ class LocalReaderView(BaseReaderView):
             if cache_path.exists():   # re-check after acquiring semaphore
                 return cache_path
             try:
-                data = await asyncio.to_thread(read_cbz_entry_bytes, self._path, name)
+                data = await asyncio.to_thread(read_archive_entry_bytes, self._path, name)
                 if data:
                     cache_path.write_bytes(data)
                     return cache_path

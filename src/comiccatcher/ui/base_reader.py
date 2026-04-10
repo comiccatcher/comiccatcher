@@ -279,29 +279,35 @@ class HelpPopover(QFrame):
             inner.addWidget(lbl)
 
         add_section("NAVIGATION")
-        add_row("Left / Right", "Turn Page (LtR/RtL)")
-        add_row("Space", "Toggle UI Overlays")
+        add_row("Left / Right", "Pan or Turn Page (LtR/RtL)")
+        add_row("Up / Down", "Pan or Next / Prev Page")
+        add_row("PgUp / PgDn", "Step Pan or Next / Prev Page")
+        add_row("Enter / Return", "Toggle UI Overlays")
         add_row("Home / End", "First / Last Page")
-        add_row("Esc", "Exit Reader")
+        add_row("[ / ]", "Previous / Next Book (Flow sensitive)")
+        add_row("F / F11", "Toggle Fullscreen")
+        add_row("Esc", "Exit Reader / Fullscreen")
         
         add_section("ZOOM & PAN")
         add_row("Ctrl + Wheel", "Dynamic Zoom")
         add_row("+ / -", "Step Zoom")
+        add_row("0", "Reset Zoom (Fit Page)")
         add_row("Double Click", "Cycle Zoom Levels")
         add_row("Click + Drag", "Pan when Zoomed In")
         
         add_section("FLOW & LAYOUT")
         add_row("R", "Cycle Reading Flow (LtR > RtL > Cont)")
         add_row("L", "Cycle Page Layout (Single > Double > Auto)")
-        add_row("F", "Cycle Fit Mode (Fit > Width > Height > 1:1)")
+        add_row("C", "Cycle Fit Mode (Fit > Width > Height > 1:1)")
         
         add_section("SMART SCROLL")
-        inner.addWidget(QLabel("Wheel Down: Move in reading direction, then jump down."))
-        inner.addWidget(QLabel("At page edge: Turn page automatically."))
+        add_row("Space / Wheel Dn", "Pan in flow direction, then page turn")
+        add_row("Shift+Space / Up", "Pan opposite flow, then page turn")
+        add_row("Page Edge", "Navigation bumper requires second press")
 
         inner.addSpacing(s(10))
         footer = QLabel("Click anywhere or press any key to close")
-        footer.setStyleSheet(f"color: {theme['text_dim']}; font-style: italic;")
+        footer.setStyleSheet(f"color: {theme['text_dim']}; font-style: italic; font-size: {s(11)}px;")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inner.addWidget(footer)
 
@@ -477,6 +483,7 @@ class BaseReaderView(QWidget):
 
         self._index   = 0
         self._total   = 0
+        self._bumper_key = None # Tracks if we hit a boundary to require a second press
         
         # Load persisted settings
         self._fit_mode = FitMode(config_manager.get_reader_fit_mode()) if config_manager else FitMode.FIT_PAGE
@@ -524,6 +531,8 @@ class BaseReaderView(QWidget):
         self.view.viewport().setMouseTracking(True)
         self.view.viewport().setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        # self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        # self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self._mouse_press_pos = None
         self._zoom_cycle_idx = 0
 
@@ -573,6 +582,7 @@ class BaseReaderView(QWidget):
 
         self.btn_help = QPushButton("?")
         self.btn_help.setFixedSize(UIConstants.READER_BTN_SIZE, UIConstants.READER_BTN_SIZE)
+        self.btn_help.setStyleSheet(f"font-size: {UIConstants.scale(18)}px; font-weight: bold;")
         self.btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_help.setToolTip("Show Shortcuts [H]")
         self.btn_help.clicked.connect(self._toggle_help)
@@ -636,10 +646,16 @@ class BaseReaderView(QWidget):
         self._cursor_timer = QTimer(self)
         self._cursor_timer.setSingleShot(True)
         self._cursor_timer.setInterval(self.CURSOR_HIDE_MS)
-        self._cursor_timer.timeout.connect(lambda: self.setCursor(Qt.CursorShape.BlankCursor))
+        self._cursor_timer.timeout.connect(self._hide_cursor)
 
         self.view.viewport().installEventFilter(self)
         self.view.installEventFilter(self)
+        self.header.installEventFilter(self)
+        self.footer.installEventFilter(self)
+        for b in (self.btn_back, self.btn_fullscreen, self.btn_settings, self.btn_help):
+            b.installEventFilter(self)
+        self.installEventFilter(self)
+        
         self.view.verticalScrollBar().valueChanged.connect(self._on_vscroll_changed)
 
         self._bump_activity()
@@ -733,17 +749,43 @@ class BaseReaderView(QWidget):
         except Exception as e:
             logger.error(f"Error getting adjacent book: {e}")
 
+    async def _jump_to_adjacent(self, direction: int):
+        if not self.on_get_adjacent or not self.on_transition:
+            return
+        try:
+            info = await self.on_get_adjacent(direction)
+            if info:
+                title, pixmap, book_ref = info
+                self.on_transition(book_ref)
+        except Exception as e:
+            logger.error(f"Error jumping to adjacent book: {e}")
+
     # ------------------------------------------------------------------ #
     # Activity / overlay visibility                                        #
     # ------------------------------------------------------------------ #
 
+    def _hide_cursor(self):
+        self.setCursor(Qt.CursorShape.BlankCursor)
+        self.view.setCursor(Qt.CursorShape.BlankCursor)
+        self.view.viewport().setCursor(Qt.CursorShape.BlankCursor)
+        # Apply to all child widgets that might have their own cursor (buttons, slider, etc.)
+        for child in self.findChildren(QWidget):
+            child.setCursor(Qt.CursorShape.BlankCursor)
+
     def _bump_cursor(self):
         if self.cursor().shape() == Qt.CursorShape.BlankCursor:
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.unsetCursor()
+            self.view.unsetCursor()
+            self.view.viewport().unsetCursor()
+            # Restore cursors for buttons/interactive elements
+            for child in self.findChildren(QWidget):
+                child.unsetCursor()
         self._cursor_timer.start()
 
-    def _bump_activity(self):
-        self._bump_cursor()
+    def _bump_activity(self, show_cursor: bool = True):
+        if show_cursor:
+            self._bump_cursor()
+            
         if not self._overlays_visible:
             self._show_overlays()
 
@@ -777,7 +819,7 @@ class BaseReaderView(QWidget):
             self._overlay_timer.start() # Start hide timer
         else:
             self._overlay_timer.stop() # Keep visible
-            self._bump_activity() # Ensure they are shown
+            self._bump_activity(show_cursor=False) # Ensure they are shown
 
     def _hide_overlays(self):
         if self._slider_dragging:
@@ -836,74 +878,80 @@ class BaseReaderView(QWidget):
                     self._zoom(0.9)
                 return True
 
-            # Smart edge navigation / Typewriter flow
-            if self._fit_mode in (FitMode.FIT_WIDTH, FitMode.FIT_HEIGHT, FitMode.ORIGINAL, FitMode.CUSTOM) and self._page_layout != PageLayout.CONTINUOUS:
-                dy = event.angleDelta().y()
-                vbar = self.view.verticalScrollBar()
-                hbar = self.view.horizontalScrollBar()
-                
-                # We only use typewriter flow if there's actually horizontal scroll space
-                if hbar.maximum() > 0:
-                    scroll_amount_h = 80
-                    v_jump = self.view.viewport().height() * 0.7
-                    
-                    if dy < 0: # Scroll "Down" / Forward
-                        if not self._rtl: # LtR
-                            if hbar.value() < hbar.maximum():
-                                hbar.setValue(hbar.value() + scroll_amount_h)
-                            elif vbar.value() < vbar.maximum():
-                                vbar.setValue(int(vbar.value() + v_jump))
-                                hbar.setValue(hbar.minimum())
-                            else:
-                                self._next()
-                        else: # RtL
-                            if hbar.value() > hbar.minimum():
-                                hbar.setValue(hbar.value() - scroll_amount_h)
-                            elif vbar.value() < vbar.maximum():
-                                vbar.setValue(int(vbar.value() + v_jump))
-                                hbar.setValue(hbar.maximum())
-                            else:
-                                self._next()
-                        return True
-                    elif dy > 0: # Scroll "Up" / Backward
-                        if not self._rtl: # LtR
-                            if hbar.value() > hbar.minimum():
-                                hbar.setValue(hbar.value() - scroll_amount_h)
-                            elif vbar.value() > vbar.minimum():
-                                vbar.setValue(int(vbar.value() - v_jump))
-                                hbar.setValue(hbar.maximum())
-                            else:
-                                self._prev()
-                        else: # RtL
-                            if hbar.value() < hbar.maximum():
-                                hbar.setValue(hbar.value() + scroll_amount_h)
-                            elif vbar.value() > vbar.minimum():
-                                vbar.setValue(int(vbar.value() - v_jump))
-                                hbar.setValue(hbar.minimum())
-                            else:
-                                self._prev()
-                        return True
-                
-                # Fallback to standard vertical smart navigation if no horizontal scroll space
-                elif vbar.maximum() > 0:
-                    if dy < 0: # Scrolling down
-                        if vbar.value() >= vbar.maximum():
-                            self._next()
-                            return True
-                    elif dy > 0: # Scrolling up
-                        if vbar.value() <= vbar.minimum():
-                            self._prev()
-                            return True
-                
-                return False # Pass through to view's scrollbar
-
-            if event.angleDelta().y() < 0: # Wheel Down
-                self._next()
-            else: # Wheel Up
-                self._prev()
-            return True
+            return self._smart_scroll(event.angleDelta().y())
 
         return super().eventFilter(source, event)
+
+    def _smart_scroll(self, dy: int) -> bool:
+        """Shared logic for mouse wheel and Space/Shift+Space 'smart' navigation."""
+        if dy == 0: return False
+        
+        vbar = self.view.verticalScrollBar()
+        hbar = self.view.horizontalScrollBar()
+
+        # 1. Typewriter flow (Fit Width/Height, Not Continuous)
+        if self._fit_mode in (FitMode.FIT_WIDTH, FitMode.FIT_HEIGHT, FitMode.ORIGINAL, FitMode.CUSTOM) and self._page_layout != PageLayout.CONTINUOUS:
+            # We only use typewriter flow if there's actually horizontal scroll space
+            if hbar.maximum() > 0:
+                scroll_amount_h = 80
+                v_jump = self.view.viewport().height() * 0.7
+                
+                if dy < 0: # Scroll "Down" / Forward
+                    if not self._rtl: # LtR
+                        if hbar.value() < hbar.maximum():
+                            hbar.setValue(hbar.value() + scroll_amount_h)
+                        elif vbar.value() < vbar.maximum():
+                            vbar.setValue(int(vbar.value() + v_jump))
+                            hbar.setValue(hbar.minimum())
+                        else:
+                            self._next()
+                    else: # RtL
+                        if hbar.value() > hbar.minimum():
+                            hbar.setValue(hbar.value() - scroll_amount_h)
+                        elif vbar.value() < vbar.maximum():
+                            vbar.setValue(int(vbar.value() + v_jump))
+                            hbar.setValue(hbar.maximum())
+                        else:
+                            self._next()
+                    return True
+                elif dy > 0: # Scroll "Up" / Backward
+                    if not self._rtl: # LtR
+                        if hbar.value() > hbar.minimum():
+                            hbar.setValue(hbar.value() - scroll_amount_h)
+                        elif vbar.value() > vbar.minimum():
+                            vbar.setValue(int(vbar.value() - v_jump))
+                            hbar.setValue(hbar.maximum())
+                        else:
+                            self._prev()
+                    else: # RtL
+                        if hbar.value() < hbar.maximum():
+                            hbar.setValue(hbar.value() + scroll_amount_h)
+                        elif vbar.value() > vbar.minimum():
+                            vbar.setValue(int(vbar.value() - v_jump))
+                            hbar.setValue(hbar.minimum())
+                        else:
+                            self._prev()
+                    return True
+            
+            # Fallback to standard vertical smart navigation if no horizontal scroll space
+            elif vbar.maximum() > 0:
+                if dy < 0: # Scrolling down
+                    if vbar.value() >= vbar.maximum():
+                        self._next()
+                        return True
+                elif dy > 0: # Scrolling up
+                    if vbar.value() <= vbar.minimum():
+                        self._prev()
+                        return True
+            
+            return False # Pass through to allow native vertical scroll
+
+        # 2. Default: Simple next/prev page
+        if dy < 0:
+            self._next()
+        else:
+            self._prev()
+        return True
 
     def _handle_click(self, event):
         self._bump_cursor() # Restore cursor on any click
@@ -931,33 +979,115 @@ class BaseReaderView(QWidget):
                 self._hide_overlays()
                 self._overlay_timer.stop()
             else:
-                self._bump_activity()
+                self._bump_activity(show_cursor=True)
 
     def keyPressEvent(self, event: QKeyEvent):
-        self._bump_cursor()
         key = event.key()
 
-        # Flip horizontal arrow keys for RtL
-        if self._rtl:
-            if   key == Qt.Key.Key_Right: key = Qt.Key.Key_Left
-            elif key == Qt.Key.Key_Left:  key = Qt.Key.Key_Right
+        hbar = self.view.horizontalScrollBar()
+        vbar = self.view.verticalScrollBar()
+        # Use a reasonable step for panning (1/10 of viewport)
+        step_h = self.view.viewport().width() // 10
+        step_v = self.view.viewport().height() // 10
 
-        if key in (Qt.Key.Key_Right, Qt.Key.Key_PageDown):
-            self._next()
-        elif key in (Qt.Key.Key_Left, Qt.Key.Key_PageUp):
-            self._prev()
-        elif key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+        nav_keys = (Qt.Key.Key_Right, Qt.Key.Key_Left, Qt.Key.Key_Down, Qt.Key.Key_Up, Qt.Key.Key_PageDown, Qt.Key.Key_PageUp, Qt.Key.Key_Space)
+
+        if key == Qt.Key.Key_Right:
+            if hbar.maximum() > 0 and hbar.value() < hbar.maximum():
+                hbar.setValue(hbar.value() + step_h)
+                self._bumper_key = None
+            else:
+                if hbar.maximum() == 0 or self._bumper_key == key:
+                    if self._rtl: self._prev()
+                    else: self._next()
+                    self._bumper_key = None
+                else:
+                    self._bumper_key = key
+            return
+
+        elif key == Qt.Key.Key_Left:
+            if hbar.maximum() > 0 and hbar.value() > hbar.minimum():
+                hbar.setValue(hbar.value() - step_h)
+                self._bumper_key = None
+            else:
+                if hbar.maximum() == 0 or self._bumper_key == key:
+                    if self._rtl: self._next()
+                    else: self._prev()
+                    self._bumper_key = None
+                else:
+                    self._bumper_key = key
+            return
+
+        elif key == Qt.Key.Key_Down:
+            if vbar.maximum() > 0 and vbar.value() < vbar.maximum():
+                vbar.setValue(vbar.value() + step_v)
+                self._bumper_key = None
+            else:
+                if vbar.maximum() == 0 or self._bumper_key == key:
+                    self._next()
+                    self._bumper_key = None
+                else:
+                    self._bumper_key = key
+            return
+
+        elif key == Qt.Key.Key_Up:
+            if vbar.maximum() > 0 and vbar.value() > vbar.minimum():
+                vbar.setValue(vbar.value() - step_v)
+                self._bumper_key = None
+            else:
+                if vbar.maximum() == 0 or self._bumper_key == key:
+                    self._prev()
+                    self._bumper_key = None
+                else:
+                    self._bumper_key = key
+            return
+
+        elif key == Qt.Key.Key_PageDown:
+            if vbar.maximum() > 0 and vbar.value() < vbar.maximum():
+                vbar.setValue(vbar.value() + vbar.pageStep())
+                self._bumper_key = None
+            else:
+                if vbar.maximum() == 0 or self._bumper_key == key:
+                    self._next()
+                    self._bumper_key = None
+                else:
+                    self._bumper_key = key
+            return
+
+        elif key == Qt.Key.Key_PageUp:
+            if vbar.maximum() > 0 and vbar.value() > vbar.minimum():
+                vbar.setValue(vbar.value() - vbar.pageStep())
+                self._bumper_key = None
+            else:
+                if vbar.maximum() == 0 or self._bumper_key == key:
+                    self._prev()
+                    self._bumper_key = None
+                else:
+                    self._bumper_key = key
+            return
+
+        if key not in nav_keys:
+            self._bumper_key = None
+
+        if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
             self._zoom(1.1)
         elif key == Qt.Key.Key_Minus:
             self._zoom(0.9)
+        elif key == Qt.Key.Key_0:
+            self._set_fit_mode(FitMode.FIT_PAGE)
         elif key == Qt.Key.Key_Space:
-            # Space toggles overlays
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self._smart_scroll(120) # Scroll Up
+            else:
+                self._smart_scroll(-120) # Scroll Down
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Enter toggles overlays
             if self._overlays_visible:
                 self._hide_overlays()
                 self._overlay_timer.stop()
             else:
-                self._bump_activity() # This will show overlays
-        elif key == Qt.Key.Key_F11:
+                self._bump_activity(show_cursor=False) # Only show overlays, not cursor
+        elif key in (Qt.Key.Key_F11, Qt.Key.Key_F):
             self._toggle_fullscreen()
         elif key == Qt.Key.Key_Escape:
             if self.window().isFullScreen():
@@ -966,7 +1096,7 @@ class BaseReaderView(QWidget):
                 self._do_exit()
             event.accept()
             return
-        elif key == Qt.Key.Key_F:
+        elif key == Qt.Key.Key_C:
             self._cycle_fit()
         elif key == Qt.Key.Key_H:
             self._toggle_help()
@@ -984,6 +1114,12 @@ class BaseReaderView(QWidget):
             self._go_to(0)
         elif key == Qt.Key.Key_End:
             self._go_to(self._total - 1)
+        elif key == Qt.Key.Key_BracketLeft:
+            # Left bracket = Previous book (LtR), Next book (RtL)
+            asyncio.create_task(self._jump_to_adjacent(1 if self._rtl else -1))
+        elif key == Qt.Key.Key_BracketRight:
+            # Right bracket = Next book (LtR), Previous book (RtL)
+            asyncio.create_task(self._jump_to_adjacent(-1 if self._rtl else 1))
         super().keyPressEvent(event)
 
     # ------------------------------------------------------------------ #
@@ -1040,6 +1176,7 @@ class BaseReaderView(QWidget):
     def _go_to(self, idx: int, is_back: bool = False):
         idx = max(0, min(idx, self._total - 1))
         self._index = idx
+        self._bumper_key = None
         self.adjacent_popover.hide()
         asyncio.create_task(self._show_page(is_back=is_back))
 
@@ -1241,8 +1378,12 @@ class BaseReaderView(QWidget):
             self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
     def _cycle_fit(self):
-        i = _FIT_CYCLE.index(self._fit_mode)
-        next_mode = _FIT_CYCLE[(i + 1) % len(_FIT_CYCLE)]
+        try:
+            i = _FIT_CYCLE.index(self._fit_mode)
+            next_mode = _FIT_CYCLE[(i + 1) % len(_FIT_CYCLE)]
+        except ValueError:
+            # If current mode is CUSTOM or otherwise not in cycle, go to first mode
+            next_mode = _FIT_CYCLE[0]
         self._set_fit_mode(next_mode)
 
     def _apply_fit(self):

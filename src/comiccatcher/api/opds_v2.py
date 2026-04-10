@@ -1,10 +1,18 @@
 import asyncio
 from typing import Optional, Dict, Any
+from pydantic import ValidationError
 from comiccatcher.api.client import APIClient
 from comiccatcher.models.opds import OPDSFeed, Publication
 from comiccatcher.logger import get_logger
 
 logger = get_logger("api.opds")
+
+class OPDSClientError(Exception):
+    """Base exception for OPDS client errors."""
+    def __init__(self, message: str, status_code: Optional[int] = None, server_message: Optional[str] = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.server_message = server_message
 
 class OPDS2Client:
     """
@@ -35,9 +43,34 @@ class OPDS2Client:
 
     async def _fetch_feed(self, url: str) -> OPDSFeed:
         logger.debug(f"Fetching feed: {url}")
-        resp = await self.api.get(url)
+        try:
+            resp = await self.api.get(url)
+            resp.raise_for_status()
+        except Exception as e:
+            status = getattr(e.response, "status_code", None) if hasattr(e, "response") else None
+            # Try to extract server message if available
+            server_msg = None
+            try:
+                data = e.response.json()
+                if isinstance(data, dict):
+                    server_msg = data.get("message") or data.get("error")
+            except: pass
+            
+            msg = f"HTTP Error {status}" if status else str(e)
+            if server_msg:
+                msg = f"{msg}: {server_msg}"
+            raise OPDSClientError(msg, status_code=status, server_message=server_msg) from e
+
         data = resp.json()
-        return OPDSFeed(**data)
+        try:
+            return OPDSFeed(**data)
+        except ValidationError as e:
+            logger.error(f"Schema validation error for feed at {url}: {e}")
+            server_msg = data.get("message") if isinstance(data, dict) else None
+            msg = "Invalid OPDS feed format"
+            if server_msg:
+                msg = f"Server Error: {server_msg}"
+            raise OPDSClientError(msg, server_message=server_msg) from e
 
     async def get_publication(self, url: str, force_refresh: bool = False) -> Publication:
         if not force_refresh and url in self._cache:
@@ -58,9 +91,31 @@ class OPDS2Client:
 
     async def _fetch_publication(self, url: str) -> Publication:
         logger.debug(f"Fetching publication manifest: {url}")
-        resp = await self.api.get(url)
+        try:
+            resp = await self.api.get(url)
+            resp.raise_for_status()
+        except Exception as e:
+            status = getattr(e.response, "status_code", None) if hasattr(e, "response") else None
+            server_msg = None
+            try:
+                data = e.response.json()
+                if isinstance(data, dict):
+                    server_msg = data.get("message") or data.get("error")
+            except: pass
+            msg = f"HTTP Error {status}" if status else str(e)
+            if server_msg: msg = f"{msg}: {server_msg}"
+            raise OPDSClientError(msg, status_code=status, server_message=server_msg) from e
+
         data = resp.json()
-        return Publication(**data)
+        try:
+            return Publication(**data)
+        except ValidationError as e:
+            logger.error(f"Schema validation error for publication at {url}: {e}")
+            server_msg = data.get("message") if isinstance(data, dict) else None
+            msg = "Invalid publication manifest"
+            if server_msg:
+                msg = f"Server Error: {server_msg}"
+            raise OPDSClientError(msg, server_message=server_msg) from e
 
     def cancel_all(self):
         """Aborts all pending network requests."""

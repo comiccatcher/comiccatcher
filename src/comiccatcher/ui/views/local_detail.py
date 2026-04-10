@@ -13,7 +13,7 @@ from comiccatcher.config import ConfigManager
 from comiccatcher.logger import get_logger
 from comiccatcher.api.image_manager import ImageManager
 from comiccatcher.api.local_db import LocalLibraryDB
-from comiccatcher.ui.local_archive import read_first_image
+from comiccatcher.ui.local_archive import read_archive_first_image
 from comiccatcher.ui.local_comicbox import flatten_comicbox, read_comicbox_dict, read_comicbox_cover, generate_comic_labels
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
 from comiccatcher.ui.views.base_detail import BaseDetailView
@@ -82,22 +82,55 @@ class LocalDetailView(BaseDetailView):
             if pub:
                 pub_parts.append(pub)
             
+            s = UIConstants.scale
             date_str = format_publication_date(month, year)
             if date_str:
                 pub_parts.append(date_str)
                 
-            if pub_parts:
-                line_text = " • ".join(pub_parts)
-                pub_label = QLabel(line_text)
-                theme = ThemeManager.get_current_theme_colors()
-                s = UIConstants.scale
-                pub_label.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
-                self.info_layout.addWidget(pub_label)
+            web_data = meta.get("web")
+            if pub_parts or web_data:
+                line_layout = QHBoxLayout()
+                line_layout.setContentsMargins(0, 0, 0, 0)
+                line_layout.setSpacing(s(5))
+                line_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                
+                if pub_parts:
+                    line_text = " • ".join(pub_parts)
+                    pub_label = QLabel(line_text)
+                    theme = ThemeManager.get_current_theme_colors()
+                    pub_label.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
+                    line_layout.addWidget(pub_label)
+                
+                # Add Web Button if available
+                if web_data:
+                    urls = [u.strip() for u in web_data.split(",") if u.strip()]
+                    if urls:
+                        target_url = urls[0]
+                        if pub_parts:
+                            theme = ThemeManager.get_current_theme_colors()
+                            sep = QLabel(" • ")
+                            sep.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
+                            line_layout.addWidget(sep)
+                        
+                        from PyQt6.QtGui import QDesktopServices
+                        from PyQt6.QtCore import QUrl
+                        btn_web = QPushButton()
+                        btn_web.setObjectName("icon_button")
+                        btn_web.setIcon(ThemeManager.get_icon("globe", "accent"))
+                        btn_web.setToolTip(f"Open in browser: {target_url}")
+                        btn_web.setFixedSize(s(24), s(24))
+                        btn_web.setCursor(Qt.CursorShape.PointingHandCursor)
+                        btn_web.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(target_url)))
+                        line_layout.addWidget(btn_web)
+                
+                self.info_layout.addLayout(line_layout)
 
             # Action Buttons
             self.btn_read = self.create_action_button("Read", self._on_read_clicked, icon_name="book")
-            is_cbz = self._path.suffix.lower() == ".cbz"
-            self.btn_read.setEnabled(is_cbz)
+            # Support all comic formats
+            COMIC_EXTS = {".cbz", ".cbr", ".cb7", ".cbt", ".pdf"}
+            is_comic = self._path.suffix.lower() in COMIC_EXTS
+            self.btn_read.setEnabled(is_comic)
             
             if not hasattr(self, 'actions_layout'):
                 self.actions_layout = QHBoxLayout()
@@ -121,17 +154,18 @@ class LocalDetailView(BaseDetailView):
             # Progression
             self._add_progression_label()
 
+            # Render metadata IMMEDIATELY (no async jumping)
+            self._render_meta(meta)
+
             # Summary (Description)
             summary = meta.get("summary") or meta.get("description")
             if summary:
                 self._add_description(summary)
             
-            # Render metadata IMMEDIATELY (no async jumping)
-            self._render_meta(meta)
             info_layout.addStretch()
             
             # Async tasks for heavy things (Cover image and DB progress)
-            if is_cbz:
+            if is_comic:
                 asyncio.create_task(self._load_cover(self._path))
                 if self.db:
                     asyncio.create_task(self._load_progress(self._path))
@@ -145,14 +179,14 @@ class LocalDetailView(BaseDetailView):
         pass
 
     async def _load_cover(self, path: Path):
-        url = f"local-cbz://{path.absolute()}/_cover"
+        url = f"local-archive://{path.absolute()}/_cover"
         cache_path = self.image_manager._get_cache_path(url)
         
         if not cache_path.exists():
             try:
                 data = await asyncio.to_thread(read_comicbox_cover, path)
                 if not data:
-                    res = await asyncio.to_thread(read_first_image, path)
+                    res = await asyncio.to_thread(read_archive_first_image, path)
                     if res: _, data = res
                 if data:
                     with open(cache_path, "wb") as f:
@@ -163,7 +197,7 @@ class LocalDetailView(BaseDetailView):
         if cache_path.exists() and path == self._path:
             pixmap = QPixmap(str(cache_path))
             if not pixmap.isNull():
-                self.cover_label.setPixmap(pixmap)
+                self.set_cover_pixmap(pixmap)
 
     def refresh_progress(self):
         """Public method to re-fetch and update the progression UI."""

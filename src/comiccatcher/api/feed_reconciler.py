@@ -19,8 +19,12 @@ class FeedReconciler:
     def reconcile(feed: OPDSFeed, base_url: str) -> FeedPage:
         # Fallback title logic: metadata.title -> top-level title -> "Feed"
         page_title = "Feed"
-        if feed.metadata and feed.metadata.title:
-            page_title = feed.metadata.title
+        page_subtitle = None
+        if feed.metadata:
+            if feed.metadata.title:
+                page_title = feed.metadata.title
+            if feed.metadata.subtitle:
+                page_subtitle = feed.metadata.subtitle
         elif hasattr(feed, 'title') and getattr(feed, 'title'):
             page_title = getattr(feed, 'title')
             
@@ -30,29 +34,52 @@ class FeedReconciler:
         # Robust logical ID and self/start detection
         self_url = base_url
         start_url = None
+        first_page_url = None
         if feed.links:
             for l in feed.links:
                 rels = [l.rel] if isinstance(l.rel, str) else (l.rel or [])
+                target_url = urllib.parse.urljoin(base_url, l.href)
                 if "self" in rels:
-                    self_url = urllib.parse.urljoin(base_url, l.href)
+                    self_url = target_url
                 if "start" in rels:
-                    start_url = urllib.parse.urljoin(base_url, l.href)
+                    start_url = target_url
+                if "first" in rels:
+                    first_page_url = target_url
         
-        # Dashboard Heuristic: If start link refers to itself (or base_url), it's a dashboard
-        is_dashboard = False
-        if start_url:
-            # Normalize for comparison
-            s_norm = start_url.rstrip('/')
-            self_norm = self_url.rstrip('/')
-            if s_norm == self_norm:
-                is_dashboard = True
-                logger.debug(f"FeedReconciler: Dashboard detected via self-referencing 'start' link: {s_norm}")
-
-        # Sanitize to create a stable ID for the entire logical feed.
-        # Example: /codex/opds/v2.0/p/0/1 -> /codex/opds/v2.0/p/
-        logical_id = re.sub(r'/[a-z]/\d+/\d+', lambda m: m.group(0)[:3], self_url).split('?')[0]
+        # 1. Determine stable logical ID for the entire feed
+        # Priority: Metadata ID -> First Page URL -> Normalised Self URL
+        logical_id = None
+        if feed.metadata and feed.metadata.identifier:
+            logical_id = feed.metadata.identifier
+        elif first_page_url:
+            logical_id = first_page_url
+        else:
+            # Fallback: Strip query params and Codex-style page components
+            # Example: /codex/opds/v2.0/p/0/1?q=foo -> /codex/opds/v2.0/p/
+            clean_url = self_url.split('?')[0]
+            logical_id = re.sub(r'/[a-z]/\d+/\d+', '', clean_url)
         
         logger.debug(f"FeedReconciler: base_url={base_url} -> logical_id={logical_id}")
+
+        # Check if the feed indicates pagination at the root level
+        is_paginated = False
+        if feed.links:
+            for l in feed.links:
+                rels = [l.rel] if isinstance(l.rel, str) else (l.rel or [])
+                if any(r in ["next", "previous", "first", "last"] for r in rels):
+                    is_paginated = True
+                    break
+
+        # Capture root-level pagination metadata for later assignment
+        m = feed.metadata
+        curr_page = (m.currentPage if m else None) or 1
+        root_total = m.numberOfItems if m else None
+        root_next = FeedReconciler._find_next(feed.links, base_url)
+        root_ipp = m.itemsPerPage if m else None
+
+        # Fallback: If no 'first' link, and we are on page 1, current is first.
+        if not first_page_url and curr_page == 1:
+            first_page_url = self_url
 
         has_top_start = any(l.rel == "start" for l in feed.links) if feed.links else False
         
@@ -86,23 +113,16 @@ class FeedReconciler:
                 ))
             
             if nav_items:
-                m = feed.metadata
                 sec_id = (m.identifier if m else None) or f"nav_{logical_id}"
-                
-                # Navigation links are almost never paginated themselves, 
-                # even if the top-level feed has a 'next' link.
-                # Always use the local count for this specific section.
-                total = len(nav_items)
-                next_url = FeedReconciler._find_next(feed.links, base_url)
                 
                 sections.append(FeedSection(
                     title="Browse",
                     section_id=sec_id,
                     items=nav_items,
-                    total_items=total,
+                    total_items=len(nav_items),
                     items_per_page=len(nav_items),
                     current_page=1,
-                    next_url=None, # Navigation doesn't page
+                    next_url=None, # Will be assigned to main_section later if applicable
                     source_element="root:navigation"
                 ))
 
@@ -117,8 +137,10 @@ class FeedReconciler:
                 if group.navigation:
                     for link in group.navigation:
                         rel_str = "".join(link.rel or []) if isinstance(link.rel, list) else (link.rel or "")
-                        if "facet" in rel_str or "http://opds-spec.org/facet" in rel_str: continue
-                        if has_top_start and ("start" in rel_str): continue
+                        if "facet" in rel_str or "http://opds-spec.org/facet" in rel_str:
+                            continue
+                        if has_top_start and ("start" in rel_str):
+                            continue
                             
                         group_items.append(FeedItem(
                             type=ItemType.FOLDER,
@@ -152,9 +174,11 @@ class FeedReconciler:
                     if group.navigation: sources.append("navigation")
                     source_str = f"group[{i}]:{'+'.join(sources)}" if sources else f"group[{i}]"
 
+                    sec_id = (gm.identifier if gm else None) or f"group_{(gm.title if gm else 'anon')}"
+
                     sections.append(FeedSection(
                         title=(gm.title if gm else None) or "Group",
-                        section_id=(gm.identifier if gm else None) or f"group_{(gm.title if gm else 'anon')}",
+                        section_id=sec_id,
                         items=group_items,
                         total_items=g_total,
                         items_per_page=gm.itemsPerPage if gm else None,
@@ -171,22 +195,16 @@ class FeedReconciler:
                 pub_items.append(FeedReconciler._pub_to_item(pub, base_url))
             
             if pub_items:
-                m = feed.metadata
                 sec_id = (m.identifier if m else None) or f"pubs_{logical_id}"
-                next_url = FeedReconciler._find_next(feed.links, base_url)
-                
-                # total_items logic:
-                # Use the server's numberOfItems for the entire feed if provided.
-                total = (m.numberOfItems if m else None) or len(pub_items)
-                
+
                 sections.append(FeedSection(
-                    title="Items",
+                    title="Publications",
                     section_id=sec_id,
                     items=pub_items,
-                    total_items=total,
-                    items_per_page=m.itemsPerPage if m else None,
+                    total_items=len(pub_items),
+                    items_per_page=len(pub_items),
                     current_page=(m.currentPage if m else None) or 1,
-                    next_url=next_url,
+                    next_url=None, # Will be assigned to main_section later if applicable
                     source_element="root:publications"
                 ))
 
@@ -204,20 +222,36 @@ class FeedReconciler:
                         section.items.pop(0)
                         if section.total_items: section.total_items -= 1
 
-        # 4. Determine Global Page
-        m = feed.metadata
-        curr_page = (m.currentPage if m else None) or 1
-        # ... (rest of page detection logic) ...
+        # 4b. Pagination Sanity Check
+        # Discard root itemsPerPage/numberOfItems if they don't match the actual content of any section.
+        if root_ipp is not None and root_next:
+            match_found = False
+            for s in sections:
+                if len(s.items) == root_ipp:
+                    match_found = True
+                    break
+            
+            if not match_found:
+                logger.debug(
+                    f"FeedReconciler: Discarding discrepant root pagination metadata. "
+                    f"itemsPerPage={root_ipp} but no section contains exactly {root_ipp} items (found sections with counts: {[len(s.items) for s in sections]})."
+                )
+                root_ipp = None
+                root_total = None
 
+        # 4c. Determine Global Page
+        # (Already defined above as part of root metadata capture)
+        
         # 5. Determine Total Pages
         total_pages = None
-        if m and m.numberOfItems and m.itemsPerPage:
+        if root_total is not None and root_ipp:
             import math
-            total_pages = math.ceil(m.numberOfItems / m.itemsPerPage)
+            total_pages = math.ceil(root_total / root_ipp)
 
         # 6. Detect Pagination Template
         pagination_template = None
         is_offset_based = False
+        pagination_base_number = 1
         
         next_link = FeedReconciler._find_next(feed.links, base_url)
         if next_link:
@@ -225,12 +259,18 @@ class FeedReconciler:
             if match:
                 pre, grp, p_val = match.groups()
                 pagination_template = next_link.replace(f"/{pre}/{grp}/{p_val}", f"/{pre}/{grp}/{{page}}")
+                # Heuristic: If we are on Page 1 (metadata), and the NEXT link says Page 1, then base is 0.
+                if curr_page == 1 and int(p_val) == 1:
+                    pagination_base_number = 0
             else:
                 match = re.search(r'(?P<key>page|offset|start)=(?P<val>\d+)', next_link)
                 if match:
                     key, val = match.groups()
                     is_offset_based = (key == 'offset' or key == 'start')
                     pagination_template = next_link.replace(f"{key}={val}", f"{key}={{page}}")
+                    # If it's a page-based key and next is 1, then base is 0
+                    if not is_offset_based and curr_page == 1 and int(val) == 1:
+                        pagination_base_number = 0
 
         # 7. Detect Search Template
         search_template = None
@@ -246,30 +286,41 @@ class FeedReconciler:
         # 8. Final Layout Assignment and Main Section Detection
         temp_page = FeedPage(
             title=page_title,
+            subtitle=page_subtitle,
             current_page=curr_page,
             total_pages=total_pages,
+            next_url=root_next,
             sections=sections,
             facets=facets,
-            is_dashboard=is_dashboard,
+            is_paginated=is_paginated,
+            feed_items_per_page=root_ipp,
             pagination_template=pagination_template,
+            pagination_base_number=pagination_base_number,
+            first_page_url=first_page_url,
             search_template=search_template,
             is_offset_based=is_offset_based
         )
         
-        # Determine logical main section
+        # Determine logical main section and attach root pagination metadata to it
         main_sec = temp_page.main_section
         if main_sec:
             temp_page.main_section_id = main_sec.section_id
             main_sec.is_main = True
-
-        is_dash_context = is_dashboard or len(sections) > 1
+            
+            # Transfer root metadata to the main section
+            if root_total is not None:
+                main_sec.total_items = root_total
+            elif root_next is not None:
+                # If we have a next link but no root_total, we don't know the full length
+                main_sec.total_items = None
+            
+            if root_next:
+                main_sec.next_url = root_next
+            if root_ipp is not None:
+                main_sec.items_per_page = root_ipp
         
         for section in sections:
-            # A section should be a GRID if:
-            # - It's paginated (has a next link)
-            # - It's explicitly marked as the Main section
-            # - It's NOT a dashboard/multi-section view
-            if not is_dash_context or section.next_url or section.is_main:
+            if section.is_main or section.source_element in ("root:publications", "root:navigation"):
                 section.layout = SectionLayout.GRID
             else:
                 section.layout = SectionLayout.RIBBON
@@ -380,20 +431,41 @@ class FeedReconciler:
 
     @staticmethod
     def _find_acquisition_link(pub: Publication, base_url: str = "") -> Tuple[Optional[str], Optional[str]]:
-        """Helper to find the best acquisition link and its format."""
+        """
+        Helper to find the best acquisition link based solely on MIME type.
+        Returns (url, mime_type).
+        """
+        # MIME Type to Priority Mapping
+        # Higher score = Better format
+        MIME_PRIORITIES = {
+            # CBZ
+            "application/vnd.comicbook+zip": 100,
+            "application/x-cbz": 100,
+            "application/zip": 95,
+            
+            # CBR
+            "application/vnd.comicbook-rar": 90,
+            "application/x-cbr": 90,
+            "application/x-rar": 85,
+            "application/x-rar-compressed": 85,
+            
+            # CB7
+            "application/x-cb7": 80,
+            "application/x-7z-compressed": 80,
+            
+            # CBT
+            "application/x-cbt": 75,
+            "application/x-tar": 75,
+            
+            # PDF
+            "application/pdf": 50,
+            
+            # Low Priority / Generic
+            "application/octet-stream": 10
+        }
+
         candidates = []
         
-        def get_format_label(l_type: str, l_href: str) -> str:
-            l_type = l_type.lower()
-            l_href = l_href.lower()
-            if "cbz" in l_type or l_href.endswith(".cbz"): return "CBZ"
-            if "cbr" in l_type or l_href.endswith(".cbr"): return "CBR"
-            if "cb7" in l_type or l_href.endswith(".cb7"): return "CB7"
-            if "epub" in l_type or l_href.endswith(".epub"): return "EPUB"
-            if "pdf" in l_type or l_href.endswith(".pdf"): return "PDF"
-            if "octet-stream" in l_type: return "BIN"
-            return "FILE"
-
         # 1. Check standard links
         for l in (pub.links or []):
             rels = l.rel
@@ -401,52 +473,45 @@ class FeedReconciler:
             elif isinstance(rels, list): rel_list = [str(r).lower() for r in rels]
             else: rel_list = []
                 
-            is_acq = any("acquisition" in r for r in rel_list)
-            l_type = (l.type or "").lower()
-            l_href = (l.href or "").lower()
+            # Strict relationship matching: Only direct acquisition or open-access.
+            # We explicitly exclude 'borrow', 'buy', 'sample', etc.
+            is_direct_acq = any(r in [
+                "acquisition", 
+                "http://opds-spec.org/acquisition",
+                "http://opds-spec.org/acquisition/open-access"
+            ] for r in rel_list)
             
-            # Prioritized types
-            priority = 0
-            if "cbz" in l_type or l_href.endswith(".cbz"): priority = 100
-            elif "cbr" in l_type or l_href.endswith(".cbr"): priority = 90
-            elif "cb7" in l_type or l_href.endswith(".cb7"): priority = 80
-            elif "epub" in l_type or l_href.endswith(".epub"): priority = 70
-            elif "pdf" in l_type or l_href.endswith(".pdf"): priority = 50
-            elif "octet-stream" in l_type: priority = 10
+            l_type = (l.type or "").lower().strip()
+            priority = MIME_PRIORITIES.get(l_type, 0)
             
-            if is_acq or priority > 0:
-                if any(r in rel_list for r in ["self", "search", "alternate"]) and not is_acq:
-                    continue
-                
-                # If it is explicitly an acquisition link but we didn't recognize the type,
-                # give it a baseline priority.
-                if is_acq and priority == 0:
-                    priority = 1
-                    
-                candidates.append((priority, urllib.parse.urljoin(base_url, l.href), get_format_label(l_type, l_href)))
+            # Button only activates if we have a direct acquisition relationship 
+            # AND a format we actually support for reading.
+            if is_direct_acq and priority > 0:
+                candidates.append((priority, urllib.parse.urljoin(base_url, l.href), l_type))
 
-        # 2. Check 'actions' (OPDS 2.0 extension used by commercial catalogs)
+        # 2. Check 'actions' (OPDS 2.0 indirect acquisition)
         if hasattr(pub, "actions") and pub.actions:
             for action in pub.actions:
                 rel = (action.rel or "").lower()
-                if "acquisition" in rel:
+                # Strict action relationship matching
+                if rel in ["acquisition", "http://opds-spec.org/acquisition", "http://opds-spec.org/acquisition/open-access"]:
                     props = action.properties or {}
                     ia_list = props.get("indirectAcquisition")
                     if ia_list and isinstance(ia_list, list):
                         for ia in ia_list:
-                            ia_type = str(ia.get("type", "")).lower()
-                            priority = 0
-                            if "epub" in ia_type: priority = 65
-                            elif "pdf" in ia_type: priority = 45
+                            ia_type = str(ia.get("type", "")).lower().strip()
+                            priority = MIME_PRIORITIES.get(ia_type, 0)
                             
+                            # Check children (nested formats)
                             children = ia.get("child")
                             if children and isinstance(children, list):
                                 for child in children:
-                                    c_type = str(child.get("type", "")).lower()
-                                    if "epub" in c_type: priority = max(priority, 60)
+                                    c_type = str(child.get("type", "")).lower().strip()
+                                    child_priority = MIME_PRIORITIES.get(c_type, 0)
+                                    priority = max(priority, child_priority)
                             
                             if priority > 0:
-                                candidates.append((priority, urllib.parse.urljoin(base_url, action.href), get_format_label(ia_type, action.href)))
+                                candidates.append((priority, urllib.parse.urljoin(base_url, action.href), ia_type))
         
         if not candidates:
             return None, None
@@ -454,6 +519,72 @@ class FeedReconciler:
         # Return the one with highest priority
         candidates.sort(key=lambda x: x[0], reverse=True)
         return candidates[0][1], candidates[0][2]
+
+    @staticmethod
+    def get_acquisition_note(pub: Publication) -> Optional[str]:
+        """
+        Returns a human-readable note explaining why download/read might be limited.
+        Only shows format warnings if a supported format is NOT available.
+        """
+        reasons = []
+        links = pub.links or []
+        
+        has_borrow = False
+        has_buy = False
+        all_acq_formats = set()
+        supported_acq_formats = set()
+        
+        # 1. Scan standard links
+        for l in links:
+            rels = l.rel
+            if isinstance(rels, str): rel_list = [rels.lower()]
+            elif isinstance(rels, list): rel_list = [str(r).lower() for r in rels]
+            else: rel_list = []
+            
+            rel_str = " ".join(rel_list)
+            l_type = (l.type or "").lower().strip()
+            
+            if "borrow" in rel_str: has_borrow = True
+            if "buy" in rel_str or "purchase" in rel_str: has_buy = True
+            
+            # Check if it is a direct download link
+            is_direct_acq = any(r in ["acquisition", "http://opds-spec.org/acquisition", "http://opds-spec.org/acquisition/open-access"] for r in rel_list)
+            
+            if is_direct_acq:
+                # Track what we found
+                if "epub" in l_type: all_acq_formats.add("EPUB")
+                elif "pdf" in l_type: supported_acq_formats.add("PDF")
+                elif "cbz" in l_type: supported_acq_formats.add("CBZ")
+                elif "cbr" in l_type: supported_acq_formats.add("CBR")
+                elif "cb7" in l_type: supported_acq_formats.add("CB7")
+                elif "cbt" in l_type: supported_acq_formats.add("CBT")
+
+        # 2. Check actions
+        if hasattr(pub, "actions") and pub.actions:
+            for action in pub.actions:
+                rel = (action.rel or "").lower()
+                if "borrow" in rel: has_borrow = True
+                if "buy" in rel: has_buy = True
+                
+                if rel in ["acquisition", "http://opds-spec.org/acquisition", "http://opds-spec.org/acquisition/open-access"]:
+                    props = action.properties or {}
+                    ia_list = props.get("indirectAcquisition")
+                    if ia_list and isinstance(ia_list, list):
+                        for ia in ia_list:
+                            ia_type = str(ia.get("type", "")).lower().strip()
+                            if "epub" in ia_type: all_acq_formats.add("EPUB")
+                            elif "pdf" in ia_type: supported_acq_formats.add("PDF")
+                            # ... (other formats)
+
+        if has_borrow: reasons.append("Borrowing not supported by app")
+        if has_buy: reasons.append("Purchasing not supported by app")
+        
+        # Format Warning: ONLY if no supported format was found among any direct acquisition links
+        if not supported_acq_formats and all_acq_formats:
+            fmt_str = ", ".join(sorted(list(all_acq_formats)))
+            reasons.append(f"Format not supported by app: {fmt_str}")
+            
+        return " • ".join(reasons) if reasons else None
 
     @staticmethod
     def _find_next(links: List[Link], base_url: str) -> Optional[str]:

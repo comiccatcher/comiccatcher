@@ -5,9 +5,11 @@ class FeedProfile(BaseModel):
     id: str
     name: str
     url: str
+    auth_type: str = "none" # "none", "basic", "bearer", "apikey"
     username: Optional[str] = None
     password: Optional[str] = None
     bearer_token: Optional[str] = None
+    api_key: Optional[str] = None
     icon_url: Optional[str] = None
     
     search_history: List[str] = Field(default_factory=list)

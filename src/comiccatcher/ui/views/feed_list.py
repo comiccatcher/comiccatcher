@@ -37,14 +37,13 @@ class FeedListView(QWidget):
         self.btn_add.setIconSize(QSize(s(18), s(18)))
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add.setObjectName("primary_button")
-        self.btn_add.setMinimumHeight(s(35))
         self.btn_add.clicked.connect(self.add_feed)
         self.header.addWidget(self.btn_add)
         
         self.layout.addLayout(self.header)
 
         self.feeds_list = QListWidget()
-        self.feeds_list.setIconSize(QSize(s(48), s(48)))
+        self.feeds_list.setIconSize(QSize(UIConstants.FEED_ICON_SIZE_LARGE, UIConstants.FEED_ICON_SIZE_LARGE))
         self.feeds_list.itemClicked.connect(self._on_item_clicked)
         self.layout.addWidget(self.feeds_list)
         
@@ -54,7 +53,7 @@ class FeedListView(QWidget):
     def reapply_theme(self):
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
-        self.title_label.setStyleSheet(f"font-size: {s(24)}px; font-weight: bold; color: {theme['text_main']};")
+        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_TITLE}px; font-weight: bold; color: {theme['text_main']};")
         
         # Explicitly set the font for the list widget to ensure the text scales
         font = self.feeds_list.font()
@@ -62,6 +61,7 @@ class FeedListView(QWidget):
         self.feeds_list.setFont(font)
         
         # Main list styling
+        # Note: We set item padding to 0 because we use setItemWidget with its own internal margins.
         self.feeds_list.setStyleSheet(f"""
             QListWidget {{
                 background-color: {theme['bg_sidebar']};
@@ -72,10 +72,9 @@ class FeedListView(QWidget):
                 color: {theme['text_main']};
             }}
             QListWidget::item {{
-                padding: {s(15)}px;
+                padding: 0px;
                 border-bottom: {max(1, s(1))}px solid {theme['border']};
                 color: {theme['text_main']};
-                font-size: {UIConstants.FONT_SIZE_FEED_LIST}px;
             }}
             QListWidget::item:selected {{
                 background-color: {theme['bg_item_selected']};
@@ -88,32 +87,70 @@ class FeedListView(QWidget):
 
     def refresh_feeds(self):
         default_icon = ThemeManager.get_icon("feeds")
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
         
         self.feeds_list.clear()
         for f in self.config_manager.feeds:
-            item = QListWidgetItem(f"{f.name}\n{f.url}")
-            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            item.setData(Qt.ItemDataRole.UserRole, f)
+            # Use rich text to bump name font size
+            name_fs = UIConstants.FONT_SIZE_FEED_NAME_LARGE
+            url_fs = UIConstants.FONT_SIZE_FEED_URL_LARGE
+            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: {theme["text_dim"]};">{f.url}</span>'
             
-            # Check for cached icon synchronously to avoid flash
-            icon_set = False
+            item = QListWidgetItem()
+            self.feeds_list.addItem(item)
+            
+            # Since QListWidgetItem doesn't support rich text directly via setText,
+            # we can use a custom widget or just use the item's font for the whole thing.
+            # But the user asked for ONLY the name to be increased.
+            # Standard QListWidget items don't support per-line font sizes without custom delegates.
+            # A quick way is to use setItemWidget.
+            
+            widget = QWidget()
+            layout = QHBoxLayout(widget)
+            layout.setContentsMargins(s(15), s(8), s(15), s(8))
+            layout.setSpacing(s(15))
+            
+            icon_size = UIConstants.FEED_ICON_SIZE_LARGE
+            icon_label = QLabel()
+            icon_label.setFixedSize(icon_size, icon_size)
+            icon_label.setScaledContents(False)
+            icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            text_label = QLabel(rich_text)
+            text_label.setStyleSheet("background: transparent; border: none;")
+            text_label.setWordWrap(True)
+            
+            layout.addWidget(icon_label)
+            layout.addWidget(text_label, 1)
+            
+            # Ensure the widget's layout calculates the correct size
+            sh = widget.sizeHint()
+            # Add a small vertical buffer for safety with rich text
+            sh.setHeight(sh.height() + s(2))
+            item.setSizeHint(sh)
+            item.setData(Qt.ItemDataRole.UserRole, f)
+            self.feeds_list.setItemWidget(item, widget)
+            
+            # Handle Icon
+            icon_pixmap = None
             if f.icon_url:
                 cache_path = self.shared_image_manager._get_cache_path(f.icon_url)
                 if cache_path.exists():
-                    pixmap = QPixmap(str(cache_path))
-                    if not pixmap.isNull():
-                        item.setIcon(QIcon(pixmap))
-                        icon_set = True
+                    icon_pixmap = QPixmap(str(cache_path))
             
-            if not icon_set:
-                item.setIcon(default_icon)
-                
-            self.feeds_list.addItem(item)
+            if icon_pixmap and not icon_pixmap.isNull():
+                scaled = icon_pixmap.scaled(icon_size, icon_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                icon_label.setPixmap(scaled)
+                f._cached_icon = icon_pixmap
+            else:
+                icon_label.setPixmap(default_icon.pixmap(icon_size, icon_size))
             
-            if f.icon_url and not icon_set:
-                asyncio.create_task(self._load_cached_icon(f, item))
+            # We no longer trigger a background fetch for every feed here.
+            # Icons will be fetched only when the feed is visited (managed in FeedBrowser)
+            # or explicitly refreshed in management.
 
-    async def _load_cached_icon(self, feed: FeedProfile, item: QListWidgetItem):
+    async def _load_cached_icon_widget(self, feed: FeedProfile, label: QLabel):
         try:
             client = APIClient(feed)
             await self.shared_image_manager.get_image_b64(feed.icon_url, api_client=client)
@@ -122,15 +159,12 @@ class FeedListView(QWidget):
                 pixmap = QPixmap(str(full_path))
                 if not pixmap.isNull():
                     feed._cached_icon = pixmap
-                    if item:
-                        try:
-                            item.setIcon(QIcon(pixmap))
-                        except RuntimeError:
-                            pass
+                    s = UIConstants.scale
+                    scaled = pixmap.scaled(UIConstants.FEED_ICON_SIZE_LARGE, UIConstants.FEED_ICON_SIZE_LARGE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    label.setPixmap(scaled)
                     self.icon_loaded.emit(feed.id, pixmap)
             await client.close()
-        except:
-            pass
+        except: pass
 
     def add_feed(self):
         dialog = FeedEditDialog(self, self.config_manager, self.shared_image_manager)

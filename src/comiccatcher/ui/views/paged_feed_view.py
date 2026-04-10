@@ -4,15 +4,16 @@ from typing import List, Optional, Set, Any
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QListView, QScrollArea, QSizePolicy, QPushButton, QFrame
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QEvent, QPoint, QRect
 
-from comiccatcher.models.feed_page import FeedPage, FeedSection, SectionLayout
+from comiccatcher.models.feed_page import FeedPage, FeedSection, FeedItem, SectionLayout, ItemType
 from comiccatcher.ui.theme_manager import UIConstants, ThemeManager
 from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
 from comiccatcher.ui.components.feed_card_delegate import FeedCardDelegate
 from comiccatcher.ui.components.base_ribbon import BaseCardRibbon
 from comiccatcher.ui.components.collapsible_section import CollapsibleSection
 from comiccatcher.ui.views.base_feed_subview import BaseFeedSubView
+from comiccatcher.ui.view_helpers import ViewportHelper
 from comiccatcher.logger import get_logger
 
 logger = get_logger("ui.paged_feed_view")
@@ -43,6 +44,8 @@ class PagedFeedView(BaseFeedSubView):
         
         self.scroll_area.setWidget(self.content)
         self.layout.addWidget(self.scroll_area)
+        
+        self.scroll_area.verticalScrollBar().valueChanged.connect(self.scrolled.emit)
         
         self._spacer = QWidget()
         self._spacer.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
@@ -114,10 +117,16 @@ class PagedFeedView(BaseFeedSubView):
         self.scroll_area.verticalScrollBar().setValue(0)
 
     def _add_section(self, section: FeedSection, layout: SectionLayout):
-        model = FeedBrowserModel(items_per_page=len(section.items))
+        # Paged views typically show one static page at a time.
+        # We use the actual item count as the stride to ensure local rows map correctly to this page.
+        model = FeedBrowserModel(items_per_page=len(section.items) or UIConstants.DEFAULT_PAGING_STRIDE)
         
         if layout == SectionLayout.RIBBON:
-            view = BaseCardRibbon(self, show_labels=self._show_labels)
+            view = BaseCardRibbon(self, show_labels=self._show_labels, reserve_progress_space=False)
+            view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            view.viewport().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            # Register for unified wheel/cursor handling
+            view.viewport().installEventFilter(self)
         else:
             view = QListView()
             self.configure_list_view(view)
@@ -127,7 +136,6 @@ class PagedFeedView(BaseFeedSubView):
         delegate = FeedCardDelegate(view, self.image_manager, show_labels=self._show_labels)
         view.setModel(model)
         view.setItemDelegate(delegate)
-        view.viewport().installEventFilter(self)
         view._section_id = section.section_id
         self._section_views.append(view)
 
@@ -146,7 +154,7 @@ class PagedFeedView(BaseFeedSubView):
                 
             btn_all = browser.create_action_button(
                 label,
-                lambda _, u=section.self_url, t=section.title: self.navigate_requested.emit(u, t, False)
+                lambda _, u=section.self_url, t=section.title: self.navigate_requested.emit(u, t, False, "")
             )
             action_widget = btn_all
 
@@ -175,20 +183,17 @@ class PagedFeedView(BaseFeedSubView):
         model.cover_request_needed.connect(self.cover_request_needed.emit)
         
         view.clicked.connect(lambda idx, m=model: self._on_item_clicked(idx, m))
+        view.customContextMenuRequested.connect(lambda pos, v=view, m=model: self._on_custom_context_menu(pos, v, m))
 
-    def eventFilter(self, source, event):
-        """Dynamic cursor change when hovering over items."""
-        if event.type() == event.Type.MouseMove:
-            for view in self._section_views:
-                if source is view.viewport():
-                    index = view.indexAt(event.pos())
-                    if index.isValid():
-                        view.setCursor(Qt.CursorShape.PointingHandCursor)
-                    else:
-                        view.setCursor(Qt.CursorShape.ArrowCursor)
-                    break
-        return super().eventFilter(source, event)
+    def _on_custom_context_menu(self, pos, view, model):
+        if self._selection_mode: return
 
+        index = view.indexAt(pos)
+        if not index.isValid(): return
+        item = model.get_item(index.row())
+        if not item or item.type == ItemType.FOLDER: return
+
+        self.mini_detail_requested.emit(item, index, view, model)
     def _on_item_clicked(self, index, model):
         item = model.get_item(index.row())
         if not item: return
@@ -222,41 +227,43 @@ class PagedFeedView(BaseFeedSubView):
             self._recalculate_single_height(view, vp_width)
 
     def _ensure_visible_covers(self):
-        """Triggers cover request for all items currently in the viewport."""
+        """Returns a set of all cover URLs currently visible in any section."""
+        urls = set()
         viewport_rect = self.scroll_area.viewport().rect()
         
         for view in self._section_views:
-            if not view.isVisible():
+            if not view.isVisible(): continue
+            
+            # Map view's local rect to the scroll area's viewport coordinates
+            global_topleft = view.mapToGlobal(QPoint(0, 0))
+            local_topleft = self.scroll_area.viewport().mapFromGlobal(global_topleft)
+            
+            # Find the intersection of this specific view and the window's viewport
+            # (e.g., if the view is 1000px high but only the bottom 200px is on screen)
+            view_rect_in_viewport = QRect(local_topleft, view.size())
+            intersection = viewport_rect.intersected(view_rect_in_viewport)
+            
+            if intersection.isEmpty():
                 continue
+
+            # Convert that intersection back to the view's internal coordinates
+            visible_in_view = intersection.translated(-local_topleft.x(), -local_topleft.y())
+            
+            # Identify items in this specific slice
+            fi = view.indexAt(visible_in_view.topLeft() + QPoint(10, 10))
+            li = view.indexAt(visible_in_view.bottomRight() - QPoint(10, 10))
             
             model = view.model()
-            if not model:
-                continue
-
-            # Map viewport coordinates to the view's coordinate system
-            view_rect = view.rect()
-            global_pos = view.mapToGlobal(view_rect.topLeft())
-            local_to_viewport = self.scroll_area.viewport().mapFromGlobal(global_pos)
-            
-            # Intersection of view and scroll viewport
-            visible_in_view = viewport_rect.translated(-local_to_viewport.x(), -local_to_viewport.y()).intersected(view_rect)
-            
-            if visible_in_view.isEmpty():
-                continue
-
-            # Identify indices within the visible rectangle
-            # For simplicity in grid/ribbon, we can just check a range of rows
-            # Based on standard grid logic
-            fi = view.indexAt(visible_in_view.topLeft())
-            li = view.indexAt(visible_in_view.bottomRight())
+            if not model: continue
             
             first = fi.row() if fi.isValid() else 0
             last = li.row() if li.isValid() else (model.rowCount() - 1)
             
             for row in range(first, last + 1):
                 item = model.get_item(row)
-                if item and item.cover_url:
-                    self.cover_request_needed.emit(item.cover_url)
+                if isinstance(item, FeedItem) and item.cover_url:
+                    urls.add(item.cover_url)
+        return urls
 
     def _recalculate_single_height(self, view, vp_width=None):
         sid = getattr(view, '_section_id', None)
@@ -278,5 +285,6 @@ class PagedFeedView(BaseFeedSubView):
         cols, row_h, sp = self.get_grid_layout_info(vp_width)
         rows = math.ceil(model.rowCount() / cols)
         
-        h = (rows * row_h) + UIConstants.VIEWPORT_MARGIN
+        # Grid height matches the exact content height
+        h = (rows * row_h)
         view.setFixedHeight(h)

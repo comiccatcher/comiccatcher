@@ -81,9 +81,10 @@ class MainWindow(QMainWindow):
         
         # Restore manual scaling before UI construction
         UIConstants.init_scale(manual_factor=self.config_manager.get_ui_scale())
+        s = UIConstants.scale
         
         self.setWindowTitle("ComicCatcher")
-        self.resize(1200, 800)
+        self.resize(s(1200), s(800))
 
         # App Icon
         icon_path = Path(__file__).parent.parent / "resources" / "app.png"
@@ -98,6 +99,7 @@ class MainWindow(QMainWindow):
         
         # Tabbed History State (Per-Feed)
         self.active_tab = "feed" # "feed" or "search"
+        self.last_active_tabs = {}  # {feed_id: "feed" | "search"}
         self.current_feed_id = None
         self.feed_histories = {}    # {feed_id: [history_list]}
         self.feed_indices = {}      # {feed_id: index}
@@ -156,7 +158,7 @@ class MainWindow(QMainWindow):
         self.debug_bar = QFrame()
         self.debug_bar.setObjectName("debug_bar")
         s = UIConstants.scale
-        self.debug_bar.setFixedHeight(s(25))
+        self.debug_bar.setFixedHeight(s(30))
         self.debug_layout = QHBoxLayout(self.debug_bar)
         self.debug_layout.setContentsMargins(s(10), 0, s(10), 0)
         self.debug_layout.setSpacing(s(10))
@@ -168,14 +170,30 @@ class MainWindow(QMainWindow):
         self.debug_url_text.setReadOnly(True)
         self.debug_url_text.setStyleSheet(f"font-size: {s(10)}px; background: transparent; border: none;")
         
+        theme = ThemeManager.get_current_theme_colors()
+        debug_btn_qss = f"""
+            QPushButton {{
+                background-color: {theme['bg_item_hover']};
+                color: {theme['text_main']};
+                border: {max(1, s(1))}px solid {theme['border']};
+                border-radius: {s(4)}px;
+                padding: 0px;
+                font-size: {s(9)}px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {theme['bg_item_selected']};
+            }}
+        """
+
         self.btn_logs = QPushButton("Logs")
-        self.btn_logs.setObjectName("secondary_button")
         self.btn_logs.setFixedSize(s(60), s(24))
+        self.btn_logs.setStyleSheet(debug_btn_qss)
         self.btn_logs.clicked.connect(self._show_logs_dialog)
 
         self.btn_copy = QPushButton("Copy")
-        self.btn_copy.setObjectName("secondary_button")
         self.btn_copy.setFixedSize(s(60), s(24))
+        self.btn_copy.setStyleSheet(debug_btn_qss)
         self.btn_copy.clicked.connect(self._copy_url_to_clipboard)
         
         self.debug_layout.addWidget(self.history_counter)
@@ -373,6 +391,7 @@ class MainWindow(QMainWindow):
         self.feed_browser.item_clicked.connect(self._on_feed_item_clicked)
         self.feed_browser.navigate_requested.connect(self.on_navigate_to_url)
         self.feed_browser.download_requested.connect(self.on_start_download)
+        self.feed_browser.page_loaded.connect(self.update_header)
         self.content_stack.addWidget(self.feed_browser) # Index 8 (Match ViewIndex)
 
         self.feed_list_view.icon_loaded.connect(self._on_feed_icon_loaded)
@@ -444,7 +463,7 @@ class MainWindow(QMainWindow):
         
         # 5. Server Identity
         # Use a large, clear font for the server name
-        font_size = s(20)
+        font_size = s(16)
         font = self.server_name_label.font()
         font.setPixelSize(font_size)
         font.setBold(True)
@@ -636,7 +655,18 @@ class MainWindow(QMainWindow):
 
     def _on_server_pill_clicked(self, event=None):
         """Returns to server root using either 'start' link or history index 0."""
-        # 1. Attempt to find 'start' link in current feed metadata
+        fid = self.current_feed_id
+        if not fid: return
+
+        # 1. If we are on search tab, reset it and switch back to feed browser
+        if self.active_tab == "search":
+            # Clear search history stack for this feed
+            self.search_histories[fid] = []
+            self.search_indices[fid] = -1
+            # Force switch to feed tab (without trigger navigation because we'll do it below)
+            self._on_tab_clicked("feed", navigate=False)
+
+        # 2. Attempt to find 'start' link in current feed metadata (if any)
         start_url = None
         if hasattr(self.feed_browser, '_last_raw_feed') and self.feed_browser._last_raw_feed:
             feed = self.feed_browser._last_raw_feed
@@ -647,23 +677,23 @@ class MainWindow(QMainWindow):
                     start_url = urllib.parse.urljoin(self.feed_browser._last_loaded_url, link.href)
                     break
         
-        # 2. Compare with 'Home' (history index 0)
-        hist, idx = self.get_current_history()
-        home_url = hist[0]["url"] if hist else None
+        # 3. Get the feed-browser history (always use feed stack for Home comparison)
+        hist = self.feed_histories.get(fid, [])
+        home_url = hist[0]["url"] if hist and "url" in hist[0] else None
         
         def normalize(u):
             if not u: return None
             return u.rstrip('/')
             
-        # 3. Decision: 
+        # 4. Decision: 
         # If start_url found AND it's different from our current home_url, navigate to it.
         # Otherwise, just jump back to history index 0.
         if start_url and normalize(start_url) != normalize(home_url):
             logger.info(f"Pill click: Navigating to server 'start' link: {start_url}")
-            self.on_navigate_to_url(start_url, title="Home")
+            self.on_navigate_to_url(start_url, title="Home", force_refresh=True)
         else:
-            logger.info("Pill click: Jumping to history index 0 (Home).")
-            self.on_jump_to_history(0)
+            logger.info("Pill click: Jumping to history index 0 (Home) with reload.")
+            self.on_jump_to_history(0, force_refresh=True)
 
     def get_current_history(self):
         fid = self.current_feed_id
@@ -714,6 +744,9 @@ class MainWindow(QMainWindow):
 
     def _on_tab_clicked(self, tab_name, navigate=True):
         self.active_tab = tab_name
+        if self.current_feed_id:
+            self.last_active_tabs[self.current_feed_id] = tab_name
+            
         self.btn_tab_feed.setChecked(tab_name == "feed")
         self.btn_tab_search.setChecked(tab_name == "search")
 
@@ -810,7 +843,23 @@ class MainWindow(QMainWindow):
         if self.api_client:
             feed = self.api_client.profile
             s = UIConstants.scale
-            self.server_name_label.setText(feed.name)
+            
+            display_name = feed.name
+            
+            # Try to get the active feed title from the browser
+            browser_title = ""
+            if self.feed_browser._last_page:
+                browser_title = self.feed_browser._last_page.title
+                if self.feed_browser._last_page.subtitle:
+                    browser_title = f"{browser_title} | {self.feed_browser._last_page.subtitle}"
+            
+            if browser_title and browser_title != feed.name:
+                # Use Rich Text to make the appended info lighter
+                full_text = f"{feed.name} <span style='font-weight: normal; opacity: 0.7;'> : {browser_title}</span>"
+                self.server_name_label.setText(full_text)
+            else:
+                self.server_name_label.setText(feed.name)
+                
             icon_pixmap = getattr(feed, "_cached_icon", None)
             icon_size = s(24)
             if icon_pixmap:
@@ -860,10 +909,20 @@ class MainWindow(QMainWindow):
             if i == 0: continue
             
             title = entry.get("title", "...")
+            icon_name = entry.get("icon")
+            
             item_widget = QWidget()
             item_layout = QHBoxLayout(item_widget)
             item_layout.setContentsMargins(0, 0, 0, 0)
             item_layout.setSpacing(s(5))
+            
+            # Prepend icon if available
+            if icon_name:
+                icon_label = QLabel()
+                # Use text_dim for inactive, accent or default for active is handled by button/label style
+                icon = ThemeManager.get_icon(icon_name)
+                icon_label.setPixmap(icon.pixmap(s(16), s(16)))
+                item_layout.addWidget(icon_label)
             
             if i == idx:
                 label = QLabel(title)
@@ -911,6 +970,11 @@ class MainWindow(QMainWindow):
         self.feed_browser.current_profile = feed
         self.feed_reader_view.api_client = self.api_client
         
+        # Restore last active tab for this server in this session
+        self.active_tab = self.last_active_tabs.get(feed.id, "feed")
+        # Update tab UI (buttons/icons) without triggering navigation yet
+        self._on_tab_clicked(self.active_tab, navigate=False)
+
         base_url = feed.url
         start_url = base_url if "opds" in base_url.lower() else urljoin(base_url, "/codex/opds/v2.0/")
         
@@ -921,19 +985,22 @@ class MainWindow(QMainWindow):
             self.search_histories[feed.id] = [{"type": "search_root", "title": "Search", "feed_id": feed.id}]
             self.search_indices[feed.id] = 0
             
-            # Initial load for a new feed session
+            # For a brand new server session, we always start on 'feed' browse view
+            self._on_tab_clicked("feed", navigate=False)
             asyncio.create_task(self.feed_browser.load_url(start_url))
             self.content_stack.setCurrentIndex(ViewIndex.FEED_BROWSER)
             self.feed_browser.setFocus()
         else:
-            # Resume existing history
-            hist = self.feed_histories[feed.id]
-            idx = self.feed_indices[feed.id]
+            # Resume existing history from the restored tab
+            hist, idx = self.get_current_history()
             self.on_jump_to_history(idx)
             
             entry = hist[idx]
             if entry["type"] == "detail":
                 self.content_stack.setCurrentIndex(ViewIndex.DETAIL)
+            elif entry["type"] == "search_root":
+                self.content_stack.setCurrentIndex(ViewIndex.SEARCH_ROOT)
+                self.search_root_view.search_input.setFocus()
             else:
                 self.content_stack.setCurrentIndex(ViewIndex.FEED_BROWSER)
                 self.feed_browser.setFocus()
@@ -972,13 +1039,12 @@ class MainWindow(QMainWindow):
         
         self.search_root_view.set_loading(True)
         try:
-            # Use the already reconciled page from the browser to get the search template
-            page = self.feed_browser._last_page
-            if not page or not page.search_template:
+            # Use the feed browser's search_template property (which is sticky per-feed)
+            search_link = self.feed_browser.search_template
+            if not search_link:
                 QMessageBox.warning(self, "Search", "Search is not supported by this feed.")
                 return
                 
-            search_link = page.search_template
             safe_query = urllib.parse.quote(query)
             
             if "{?query}" in search_link:
@@ -990,7 +1056,7 @@ class MainWindow(QMainWindow):
                 separator = "&" if "?" in search_link else "?"
                 search_url = f"{search_link}{separator}query={safe_query}"
                 
-            self.on_navigate_to_url(search_url, title=f"Search: '{query}'")
+            self.on_navigate_to_url(search_url, title=f"Search: '{query}'", icon="search")
             
         except Exception as e:
             QMessageBox.warning(self, "Search Error", f"Could not perform search: {e}")
@@ -1026,20 +1092,25 @@ class MainWindow(QMainWindow):
         self.config_manager.update_feed(f)
         self.search_root_view.update_data(f.search_history, f.pinned_searches)
 
-    def on_navigate_to_url(self, url, title="Loading...", replace=False, keep_title=False, icon=None, feed_id=None):
+    def on_navigate_to_url(self, url, title="Loading...", replace=False, icon=None, keep_title=False, feed_id=None, force_refresh=False):
         hist, idx = self.get_current_history()
         if replace and idx >= 0:
             hist[idx]["url"] = url
+            # Update icon if provided
+            if icon:
+                hist[idx]["icon"] = icon
+            
             if not keep_title:
                 hist[idx]["title"] = title
         else:
             if idx < len(hist) - 1:
                 hist = hist[:idx + 1]
             hist.append({
-                "type": "browser", 
-                "title": title, 
-                "url": url, 
-                "offset": 0
+                "type": "browser",
+                "title": title,
+                "url": url,
+                "offset": 0,
+                "icon": icon
             })
             idx = len(hist) - 1
             
@@ -1047,10 +1118,18 @@ class MainWindow(QMainWindow):
         
         # Always use Feed Browser for any URL navigation (Browsing or Search Results)
         self.content_stack.setCurrentIndex(ViewIndex.FEED_BROWSER)
-        asyncio.create_task(self.feed_browser.load_url(url))
+        asyncio.create_task(self.feed_browser.load_url(url, is_paging=replace, force_refresh=force_refresh))
         self.feed_browser.setFocus()
         
         self.update_header()
+
+    def update_current_history_title(self, new_title: str):
+        """Updates the title of the current history entry and refreshes the breadcrumbs."""
+        hist, idx = self.get_current_history()
+        if idx >= 0:
+            hist[idx]["title"] = new_title
+            self.set_current_history(hist, idx)
+            self.update_header()
 
     def on_open_detail(self, pub, self_url, context_pubs=None):
         hist, idx = self.get_current_history()
@@ -1069,7 +1148,7 @@ class MainWindow(QMainWindow):
         self.update_header()
         self.feed_detail_view.load_publication(pub, self_url, self.api_client, self.opds_client, self.image_manager, context_pubs=context_pubs)
 
-    def on_jump_to_history(self, index):
+    def on_jump_to_history(self, index, force_refresh=False):
         if index < 0:
             return
             
@@ -1093,7 +1172,7 @@ class MainWindow(QMainWindow):
         self.update_header()
         
         if entry["type"] == "browser":
-            asyncio.create_task(self.feed_browser.load_url(entry["url"]))
+            asyncio.create_task(self.feed_browser.load_url(entry["url"], force_refresh=force_refresh))
             self.feed_browser.setFocus()
         elif entry["type"] == "search_root":
             if self.api_client:
@@ -1165,13 +1244,14 @@ class MainWindow(QMainWindow):
         if url: QApplication.clipboard().setText(url)
 
     def _show_logs_dialog(self):
+        s = UIConstants.scale
         dialog = QDialog(self)
         dialog.setWindowTitle("System Logs")
-        dialog.resize(800, 600)
+        dialog.resize(s(800), s(600))
         layout = QVBoxLayout(dialog)
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
-        text_edit.setStyleSheet("font-family: monospace; font-size: 10px; background-color: #1e1e1e; color: #ddd;")
+        text_edit.setStyleSheet(f"font-family: monospace; font-size: {s(10)}px; background-color: #1e1e1e; color: #ddd;")
         if os.path.exists("comiccatcher.log"):
             with open("comiccatcher.log", "r") as f:
                 text_edit.setPlainText("".join(f.readlines()[-200:]))
@@ -1215,7 +1295,7 @@ class MainWindow(QMainWindow):
         self.content_stack.setCurrentIndex(ViewIndex.FEED_LIST)
 
     def on_read_local_comic(self, path, context_paths=None):
-        self.local_reader_view.load_cbz(path, context_paths=context_paths)
+        self.local_reader_view.load_archive(path, context_paths=context_paths)
         self.content_stack.setCurrentIndex(ViewIndex.LOCAL_READER)
         self.sidebar.hide()
         self.top_header.hide()
@@ -1292,12 +1372,24 @@ class MainWindow(QMainWindow):
                 
                 # Get cover from cache
                 pixmap = QPixmap()
-                cover_url = f"local-cbz://{target_path.absolute()}/_cover_thumb"
+                cover_url = f"local-archive://{target_path.absolute()}/_cover_thumb"
                 cache_path = self.image_manager._get_cache_path(cover_url)
                 if cache_path.exists():
                     pixmap.load(str(cache_path))
                 
-                return target_path.stem, pixmap, target_path
+                # Use focus-aware label for the title
+                display_title = target_path.stem
+                if self.local_db:
+                    row = self.local_db.get_comic(str(target_path.absolute()))
+                    if row:
+                        from comiccatcher.ui.local_comicbox import generate_comic_labels
+                        row_dict = dict(row)
+                        label_focus = self.config_manager.get_library_label_focus()
+                        primary, _ = generate_comic_labels(row_dict, label_focus)
+                        if row_dict.get("series") or row_dict.get("title"):
+                            display_title = primary
+
+                return display_title, pixmap, target_path
 
         return None
 
