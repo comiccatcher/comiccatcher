@@ -55,8 +55,13 @@ class BaseDetailView(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        # Center horizontally and align to top
+        self.scroll.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         
         self.content_widget = QWidget()
+        # Prevent content from stretching too far on wide screens
+        self.content_widget.setMaximumWidth(UIConstants.DETAIL_MAX_WIDTH)
+        
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.content_layout.setContentsMargins(0, UIConstants.LAYOUT_MARGIN_DEFAULT, 0, 0)
@@ -107,10 +112,11 @@ class BaseDetailView(QWidget):
         self.content_layout.insertWidget(self.content_layout.count() - 1, widget)
 
     def update_header_margins(self):
-        """Standardized helper to update child header margins for scrollbar awareness."""
-        sb = self.scroll.verticalScrollBar()
-        sb_width = sb.width() if sb.isVisible() else 0
-        header_margin = sb_width + UIConstants.scale(10)
+        """Standardized helper to update child header margins."""
+        # Since content is now centered and limited in width, it typically 
+        # won't overlap the scrollbar area on wide screens.
+        # We use a consistent small margin.
+        header_margin = UIConstants.scale(10)
         
         from comiccatcher.ui.components.section_header import SectionHeader
         from comiccatcher.ui.components.collapsible_section import CollapsibleSection
@@ -225,9 +231,11 @@ class BaseDetailView(QWidget):
         
         # Cover
         self.cover_label = QLabel()
-        # Fix size to prevent layout jumps when image loads
-        self.cover_label.setFixedSize(s(300), s(450))
-        self.cover_label.setScaledContents(True)
+        # Calculate cover width as 1/3 of max width (approx 250px at 1.0x scale)
+        cover_w = UIConstants.DETAIL_MAX_WIDTH // 3
+        cover_h = int(cover_w * 1.5) # Maintain 2:3 aspect ratio for the placeholder
+        self.cover_label.setFixedSize(cover_w, cover_h)
+        self.cover_label.setScaledContents(False)
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.cover_layout.addWidget(self.cover_label)
         
@@ -242,8 +250,8 @@ class BaseDetailView(QWidget):
         self.cover_footer = QLabel()
         self.cover_footer.setWordWrap(True)
         self.cover_footer.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        # Fix the width of footer to match cover width (300)
-        self.cover_footer.setFixedWidth(s(300))
+        # Match cover width
+        self.cover_footer.setFixedWidth(cover_w)
         self.cover_layout.addWidget(self.cover_footer)
         
         self.top_row.addWidget(self.cover_container, 0, Qt.AlignmentFlag.AlignTop)
@@ -362,6 +370,20 @@ class BaseDetailView(QWidget):
         self._metadata_rows.append((l, v))
         self.reapply_theme()
 
+    def set_cover_pixmap(self, pixmap: QPixmap):
+        """Sets the cover pixmap, scaling it to fit while preserving aspect ratio."""
+        if not pixmap or pixmap.isNull():
+            self.cover_label.clear()
+            self.cover_label.setText("No Cover")
+            return
+
+        scaled = pixmap.scaled(
+            self.cover_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.cover_label.setPixmap(scaled)
+
     async def _load_cover_async(self, url_or_path, is_local=False):
         if is_local:
              # Handle local path loading
@@ -372,4 +394,4 @@ class BaseDetailView(QWidget):
             if full_path.exists():
                 pixmap = QPixmap(str(full_path))
                 if not pixmap.isNull():
-                    self.cover_label.setPixmap(pixmap)
+                    self.set_cover_pixmap(pixmap)

@@ -255,7 +255,13 @@ class BaseCardDelegate(QStyledItemDelegate):
             cached_icon = getattr(profile, '_cached_icon', None) if profile else None
             
             if cached_icon and not cached_icon.isNull():
-                painter.drawPixmap(int(badge_x), int(badge_y), int(badge_size), int(badge_size), cached_icon)
+                # Center and scale keeping aspect ratio
+                pw, ph = cached_icon.width(), cached_icon.height()
+                scale = min(badge_size / pw, badge_size / ph)
+                dw, dh = int(pw * scale), int(ph * scale)
+                dx = int(badge_x + (badge_size - dw) / 2)
+                dy = int(badge_y + (badge_size - dh) / 2)
+                painter.drawPixmap(dx, dy, dw, dh, cached_icon)
             else:
                 # Fallback to generic feeds icon if no server logo
                 default_icon = ThemeManager.get_icon("feeds", "text_dim")

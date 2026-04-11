@@ -1297,7 +1297,19 @@ class MainWindow(QMainWindow):
                 if cache_path.exists():
                     pixmap.load(str(cache_path))
                 
-                return target_path.stem, pixmap, target_path
+                # Use focus-aware label for the title
+                display_title = target_path.stem
+                if self.local_db:
+                    row = self.local_db.get_comic(str(target_path.absolute()))
+                    if row:
+                        from comiccatcher.ui.local_comicbox import generate_comic_labels
+                        row_dict = dict(row)
+                        label_focus = self.config_manager.get_library_label_focus()
+                        primary, _ = generate_comic_labels(row_dict, label_focus)
+                        if row_dict.get("series") or row_dict.get("title"):
+                            display_title = primary
+
+                return display_title, pixmap, target_path
 
         return None
 

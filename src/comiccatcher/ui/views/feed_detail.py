@@ -230,11 +230,12 @@ class FeedDetailView(BaseDetailView):
 
     async def _fetch_progression(self, pub: Publication, base_url: str, load_id: str):
         prog_url = None
-        for link in pub.links:
-            rels = [link.rel] if isinstance(link.rel, str) else (link.rel or [])
-            if any(r in rels for r in ["http://librarysimplified.org/terms/rel/state", "http://www.cantook.com/api/progression", "http://readium.org/rel/progression"]):
-                prog_url = urljoin(base_url, link.href)
-                break
+        if pub.links:
+            for link in pub.links:
+                rels = [link.rel] if isinstance(link.rel, str) else (link.rel or [])
+                if any(r in rels for r in ["http://librarysimplified.org/terms/rel/state", "http://www.cantook.com/api/progression", "http://readium.org/rel/progression"]):
+                    prog_url = urljoin(base_url, link.href)
+                    break
         
         if prog_url and load_id == self._active_load_id:
             try:
@@ -554,7 +555,7 @@ class FeedDetailView(BaseDetailView):
         if full_path.exists():
             pixmap = QPixmap(str(full_path))
             if not pixmap.isNull():
-                self.cover_label.setPixmap(pixmap)
+                self.set_cover_pixmap(pixmap)
 
     def _get_image_url(self, pub: Publication) -> Optional[str]:
         if pub.images: return pub.images[0].href
@@ -644,9 +645,7 @@ class FeedDetailView(BaseDetailView):
         super().update_header_margins()
 
         # 2. Specialized logic for manual carousel layouts
-        sb = self.scroll.verticalScrollBar()
-        sb_width = sb.width() if sb.isVisible() else 0
-        header_margin = sb_width + UIConstants.scale(10)
+        header_margin = UIConstants.scale(10)
 
         # Look for the QHBoxLayouts we created manually for carousels
         for i in range(self.content_layout.count()):
@@ -675,7 +674,6 @@ class FeedDetailView(BaseDetailView):
                     if not l_href: continue
 
                     label_text = item.name or rel_type.capitalize()
-                    if rel_type == "series": label_text = f"More from {label_text}"
 
                     header = QHBoxLayout()
                     l_title = QLabel(label_text)
@@ -726,9 +724,11 @@ class FeedDetailView(BaseDetailView):
             base_feed_url = self.api_client.profile.get_base_url()
             feed_page = FeedReconciler.reconcile(feed, base_feed_url)
             
-            # Use centralized main_section helper to find relevant items
-            main_sec = feed_page.main_section
-            items = main_sec.items if main_sec else []
+            # Only show cards from the root-level publications
+            items = []
+            for section in feed_page.sections:
+                if section.source_element == "root:publications":
+                    items.extend(section.items)
             
             if not items:
                 return

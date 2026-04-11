@@ -82,17 +82,46 @@ class LocalDetailView(BaseDetailView):
             if pub:
                 pub_parts.append(pub)
             
+            s = UIConstants.scale
             date_str = format_publication_date(month, year)
             if date_str:
                 pub_parts.append(date_str)
                 
             if pub_parts:
+                line_layout = QHBoxLayout()
+                line_layout.setContentsMargins(0, 0, 0, 0)
+                line_layout.setSpacing(s(5))
+                line_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                
                 line_text = " • ".join(pub_parts)
                 pub_label = QLabel(line_text)
                 theme = ThemeManager.get_current_theme_colors()
                 s = UIConstants.scale
                 pub_label.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
-                self.info_layout.addWidget(pub_label)
+                line_layout.addWidget(pub_label)
+                
+                # Add Web Button if available
+                web_data = meta.get("web")
+                if web_data:
+                    urls = [u.strip() for u in web_data.split(",") if u.strip()]
+                    if urls:
+                        target_url = urls[0]
+                        sep = QLabel(" • ")
+                        sep.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
+                        line_layout.addWidget(sep)
+                        
+                        from PyQt6.QtGui import QDesktopServices
+                        from PyQt6.QtCore import QUrl
+                        btn_web = QPushButton()
+                        btn_web.setObjectName("icon_button")
+                        btn_web.setIcon(ThemeManager.get_icon("globe", "accent"))
+                        btn_web.setToolTip(f"Open in browser: {target_url}")
+                        btn_web.setFixedSize(s(24), s(24))
+                        btn_web.setCursor(Qt.CursorShape.PointingHandCursor)
+                        btn_web.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(target_url)))
+                        line_layout.addWidget(btn_web)
+                
+                self.info_layout.addLayout(line_layout)
 
             # Action Buttons
             self.btn_read = self.create_action_button("Read", self._on_read_clicked, icon_name="book")
@@ -165,7 +194,7 @@ class LocalDetailView(BaseDetailView):
         if cache_path.exists() and path == self._path:
             pixmap = QPixmap(str(cache_path))
             if not pixmap.isNull():
-                self.cover_label.setPixmap(pixmap)
+                self.set_cover_pixmap(pixmap)
 
     def refresh_progress(self):
         """Public method to re-fetch and update the progression UI."""

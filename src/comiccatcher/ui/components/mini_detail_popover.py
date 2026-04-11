@@ -56,7 +56,8 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         # Left: Cover
         self.cover_label = QLabel()
         self.cover_label.setFixedSize(s(140), s(210))
-        self.cover_label.setScaledContents(True)
+        self.cover_label.setScaledContents(False)
+        self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.content_layout.addWidget(self.cover_label, 0, Qt.AlignmentFlag.AlignTop)
         
         # Right: Info
@@ -157,6 +158,20 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         btn.clicked.connect(lambda: [on_click(), self.hide()])
         self.actions_layout.addWidget(btn)
 
+    def set_cover_pixmap(self, pixmap: QPixmap):
+        """Sets the cover pixmap, scaling it to fit while preserving aspect ratio."""
+        if not pixmap or pixmap.isNull():
+            self.cover_label.clear()
+            self.cover_label.setText("No Cover")
+            return
+
+        scaled = pixmap.scaled(
+            self.cover_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.cover_label.setPixmap(scaled)
+
     def clear_actions(self):
         while self.actions_layout.count():
             item = self.actions_layout.takeAt(0)
@@ -237,8 +252,9 @@ class MiniDetailPopover(QFrame, BubbleMixin):
             self.info_layout.addWidget(header_widget)
 
         if cover and not cover.isNull():
-            self.cover_label.setPixmap(cover)
+            self.set_cover_pixmap(cover)
         else:
+            self.cover_label.clear()
             self.cover_label.setText("No Cover")
             
         # Divider

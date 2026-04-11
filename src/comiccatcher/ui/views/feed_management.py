@@ -405,9 +405,8 @@ class FeedManagementView(QWidget):
                 color: {theme['text_main']};
             }}
             QListWidget::item {{ 
-                padding: {s(10)}px; 
+                padding: 0px; 
                 border-bottom: {max(1, s(1))}px solid {theme['border']}; 
-                font-size: {UIConstants.FONT_SIZE_FEED_LIST}px;
             }}
             QListWidget::item:selected {{
                 background-color: {theme['bg_item_selected']};
@@ -417,22 +416,62 @@ class FeedManagementView(QWidget):
 
     def refresh_feeds(self):
         default_icon = ThemeManager.get_icon("feeds")
+        s = UIConstants.scale
         
         self.feeds_list.clear()
         for f in self.config_manager.feeds:
-            item = QListWidgetItem(f"{f.name}\n{f.url}")
-            item.setData(Qt.ItemDataRole.UserRole, f)
-            item.setIcon(default_icon)
-            self.feeds_list.addItem(item)
-            if f.icon_url:
-                asyncio.create_task(self._load_cached_icon(f, item))
+            name_fs = s(16) # Slightly smaller than root list but still bumped
+            url_fs = s(12)
+            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: #888;">{f.url}</span>'
 
-    async def _load_cached_icon(self, feed: FeedProfile, item: QListWidgetItem):
-        try:
-            # Optimization: Check disk cache first. 
-            # If it's there, we don't need to create a heavy APIClient (which sets up SSL contexts).
-            icon_path = self.shared_image_manager._get_cache_path(feed.icon_url)
+            item = QListWidgetItem()
+            self.feeds_list.addItem(item)
             
+            widget = QWidget()
+            layout = QHBoxLayout(widget)
+            layout.setContentsMargins(s(15), s(6), s(15), s(6))
+            layout.setSpacing(s(10))
+            
+            icon_label = QLabel()
+            icon_label.setFixedSize(s(32), s(32))
+            icon_label.setScaledContents(False)
+            icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            text_label = QLabel(rich_text)
+            text_label.setStyleSheet("background: transparent; border: none;")
+            text_label.setWordWrap(True)
+            
+            layout.addWidget(icon_label)
+            layout.addWidget(text_label, 1)
+            
+            # Ensure the widget's layout calculates the correct size
+            sh = widget.sizeHint()
+            # Add a small vertical buffer for safety with rich text
+            sh.setHeight(sh.height() + s(2))
+            item.setSizeHint(sh)
+            item.setData(Qt.ItemDataRole.UserRole, f)
+            self.feeds_list.setItemWidget(item, widget)
+
+            # Handle Icon
+            icon_pixmap = None
+            if f.icon_url:
+                cache_path = self.shared_image_manager._get_cache_path(f.icon_url)
+                if cache_path.exists():
+                    icon_pixmap = QPixmap(str(cache_path))
+            
+            if icon_pixmap and not icon_pixmap.isNull():
+                scaled = icon_pixmap.scaled(s(32), s(32), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                icon_label.setPixmap(scaled)
+                f._cached_icon = icon_pixmap
+            else:
+                icon_label.setPixmap(default_icon.pixmap(s(32), s(32)))
+
+            if f.icon_url and (not icon_pixmap or icon_pixmap.isNull()):
+                asyncio.create_task(self._load_cached_icon_widget(f, icon_label))
+
+    async def _load_cached_icon_widget(self, feed: FeedProfile, label: QLabel):
+        try:
+            icon_path = self.shared_image_manager._get_cache_path(feed.icon_url)
             if not icon_path.exists():
                 client = APIClient(feed)
                 await self.shared_image_manager.get_image_b64(feed.icon_url, api_client=client)
@@ -442,8 +481,9 @@ class FeedManagementView(QWidget):
                 pixmap = QPixmap(str(icon_path))
                 if not pixmap.isNull():
                     feed._cached_icon = pixmap
-                    if item:
-                        item.setIcon(QIcon(pixmap))
+                    s = UIConstants.scale
+                    scaled = pixmap.scaled(s(32), s(32), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    label.setPixmap(scaled)
                     self.icon_loaded.emit(feed.id, pixmap)
         except: pass
 
