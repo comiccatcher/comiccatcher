@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 from comiccatcher.api.feed_reconciler import FeedReconciler
 from comiccatcher.logger import get_logger
 from comiccatcher.models.feed_page import FeedItem, FeedPage, FeedSection, ItemType, SectionLayout
+
 from comiccatcher.ui.components.base_ribbon import BaseCardRibbon
 from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
 from comiccatcher.ui.components.feed_card_delegate import FeedCardDelegate
@@ -443,6 +444,8 @@ class ScrolledFeedView(BaseFeedSubView):
         view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # Intercept wheel events so they drive the outer scrollbar
         view.viewport().installEventFilter(self)
+        view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        view.viewport().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         model = FeedBrowserModel(items_per_page=sec.items_per_page or UIConstants.DEFAULT_PAGING_STRIDE)
         # Single-section init: no HEADER composite row, just GRID_ITEM rows
@@ -454,6 +457,7 @@ class ScrolledFeedView(BaseFeedSubView):
         view.setModel(model)
         view.setItemDelegate(delegate)
         view.clicked.connect(lambda idx, m=model: self._on_grid_clicked(idx, m))
+        view.customContextMenuRequested.connect(lambda pos, v=view, m=model: self._on_custom_context_menu(pos, v, m))
         view.hide()
 
         self._models[sec.section_id] = model
@@ -461,6 +465,8 @@ class ScrolledFeedView(BaseFeedSubView):
 
     def _make_ribbon(self, sec: FeedSection) -> BaseCardRibbon:
         ribbon = BaseCardRibbon(self._vp, show_labels=self._show_labels)
+        ribbon.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        ribbon.viewport().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         rmodel = FeedBrowserModel(items_per_page=max(1, len(sec.items)))
         rmodel.set_items_for_page(1, sec.items)
         ribbon.setModel(rmodel)
@@ -469,8 +475,19 @@ class ScrolledFeedView(BaseFeedSubView):
             FeedCardDelegate(ribbon, self.image_manager, self._show_labels))
         ribbon.clicked.connect(
             lambda idx, m=rmodel: self._on_ribbon_clicked(idx, m))
+        ribbon.customContextMenuRequested.connect(lambda pos, v=ribbon, m=rmodel: self._on_custom_context_menu(pos, v, m))
         ribbon.hide()
         return ribbon
+
+    def _on_custom_context_menu(self, pos, view, model):
+        index = view.indexAt(pos)
+        if not index.isValid(): return
+        item = model.get_item(index.row())
+        if not item or item.type == ItemType.FOLDER: return
+        
+        # Emit global position for the popover
+        global_pos = view.viewport().mapToGlobal(pos)
+        self.mini_detail_requested.emit(item, global_pos, model)
 
     def _clear_section_widgets(self):
         for pool in (self._headers, self._ribbons, self._grids):

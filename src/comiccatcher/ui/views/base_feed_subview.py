@@ -16,6 +16,7 @@ class BaseFeedSubView(QWidget):
     navigate_requested = pyqtSignal(str, str, bool) # url, title, replace
     cover_request_needed = pyqtSignal(str)
     selection_changed = pyqtSignal()
+    mini_detail_requested = pyqtSignal(object, object, object) # item, global_pos, model
 
     def __init__(self, image_manager, collapsed_sections: Set[str], parent=None):
         super().__init__(parent)
@@ -35,6 +36,8 @@ class BaseFeedSubView(QWidget):
         view.viewport().setContentsMargins(0, 0, 0, 0)
         view.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         view.setMouseTracking(True)
+        view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        view.viewport().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
     def get_grid_layout_info(self, vp_w: int):
         """Returns (cols, row_h, spacing) for grid sections."""

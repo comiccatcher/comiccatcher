@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 
-from comiccatcher.models.feed_page import FeedPage, FeedSection, SectionLayout
+from comiccatcher.models.feed_page import FeedPage, FeedSection, SectionLayout, ItemType
 from comiccatcher.ui.theme_manager import UIConstants, ThemeManager
 from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
 from comiccatcher.ui.components.feed_card_delegate import FeedCardDelegate
@@ -120,6 +120,8 @@ class PagedFeedView(BaseFeedSubView):
         
         if layout == SectionLayout.RIBBON:
             view = BaseCardRibbon(self, show_labels=self._show_labels)
+            view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            view.viewport().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         else:
             view = QListView()
             self.configure_list_view(view)
@@ -177,6 +179,17 @@ class PagedFeedView(BaseFeedSubView):
         model.cover_request_needed.connect(self.cover_request_needed.emit)
         
         view.clicked.connect(lambda idx, m=model: self._on_item_clicked(idx, m))
+        view.customContextMenuRequested.connect(lambda pos, v=view, m=model: self._on_custom_context_menu(pos, v, m))
+
+    def _on_custom_context_menu(self, pos, view, model):
+        index = view.indexAt(pos)
+        if not index.isValid(): return
+        item = model.get_item(index.row())
+        if not item or item.type == ItemType.FOLDER: return
+        
+        # Emit global position for the popover
+        global_pos = view.viewport().mapToGlobal(pos)
+        self.mini_detail_requested.emit(item, global_pos, model)
 
     def eventFilter(self, source, event):
         """Dynamic cursor change when hovering over items."""

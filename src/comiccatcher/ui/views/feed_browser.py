@@ -1,14 +1,12 @@
 import asyncio
 import urllib.parse
-import re
 import time
-from pathlib import Path
-from typing import List, Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Set
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QHBoxLayout, 
-    QPushButton, QMenu, QStackedWidget
+    QMenu, QStackedWidget, QApplication
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPoint
 from PyQt6.QtGui import QPixmap
 
 from comiccatcher.models.feed_page import FeedPage, FeedItem
@@ -23,6 +21,7 @@ from comiccatcher.ui.view_helpers import ViewportHelper
 from comiccatcher.ui.views.paged_feed_view import PagedFeedView
 from comiccatcher.ui.views.scrolled_feed_view import ScrolledFeedView
 from comiccatcher.ui.views.base_browser import BaseBrowserView
+from comiccatcher.ui.components.mini_detail_popover import MiniDetailPopover
 
 logger = get_logger("ui.feed_browser")
 
@@ -124,6 +123,11 @@ class FeedBrowser(BaseBrowserView):
         self.scrolled_view.busy_updated.connect(lambda b: self._update_busy_state("scrolled_fetch", b))
         self.scrolled_view.cover_request_needed.connect(self._on_cover_request)
         self.scrolled_view.selection_changed.connect(self._update_selection_ui)
+
+        self.paged_view.mini_detail_requested.connect(self._show_mini_detail)
+        self.scrolled_view.mini_detail_requested.connect(self._show_mini_detail)
+
+        self.detail_popover = MiniDetailPopover(self)
 
         # 4. Selection Action Bar Configuration
 
@@ -573,3 +577,88 @@ class FeedBrowser(BaseBrowserView):
         self.paged_view.set_show_labels(enabled)
         self.scrolled_view.set_show_labels(enabled)
         self.refresh_icons()
+
+    def _show_mini_detail(self, item, global_pos, model):
+        """Displays the metadata popover for a publication card."""
+        from comiccatcher.models.feed_page import ItemType
+        if not item or item.type == ItemType.FOLDER or not item.raw_pub:
+            return
+
+        pub = item.raw_pub
+        meta = pub.metadata
+        if not meta: return
+
+        # 1. Map OPDS Contributors to credits string
+        creds = []
+        roles = [
+            ("author", "Author"), ("writer", "Writer"), ("penciler", "Penciller"),
+            ("artist", "Artist"), ("inker", "Inker"), ("colorist", "Colorist"),
+            ("letterer", "Letterer"), ("editor", "Editor"), ("translator", "Translator")
+        ]
+        
+        for attr, label in roles:
+            contributors = getattr(meta, attr, None)
+            if contributors:
+                names = ", ".join(c.name for c in contributors)
+                creds.append(f"{label}: {names}")
+
+        # 2. Extract Publisher and Date
+        publisher = None
+        if meta.publisher:
+            publisher = ", ".join(c.name for c in meta.publisher)
+        
+        published = meta.published
+        if published:
+            # OPDS dates are typically ISO 8601 (e.g., 2024-03-11)
+            # Local library uses "Month Year"
+            import calendar
+            try:
+                # Basic parse of YYYY-MM-DD
+                parts = published.split('-')
+                if len(parts) >= 2:
+                    y_val = parts[0]
+                    m_val = int(parts[1])
+                    if 1 <= m_val <= 12:
+                        published = f"{calendar.month_name[m_val]} {y_val}"
+                elif len(parts) == 1 and len(parts[0]) == 4:
+                    # Just Year
+                    published = parts[0]
+            except Exception:
+                pass # Fallback to raw value if parsing fails
+
+        # 3. Assemble Data Dict
+        data = {
+            "credits": "\n".join(creds),
+            "publisher": publisher,
+            "published": published,
+            "summary": meta.description,
+            "web": None # Handled via detail view usually, keeping it simple for now
+        }
+
+        # 4. Configure and Show Popover
+        self.detail_popover.set_show_cover(False)
+        self.detail_popover.clear_actions()
+        
+        self.detail_popover.populate(
+            data=data, 
+            title=meta.title, 
+            subtitle=meta.subtitle
+        )
+        # Smart Positioning (Similar to local_library)
+        # We use global_pos as a base. We need to know the card size to offset properly.
+        card_w = UIConstants.CARD_WIDTH
+
+        
+        # Default: To the right of the card center
+        pop_x = global_pos.x() + (card_w // 2)
+        pop_y = global_pos.y()
+        arrow_side = "left"
+        
+        # Screen boundary check
+        screen = QApplication.primaryScreen().availableGeometry()
+        if pop_x + self.detail_popover.width() > screen.right():
+            # Show to the left instead
+            pop_x = global_pos.x() - (card_w // 2)
+            arrow_side = "right"
+            
+        self.detail_popover.show_at(QPoint(pop_x, pop_y), arrow_side=arrow_side)
