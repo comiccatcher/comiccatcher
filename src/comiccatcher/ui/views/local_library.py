@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QApplication, QStyledItemDelegate, QStyle,
     QAbstractItemView, QSizePolicy, QFrame, QSpacerItem, QListView
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect, QModelIndex, QPoint, QTimer
+from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect, QModelIndex, QPoint, QTimer, QItemSelectionModel
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QPen, QImage, QPixmapCache, QKeyEvent, QStandardItemModel, QStandardItem
 
 from comiccatcher.config import ConfigManager, CONFIG_DIR
@@ -1392,6 +1392,8 @@ class LocalLibraryView(BaseBrowserView):
         self.go_up()
 
     def _on_item_context_menu(self, pos, list_widget):
+        if self._selection_mode: return
+        
         logger.info(f"--- Entering _on_item_context_menu ---")
         logger.info(f"  Pos: {pos}, Widget: {list_widget.objectName()}")
         if isinstance(list_widget, QListWidget):
@@ -1432,8 +1434,35 @@ class LocalLibraryView(BaseBrowserView):
         self.detail_popover.clear_actions()
         
         # Add Actions
-        self.detail_popover.add_action("action_read", "Mark Read", lambda: [self.db.mark_as_read(file_path), self._reload_current_view()])
-        self.detail_popover.add_action("action_unread", "Mark Unread", lambda: [self.db.mark_as_unread(file_path), self._reload_current_view()])
+        # 1. Read Action
+        if file_path:
+            p = Path(file_path)
+            self.detail_popover.add_action("book", "Read", lambda: self.on_open_comic(p))
+
+        # 2. Select Action
+        def do_select():
+            # Find index of this item in current list
+            if isinstance(list_widget, QListWidget):
+                list_widget.setCurrentItem(item)
+            else:
+                list_widget.setCurrentIndex(idx)
+            
+            # This logic should mimic single item selection in current view
+            # If not in selection mode, enter it and select this one
+            if not self._selection_mode:
+                self.toggle_selection_mode(True)
+            
+            # Selection might need to be explicit if toggle_selection_mode clears it
+            if isinstance(list_widget, QListWidget):
+                item.setSelected(True)
+            else:
+                list_widget.selectionModel().select(idx, QItemSelectionModel.SelectionFlag.Select)
+
+        self.detail_popover.add_action("select", "Select", do_select)
+
+        if file_path:
+            self.detail_popover.add_action("action_read", "Mark Read", lambda: [self.db.mark_as_read(file_path), self._reload_current_view()])
+            self.detail_popover.add_action("action_unread", "Mark Unread", lambda: [self.db.mark_as_unread(file_path), self._reload_current_view()])
         
         def do_delete():
             from PyQt6.QtWidgets import QMessageBox

@@ -23,6 +23,7 @@ class BaseFeedSubView(QWidget):
         self.image_manager = image_manager
         self._collapsed_sections = collapsed_sections
         self._show_labels = True
+        self._selection_mode = False
 
     def configure_list_view(self, view: QListView):
         """Applies standardized settings to a QListView for consistent card rendering."""
@@ -89,6 +90,7 @@ class BaseFeedSubView(QWidget):
 
     def toggle_selection_mode(self, enabled: bool):
         """Standardized selection mode toggle for sub-views."""
+        self._selection_mode = enabled
         mode = QAbstractItemView.SelectionMode.MultiSelection if enabled else QAbstractItemView.SelectionMode.NoSelection
         
         # Collect all active views (grids, ribbons, or paged sections)

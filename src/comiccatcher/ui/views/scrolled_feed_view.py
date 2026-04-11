@@ -480,6 +480,8 @@ class ScrolledFeedView(BaseFeedSubView):
         return ribbon
 
     def _on_custom_context_menu(self, pos, view, model):
+        if self._selection_mode: return
+        
         index = view.indexAt(pos)
         if not index.isValid(): return
         item = model.get_item(index.row())

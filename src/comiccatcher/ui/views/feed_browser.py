@@ -590,7 +590,61 @@ class FeedBrowser(BaseBrowserView):
         # 1. Immediate UI update with what we have
         self._populate_mini_detail(item)
 
-        # 2. Position and show (only on initial request)
+        # 2. Add Actions (New)
+        self.detail_popover.clear_actions()
+
+        # A. Read Action (Emits item_clicked with context)
+        subview = self.scrolled_view if self._paging_mode == "scrolled" else self.paged_view
+        context_pubs = subview.gather_context_pubs(model) if model else []
+        self.detail_popover.add_action("book", "Read", lambda: self._on_item_clicked(item, context_pubs))
+
+        # B. Select Action
+        def do_select():
+            # Identify active view
+            subview = self.scrolled_view if self._paging_mode == "scrolled" else self.paged_view
+
+            # Find the widget containing this item
+            target_view = None
+            target_idx = None
+
+            # This is a bit complex in FeedBrowser because there are multiple QListViews
+            # We search for the one that has our model
+            views = []
+            if hasattr(subview, '_section_views'):
+                views.extend(subview._section_views)
+            if hasattr(subview, '_grids'):
+                views.extend(list(subview._grids.values()))
+            if hasattr(subview, '_ribbons'):
+                views.extend(list(subview._ribbons.values()))
+
+            for v in views:
+                if v.model() == model:
+                    target_view = v
+                    break
+
+            if target_view:
+                # Find the row for this item in the model
+                for row in range(model.rowCount()):
+                    if model.get_item(row) == item:
+                        target_idx = model.index(row)
+                        break
+
+            if target_view and target_idx:
+                if not self._selection_mode:
+                    self.toggle_selection_mode(True)
+
+                # Selection might need to be explicit if toggle_selection_mode clears it
+                from PyQt6.QtCore import QItemSelectionModel
+                target_view.selectionModel().select(target_idx, QItemSelectionModel.SelectionFlag.Select)
+                self._update_selection_ui()
+
+        self.detail_popover.add_action("select", "Select", do_select)
+
+        # C. Download Action (Placeholder)
+        self.detail_popover.add_action("download", "Download", lambda: None)
+
+        # 3. Position and show (only on initial request)
+
         card_w = UIConstants.CARD_WIDTH
         pop_x = global_pos.x() + (card_w // 2)
         pop_y = global_pos.y()
@@ -667,9 +721,9 @@ class FeedBrowser(BaseBrowserView):
 
         # 4. Configure Popover
         self.detail_popover.set_show_cover(False)
-        self.detail_popover.clear_actions()
 
         self.detail_popover.populate(
+
             data=data, 
             title=meta.title, 
             subtitle=meta.subtitle
