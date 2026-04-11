@@ -422,8 +422,8 @@ class FeedDetailView(BaseDetailView):
             # Action Buttons
             manifest_url = next((urljoin(base_url, l.href) for l in (pub.links or []) if l.type in ["application/webpub+json", "application/divina+json", "application/opds-publication+json"]), None)
             
-            # Use FeedReconciler to find best download link and its format
-            download_url, download_format = FeedReconciler._find_acquisition_link(pub, base_url)
+            # Use FeedReconciler to find best download link
+            download_url, _ = FeedReconciler._find_acquisition_link(pub, base_url)
             
             self.btn_read = self.create_action_button(
                 "Read Now",
@@ -436,9 +436,8 @@ class FeedDetailView(BaseDetailView):
             is_divina_link = any(l.type == "application/divina+json" for l in (pub.links or []))
             self.btn_read.setEnabled(pub.is_divina or is_divina_link)
             
-            down_label = f"Download ({download_format})" if download_format else "Download"
             btn_down = self.create_action_button(
-                down_label,
+                "Download",
                 lambda: self.on_start_download(pub, download_url),
                 icon_name="download"
             )
@@ -456,21 +455,23 @@ class FeedDetailView(BaseDetailView):
 
             # Support Status Labels
             theme = ThemeManager.get_current_theme_colors()
+            notes = []
             
             # 1. Streaming Support Hint
             if not (pub.is_divina or is_divina_link):
-                streaming_hint = QLabel("Note: This server does not support page streaming for this item.")
-                streaming_hint.setObjectName("meta_status_hint")
-                streaming_hint.setWordWrap(True)
-                self.info_layout.addWidget(streaming_hint)
+                notes.append("Page streaming not available")
 
-            # 2. Purchase Support Hint
-            has_buy = any((action.rel or "").lower() == "http://opds-spec.org/acquisition/buy" for action in (pub.actions or []))
-            if has_buy and not download_url:
-                buy_hint = QLabel("Note: This item requires purchase, which is not supported in this app.")
-                buy_hint.setObjectName("meta_status_hint")
-                buy_hint.setWordWrap(True)
-                self.info_layout.addWidget(buy_hint)
+            # 2. Detailed acquisition notes (Borrow, Purchase, Unsupported Formats)
+            acq_note = FeedReconciler.get_acquisition_note(pub)
+            if acq_note:
+                notes.append(acq_note)
+            
+            if notes:
+                full_note_text = "Note: " + " • ".join(notes)
+                status_hint = QLabel(full_note_text)
+                status_hint.setObjectName("meta_status_hint")
+                status_hint.setWordWrap(True)
+                self.info_layout.addWidget(status_hint)
             
             # Check if already downloaded (if link exists)
             self._file_size_str = None

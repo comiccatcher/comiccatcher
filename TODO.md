@@ -1,6 +1,7 @@
 # ComicCatcher TODO
 
 ## Feed Stuff
+
 * bug with scrolled feeds or codex giving wrong series count.
     manifests as extra cards at end of seroes scroll in codex (think codex is culprit when counts aren't updated when files are removed/added)
 
@@ -11,14 +12,22 @@
    komga > Latest Series See All, somehow goes to publications
 
 ## Reader & UI
+
 * add mini-details in feed view -  download in place of delete button
 * mini-details - add read, select buttons.
-* new "read" svg
-
-* feed details, disable download for unknown file types?
+* new "read" svg, maybe also "mark as read", "mark as unread"
 
 * keystrokes for feed and library
 * reader keystrokes and controls fixing
+
+* better feedback on failed connection to server
+
+* Warning about logo fetch fail.  Is that always happing in the background?
+2026-04-10 23:12:55,230 - httpx - INFO - HTTP Request: GET https://test.opds.io/favicon.ico "HTTP/1.1 404 Not Found"
+2026-04-10 23:12:55,233 - comiccatcher.api.image_manager - WARNING - Failed to fetch image https://test.opds.io/favicon.ico - Status: 404
+
+* paging nav buttons should update before fetch??
+
 
 ## deployment
 * upload to pypi account

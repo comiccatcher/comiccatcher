@@ -399,20 +399,41 @@ class FeedReconciler:
 
     @staticmethod
     def _find_acquisition_link(pub: Publication, base_url: str = "") -> Tuple[Optional[str], Optional[str]]:
-        """Helper to find the best acquisition link and its format."""
+        """
+        Helper to find the best acquisition link based solely on MIME type.
+        Returns (url, mime_type).
+        """
+        # MIME Type to Priority Mapping
+        # Higher score = Better format
+        MIME_PRIORITIES = {
+            # CBZ
+            "application/vnd.comicbook+zip": 100,
+            "application/x-cbz": 100,
+            "application/zip": 95,
+            
+            # CBR
+            "application/vnd.comicbook-rar": 90,
+            "application/x-cbr": 90,
+            "application/x-rar": 85,
+            "application/x-rar-compressed": 85,
+            
+            # CB7
+            "application/x-cb7": 80,
+            "application/x-7z-compressed": 80,
+            
+            # CBT
+            "application/x-cbt": 75,
+            "application/x-tar": 75,
+            
+            # PDF
+            "application/pdf": 50,
+            
+            # Low Priority / Generic
+            "application/octet-stream": 10
+        }
+
         candidates = []
         
-        def get_format_label(l_type: str, l_href: str) -> str:
-            l_type = l_type.lower()
-            l_href = l_href.lower()
-            if "cbz" in l_type or l_href.endswith(".cbz"): return "CBZ"
-            if "cbr" in l_type or l_href.endswith(".cbr"): return "CBR"
-            if "cb7" in l_type or l_href.endswith(".cb7"): return "CB7"
-            if "epub" in l_type or l_href.endswith(".epub"): return "EPUB"
-            if "pdf" in l_type or l_href.endswith(".pdf"): return "PDF"
-            if "octet-stream" in l_type: return "BIN"
-            return "FILE"
-
         # 1. Check standard links
         for l in (pub.links or []):
             rels = l.rel
@@ -420,52 +441,45 @@ class FeedReconciler:
             elif isinstance(rels, list): rel_list = [str(r).lower() for r in rels]
             else: rel_list = []
                 
-            is_acq = any("acquisition" in r for r in rel_list)
-            l_type = (l.type or "").lower()
-            l_href = (l.href or "").lower()
+            # Strict relationship matching: Only direct acquisition or open-access.
+            # We explicitly exclude 'borrow', 'buy', 'sample', etc.
+            is_direct_acq = any(r in [
+                "acquisition", 
+                "http://opds-spec.org/acquisition",
+                "http://opds-spec.org/acquisition/open-access"
+            ] for r in rel_list)
             
-            # Prioritized types
-            priority = 0
-            if "cbz" in l_type or l_href.endswith(".cbz"): priority = 100
-            elif "cbr" in l_type or l_href.endswith(".cbr"): priority = 90
-            elif "cb7" in l_type or l_href.endswith(".cb7"): priority = 80
-            elif "epub" in l_type or l_href.endswith(".epub"): priority = 70
-            elif "pdf" in l_type or l_href.endswith(".pdf"): priority = 50
-            elif "octet-stream" in l_type: priority = 10
+            l_type = (l.type or "").lower().strip()
+            priority = MIME_PRIORITIES.get(l_type, 0)
             
-            if is_acq or priority > 0:
-                if any(r in rel_list for r in ["self", "search", "alternate"]) and not is_acq:
-                    continue
-                
-                # If it is explicitly an acquisition link but we didn't recognize the type,
-                # give it a baseline priority.
-                if is_acq and priority == 0:
-                    priority = 1
-                    
-                candidates.append((priority, urllib.parse.urljoin(base_url, l.href), get_format_label(l_type, l_href)))
+            # Button only activates if we have a direct acquisition relationship 
+            # AND a format we actually support for reading.
+            if is_direct_acq and priority > 0:
+                candidates.append((priority, urllib.parse.urljoin(base_url, l.href), l_type))
 
-        # 2. Check 'actions' (OPDS 2.0 extension used by commercial catalogs)
+        # 2. Check 'actions' (OPDS 2.0 indirect acquisition)
         if hasattr(pub, "actions") and pub.actions:
             for action in pub.actions:
                 rel = (action.rel or "").lower()
-                if "acquisition" in rel:
+                # Strict action relationship matching
+                if rel in ["acquisition", "http://opds-spec.org/acquisition", "http://opds-spec.org/acquisition/open-access"]:
                     props = action.properties or {}
                     ia_list = props.get("indirectAcquisition")
                     if ia_list and isinstance(ia_list, list):
                         for ia in ia_list:
-                            ia_type = str(ia.get("type", "")).lower()
-                            priority = 0
-                            if "epub" in ia_type: priority = 65
-                            elif "pdf" in ia_type: priority = 45
+                            ia_type = str(ia.get("type", "")).lower().strip()
+                            priority = MIME_PRIORITIES.get(ia_type, 0)
                             
+                            # Check children (nested formats)
                             children = ia.get("child")
                             if children and isinstance(children, list):
                                 for child in children:
-                                    c_type = str(child.get("type", "")).lower()
-                                    if "epub" in c_type: priority = max(priority, 60)
+                                    c_type = str(child.get("type", "")).lower().strip()
+                                    child_priority = MIME_PRIORITIES.get(c_type, 0)
+                                    priority = max(priority, child_priority)
                             
                             if priority > 0:
-                                candidates.append((priority, urllib.parse.urljoin(base_url, action.href), get_format_label(ia_type, action.href)))
+                                candidates.append((priority, urllib.parse.urljoin(base_url, action.href), ia_type))
         
         if not candidates:
             return None, None
@@ -473,6 +487,72 @@ class FeedReconciler:
         # Return the one with highest priority
         candidates.sort(key=lambda x: x[0], reverse=True)
         return candidates[0][1], candidates[0][2]
+
+    @staticmethod
+    def get_acquisition_note(pub: Publication) -> Optional[str]:
+        """
+        Returns a human-readable note explaining why download/read might be limited.
+        Only shows format warnings if a supported format is NOT available.
+        """
+        reasons = []
+        links = pub.links or []
+        
+        has_borrow = False
+        has_buy = False
+        all_acq_formats = set()
+        supported_acq_formats = set()
+        
+        # 1. Scan standard links
+        for l in links:
+            rels = l.rel
+            if isinstance(rels, str): rel_list = [rels.lower()]
+            elif isinstance(rels, list): rel_list = [str(r).lower() for r in rels]
+            else: rel_list = []
+            
+            rel_str = " ".join(rel_list)
+            l_type = (l.type or "").lower().strip()
+            
+            if "borrow" in rel_str: has_borrow = True
+            if "buy" in rel_str or "purchase" in rel_str: has_buy = True
+            
+            # Check if it is a direct download link
+            is_direct_acq = any(r in ["acquisition", "http://opds-spec.org/acquisition", "http://opds-spec.org/acquisition/open-access"] for r in rel_list)
+            
+            if is_direct_acq:
+                # Track what we found
+                if "epub" in l_type: all_acq_formats.add("EPUB")
+                elif "pdf" in l_type: supported_acq_formats.add("PDF")
+                elif "cbz" in l_type: supported_acq_formats.add("CBZ")
+                elif "cbr" in l_type: supported_acq_formats.add("CBR")
+                elif "cb7" in l_type: supported_acq_formats.add("CB7")
+                elif "cbt" in l_type: supported_acq_formats.add("CBT")
+
+        # 2. Check actions
+        if hasattr(pub, "actions") and pub.actions:
+            for action in pub.actions:
+                rel = (action.rel or "").lower()
+                if "borrow" in rel: has_borrow = True
+                if "buy" in rel: has_buy = True
+                
+                if rel in ["acquisition", "http://opds-spec.org/acquisition", "http://opds-spec.org/acquisition/open-access"]:
+                    props = action.properties or {}
+                    ia_list = props.get("indirectAcquisition")
+                    if ia_list and isinstance(ia_list, list):
+                        for ia in ia_list:
+                            ia_type = str(ia.get("type", "")).lower().strip()
+                            if "epub" in ia_type: all_acq_formats.add("EPUB")
+                            elif "pdf" in ia_type: supported_acq_formats.add("PDF")
+                            # ... (other formats)
+
+        if has_borrow: reasons.append("Borrowing not supported by app")
+        if has_buy: reasons.append("Purchasing not supported by app")
+        
+        # Format Warning: ONLY if no supported format was found among any direct acquisition links
+        if not supported_acq_formats and all_acq_formats:
+            fmt_str = ", ".join(sorted(list(all_acq_formats)))
+            reasons.append(f"Format not supported by app: {fmt_str}")
+            
+        return " • ".join(reasons) if reasons else None
 
     @staticmethod
     def _find_next(links: List[Link], base_url: str) -> Optional[str]:

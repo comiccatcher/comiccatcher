@@ -57,7 +57,6 @@ class ConnectionTestResultDialog(QDialog):
         self.btn_ok.setObjectName("secondary_button")
         self.btn_ok.setFixedWidth(s(120))
         self.btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_ok.setMinimumHeight(s(40))
         self.btn_ok.clicked.connect(self.accept)
         
         btn_row = QHBoxLayout()
@@ -130,35 +129,32 @@ class FeedEditDialog(QDialog):
         btn_layout = QHBoxLayout()
         self.btn_test = QPushButton("Test Connection")
         self.btn_test.setObjectName("secondary_button")
+        self.btn_test.setIcon(ThemeManager.get_icon("refresh", "accent"))
+        self.btn_test.setIconSize(QSize(s(18), s(18)))
+        self.btn_test.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_test.clicked.connect(self.test_connection)
         
         s = UIConstants.scale
-        self.btn_save = QPushButton("Save Feed" if feed else "Add Feed")
+        is_edit = feed is not None
+        self.btn_save = QPushButton("Save Feed" if is_edit else "Add Feed")
         self.btn_save.setObjectName("primary_button")
-        self.btn_save.setMinimumHeight(s(40))
+        self.btn_save.setIcon(ThemeManager.get_icon("action_read" if is_edit else "plus", "white"))
+        self.btn_save.setIconSize(QSize(s(18), s(18)))
+        self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.clicked.connect(self.save_and_close)
         
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setObjectName("secondary_button")
-        self.btn_cancel.setMinimumHeight(s(40))
+        self.btn_cancel.setIcon(ThemeManager.get_icon("close", "accent"))
+        self.btn_cancel.setIconSize(QSize(s(18), s(18)))
+        self.btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cancel.clicked.connect(self.reject)
-        
+
         btn_layout.addWidget(self.btn_test)
         btn_layout.addStretch()
         btn_layout.addWidget(self.btn_cancel)
         btn_layout.addWidget(self.btn_save)
         layout.addLayout(btn_layout)
-
-        self.reapply_theme()
-
-    def reapply_theme(self):
-        theme = ThemeManager.get_current_theme_colors()
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {theme['bg_main']}; color: {theme['text_main']}; }}
-            QGroupBox {{ font-weight: bold; font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; color: {theme['text_main']}; }}
-            QLabel {{ font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; color: {theme['text_main']}; }}
-            QLineEdit {{ font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; padding: {UIConstants.scale(4)}px; }}
-        """)
 
     def test_connection(self):
         url = self.url_input.text().strip()
@@ -340,25 +336,20 @@ class FeedManagementView(QWidget):
         self.shared_image_manager = image_manager
 
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-
         s = UIConstants.scale
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(s(8))
+
         header = QHBoxLayout()
-        self.title_label = QLabel("Configured Feeds")
+        header.setContentsMargins(0, 0, 0, 0)
+        self.title_label = QLabel("Content Feeds (OPDS)")
         header.addWidget(self.title_label)
         header.addStretch()
-        
-        self.btn_add = QPushButton("Add New Feed")
-        self.btn_add.setObjectName("secondary_button")
-        self.btn_add.setIcon(ThemeManager.get_icon("plus", "accent"))
-        self.btn_add.setMinimumHeight(s(35))
-        self.btn_add.clicked.connect(self.add_feed)
-        header.addWidget(self.btn_add)
         self.layout.addLayout(header)
 
         self.feeds_list = QListWidget()
-        self.feeds_list.setIconSize(QSize(s(32), s(32)))
-        self.feeds_list.setMinimumHeight(s(180)) # Roughly 3 items
+        self.feeds_list.setIconSize(QSize(UIConstants.FEED_ICON_SIZE_SMALL, UIConstants.FEED_ICON_SIZE_SMALL))
+        self.feeds_list.setMinimumHeight(s(160)) # Roughly 3 items
         self.feeds_list.itemDoubleClicked.connect(self.edit_selected)
         self.layout.addWidget(self.feeds_list)
 
@@ -366,18 +357,28 @@ class FeedManagementView(QWidget):
         self.btn_edit = QPushButton("Edit")
         self.btn_edit.setObjectName("secondary_button")
         self.btn_edit.setIcon(ThemeManager.get_icon("label", "accent"))
-        self.btn_edit.setMinimumHeight(s(35))
+        self.btn_edit.setIconSize(QSize(s(18), s(18)))
+        self.btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_edit.clicked.connect(self.edit_selected)
         
         self.btn_delete = QPushButton("Delete")
         self.btn_delete.setObjectName("secondary_button")
-        self.btn_delete.setIcon(ThemeManager.get_icon("action_delete", "accent"))
-        self.btn_delete.setMinimumHeight(s(35))
+        self.btn_delete.setIcon(ThemeManager.get_icon("action_delete", "danger"))
+        self.btn_delete.setIconSize(QSize(s(18), s(18)))
+        self.btn_delete.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_delete.clicked.connect(self.delete_selected)
+        
+        self.btn_add = QPushButton("Add New Feed")
+        self.btn_add.setObjectName("primary_button")
+        self.btn_add.setIcon(ThemeManager.get_icon("plus", "white"))
+        self.btn_add.setIconSize(QSize(s(18), s(18)))
+        self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_add.clicked.connect(self.add_feed)
         
         self.list_btns.addWidget(self.btn_edit)
         self.list_btns.addWidget(self.btn_delete)
         self.list_btns.addStretch()
+        self.list_btns.addWidget(self.btn_add)
         self.layout.addLayout(self.list_btns)
 
         self.reapply_theme()
@@ -386,27 +387,26 @@ class FeedManagementView(QWidget):
     def reapply_theme(self):
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
-        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
+        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_SUBTITLE}px; font-weight: bold; color: {theme['accent']}; margin-bottom: {s(5)}px;")
         
-        # Explicitly set the font for the list widget to ensure the text scales
+        # Scale list font
         font = self.feeds_list.font()
         font.setPixelSize(UIConstants.FONT_SIZE_FEED_LIST)
         self.feeds_list.setFont(font)
-        
-        # Scale buttons
-        for btn in [self.btn_add, self.btn_edit, self.btn_delete]:
-            btn.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;")
         
         self.feeds_list.setStyleSheet(f"""
             QListWidget {{ 
                 background-color: {theme['bg_sidebar']};
                 border: {max(1, s(1))}px solid {theme['border']};
-                border-radius: {s(4)}px; 
+                border-radius: {s(8)}px; 
+                padding: {s(5)}px;
+                margin-top: {s(10)}px;
                 color: {theme['text_main']};
             }}
             QListWidget::item {{ 
                 padding: 0px; 
                 border-bottom: {max(1, s(1))}px solid {theme['border']}; 
+                color: {theme['text_main']};
             }}
             QListWidget::item:selected {{
                 background-color: {theme['bg_item_selected']};
@@ -416,13 +416,14 @@ class FeedManagementView(QWidget):
 
     def refresh_feeds(self):
         default_icon = ThemeManager.get_icon("feeds")
+        theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
         
         self.feeds_list.clear()
         for f in self.config_manager.feeds:
-            name_fs = s(16) # Slightly smaller than root list but still bumped
-            url_fs = s(12)
-            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: #888;">{f.url}</span>'
+            name_fs = UIConstants.FONT_SIZE_FEED_NAME_SMALL
+            url_fs = UIConstants.FONT_SIZE_FEED_URL_SMALL
+            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: {theme["text_dim"]};">{f.url}</span>'
 
             item = QListWidgetItem()
             self.feeds_list.addItem(item)
@@ -432,8 +433,9 @@ class FeedManagementView(QWidget):
             layout.setContentsMargins(s(15), s(6), s(15), s(6))
             layout.setSpacing(s(10))
             
+            icon_size = UIConstants.FEED_ICON_SIZE_SMALL
             icon_label = QLabel()
-            icon_label.setFixedSize(s(32), s(32))
+            icon_label.setFixedSize(icon_size, icon_size)
             icon_label.setScaledContents(False)
             icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             
@@ -460,11 +462,11 @@ class FeedManagementView(QWidget):
                     icon_pixmap = QPixmap(str(cache_path))
             
             if icon_pixmap and not icon_pixmap.isNull():
-                scaled = icon_pixmap.scaled(s(32), s(32), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                scaled = icon_pixmap.scaled(icon_size, icon_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
                 icon_label.setPixmap(scaled)
                 f._cached_icon = icon_pixmap
             else:
-                icon_label.setPixmap(default_icon.pixmap(s(32), s(32)))
+                icon_label.setPixmap(default_icon.pixmap(icon_size, icon_size))
 
             if f.icon_url and (not icon_pixmap or icon_pixmap.isNull()):
                 asyncio.create_task(self._load_cached_icon_widget(f, icon_label))
@@ -482,13 +484,13 @@ class FeedManagementView(QWidget):
                 if not pixmap.isNull():
                     feed._cached_icon = pixmap
                     s = UIConstants.scale
-                    scaled = pixmap.scaled(s(32), s(32), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    scaled = pixmap.scaled(UIConstants.FEED_ICON_SIZE_SMALL, UIConstants.FEED_ICON_SIZE_SMALL, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
                     label.setPixmap(scaled)
                     self.icon_loaded.emit(feed.id, pixmap)
         except: pass
 
     def add_feed(self):
-        dialog = FeedEditDialog(self, self.config_manager, self.shared_image_manager)
+        dialog = FeedEditDialog(self.window(), self.config_manager, self.shared_image_manager)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.refresh_feeds()
 
@@ -496,7 +498,7 @@ class FeedManagementView(QWidget):
         item = self.feeds_list.currentItem()
         if item:
             feed = item.data(Qt.ItemDataRole.UserRole)
-            dialog = FeedEditDialog(self, self.config_manager, self.shared_image_manager, feed)
+            dialog = FeedEditDialog(self.window(), self.config_manager, self.shared_image_manager, feed)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.refresh_feeds()
 

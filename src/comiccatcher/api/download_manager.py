@@ -65,31 +65,55 @@ def _filename_from_url(url: str) -> Optional[str]:
         return None
 
 
-def _sanitize_filename(name: str) -> str:
+def _sanitize_filename(name: str, mime_type: Optional[str] = None) -> str:
     """
     Keep names user-friendly while being safe across OSes.
-
-    Allows: alnum, space, dot, underscore, dash, #, parentheses, brackets.
+    Rely on the provided mime_type to determine the correct extension.
     """
     if not name:
-        name = "download.cbz"
+        name = "download"
 
     name = Path(str(name)).name
-    name = re.sub(r"\s+", " ", name).strip()
+    # Remove existing extension to re-apply correctly based on MIME
+    stem = Path(name).stem
+    name = re.sub(r"\s+", " ", stem).strip()
 
     allowed = set(" ._-#()[]")
     cleaned = "".join(c for c in name if c.isalnum() or c in allowed).strip(" .")
     if not cleaned:
         cleaned = "download"
 
-    if not cleaned.lower().endswith(".cbz"):
-        cleaned = f"{cleaned}.cbz"
+    # Map MIME to extension
+    MIME_MAP = {
+        "application/vnd.comicbook+zip": ".cbz",
+        "application/x-cbz": ".cbz",
+        "application/zip": ".cbz",
+        "application/vnd.comicbook-rar": ".cbr",
+        "application/x-cbr": ".cbr",
+        "application/x-rar": ".cbr",
+        "application/x-rar-compressed": ".cbr",
+        "application/x-cb7": ".cb7",
+        "application/x-7z-compressed": ".cb7",
+        "application/x-cbt": ".cbt",
+        "application/x-tar": ".cbt",
+        "application/pdf": ".pdf",
+        "application/epub+zip": ".epub"
+    }
+    
+    ext = ".cbz" # Default fallback
+    if mime_type:
+        ext = MIME_MAP.get(mime_type.lower().split(";")[0].strip(), ".cbz")
+    
+    # Check if stem already has the correct extension (e.g. from Content-Disposition)
+    if cleaned.lower().endswith(ext):
+        final_name = cleaned
+    else:
+        final_name = f"{cleaned}{ext}"
 
-    if len(cleaned) > _FILENAME_MAX:
-        stem = Path(cleaned).stem[: _FILENAME_MAX - 4]
-        cleaned = f"{stem}.cbz"
+    if len(final_name) > _FILENAME_MAX:
+        final_name = final_name[: _FILENAME_MAX - len(ext)] + ext
 
-    return cleaned
+    return final_name
 
 
 def _collision_free_path(dir_path: Path, filename: str) -> Path:
@@ -213,8 +237,10 @@ class DownloadManager:
 
                 # Choose filename like browsers do: Content-Disposition first, then URL leaf, then title.
                 cd = response.headers.get("Content-Disposition") or response.headers.get("content-disposition") or ""
+                mime = response.headers.get("Content-Type") or response.headers.get("content-type")
+                
                 suggested = _filename_from_content_disposition(cd) or _filename_from_url(task.url) or task.title
-                task.file_path = _collision_free_path(self.download_dir, _sanitize_filename(suggested))
+                task.file_path = _collision_free_path(self.download_dir, _sanitize_filename(suggested, mime))
                 self._notify()
                 
                 total_bytes = int(response.headers.get("Content-Length", 0))

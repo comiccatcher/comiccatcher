@@ -37,14 +37,13 @@ class FeedListView(QWidget):
         self.btn_add.setIconSize(QSize(s(18), s(18)))
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add.setObjectName("primary_button")
-        self.btn_add.setMinimumHeight(s(35))
         self.btn_add.clicked.connect(self.add_feed)
         self.header.addWidget(self.btn_add)
         
         self.layout.addLayout(self.header)
 
         self.feeds_list = QListWidget()
-        self.feeds_list.setIconSize(QSize(s(48), s(48)))
+        self.feeds_list.setIconSize(QSize(UIConstants.FEED_ICON_SIZE_LARGE, UIConstants.FEED_ICON_SIZE_LARGE))
         self.feeds_list.itemClicked.connect(self._on_item_clicked)
         self.layout.addWidget(self.feeds_list)
         
@@ -54,7 +53,7 @@ class FeedListView(QWidget):
     def reapply_theme(self):
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
-        self.title_label.setStyleSheet(f"font-size: {s(24)}px; font-weight: bold; color: {theme['text_main']};")
+        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_TITLE}px; font-weight: bold; color: {theme['text_main']};")
         
         # Explicitly set the font for the list widget to ensure the text scales
         font = self.feeds_list.font()
@@ -88,14 +87,15 @@ class FeedListView(QWidget):
 
     def refresh_feeds(self):
         default_icon = ThemeManager.get_icon("feeds")
+        theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
         
         self.feeds_list.clear()
         for f in self.config_manager.feeds:
             # Use rich text to bump name font size
-            name_fs = s(18)
-            url_fs = s(14)
-            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: #888;">{f.url}</span>'
+            name_fs = UIConstants.FONT_SIZE_FEED_NAME_LARGE
+            url_fs = UIConstants.FONT_SIZE_FEED_URL_LARGE
+            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: {theme["text_dim"]};">{f.url}</span>'
             
             item = QListWidgetItem()
             self.feeds_list.addItem(item)
@@ -111,8 +111,9 @@ class FeedListView(QWidget):
             layout.setContentsMargins(s(15), s(8), s(15), s(8))
             layout.setSpacing(s(15))
             
+            icon_size = UIConstants.FEED_ICON_SIZE_LARGE
             icon_label = QLabel()
-            icon_label.setFixedSize(s(48), s(48))
+            icon_label.setFixedSize(icon_size, icon_size)
             icon_label.setScaledContents(False)
             icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             
@@ -139,11 +140,11 @@ class FeedListView(QWidget):
                     icon_pixmap = QPixmap(str(cache_path))
             
             if icon_pixmap and not icon_pixmap.isNull():
-                scaled = icon_pixmap.scaled(s(48), s(48), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                scaled = icon_pixmap.scaled(icon_size, icon_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
                 icon_label.setPixmap(scaled)
                 f._cached_icon = icon_pixmap
             else:
-                icon_label.setPixmap(default_icon.pixmap(s(48), s(48)))
+                icon_label.setPixmap(default_icon.pixmap(icon_size, icon_size))
             
             if f.icon_url and (not icon_pixmap or icon_pixmap.isNull()):
                 asyncio.create_task(self._load_cached_icon_widget(f, icon_label))
@@ -158,7 +159,7 @@ class FeedListView(QWidget):
                 if not pixmap.isNull():
                     feed._cached_icon = pixmap
                     s = UIConstants.scale
-                    scaled = pixmap.scaled(s(48), s(48), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    scaled = pixmap.scaled(UIConstants.FEED_ICON_SIZE_LARGE, UIConstants.FEED_ICON_SIZE_LARGE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
                     label.setPixmap(scaled)
                     self.icon_loaded.emit(feed.id, pixmap)
             await client.close()

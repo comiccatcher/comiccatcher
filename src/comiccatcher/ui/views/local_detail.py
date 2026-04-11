@@ -87,28 +87,30 @@ class LocalDetailView(BaseDetailView):
             if date_str:
                 pub_parts.append(date_str)
                 
-            if pub_parts:
+            web_data = meta.get("web")
+            if pub_parts or web_data:
                 line_layout = QHBoxLayout()
                 line_layout.setContentsMargins(0, 0, 0, 0)
                 line_layout.setSpacing(s(5))
                 line_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
                 
-                line_text = " • ".join(pub_parts)
-                pub_label = QLabel(line_text)
-                theme = ThemeManager.get_current_theme_colors()
-                s = UIConstants.scale
-                pub_label.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
-                line_layout.addWidget(pub_label)
+                if pub_parts:
+                    line_text = " • ".join(pub_parts)
+                    pub_label = QLabel(line_text)
+                    theme = ThemeManager.get_current_theme_colors()
+                    pub_label.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
+                    line_layout.addWidget(pub_label)
                 
                 # Add Web Button if available
-                web_data = meta.get("web")
                 if web_data:
                     urls = [u.strip() for u in web_data.split(",") if u.strip()]
                     if urls:
                         target_url = urls[0]
-                        sep = QLabel(" • ")
-                        sep.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
-                        line_layout.addWidget(sep)
+                        if pub_parts:
+                            theme = ThemeManager.get_current_theme_colors()
+                            sep = QLabel(" • ")
+                            sep.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
+                            line_layout.addWidget(sep)
                         
                         from PyQt6.QtGui import QDesktopServices
                         from PyQt6.QtCore import QUrl

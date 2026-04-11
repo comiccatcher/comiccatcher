@@ -30,9 +30,8 @@ class SettingsView(BaseBrowserView):
         
         s = UIConstants.scale
 
-        # 1. Header Configuration
-        self.status_label.setText("App Settings")
-        self.status_label.setStyleSheet(f"font-size: {s(14)}px; font-weight: bold;")
+        # 1. Header Configuration (Removed App Settings label and bar)
+        self.header_widget.hide()
 
         # 2. Main Content Area (Scroll Area)
         self.scroll = QScrollArea()
@@ -41,15 +40,19 @@ class SettingsView(BaseBrowserView):
         
         self.container = QWidget()
         self.container_layout = QVBoxLayout(self.container)
-        self.container_layout.setContentsMargins(s(40), s(20), s(40), s(40))
-        self.container_layout.setSpacing(s(30))
+        self.container_layout.setContentsMargins(s(40), 0, s(40), s(40))
+        self.container_layout.setSpacing(s(20))
 
         # --- SECTIONS ---
 
         # Appearance Section
-        self.theme_group = QGroupBox("Appearance")
+        self.theme_group = QWidget()
         self.theme_layout = QVBoxLayout(self.theme_group)
-        self.theme_layout.setContentsMargins(s(15), s(25), s(15), s(15))
+        self.theme_layout.setContentsMargins(0, 0, 0, 0)
+        self.theme_layout.setSpacing(s(5))
+        self.theme_label = QLabel("Appearance")
+        self.theme_label.setObjectName("section_header")
+        self.theme_layout.addWidget(self.theme_label)
         
         theme_row = QHBoxLayout()
         self.theme_combo = QComboBox()
@@ -72,19 +75,18 @@ class SettingsView(BaseBrowserView):
         self.theme_layout.addLayout(theme_row)
         self.container_layout.addWidget(self.theme_group)
 
-        # Feeds Management
-        self.feeds_group = QGroupBox("Content Feeds (OPDS)")
-        self.feeds_layout = QVBoxLayout(self.feeds_group)
-        self.feeds_layout.setContentsMargins(s(15), s(25), s(15), s(15))
+        # Feeds Management (Flattened for style parity)
         self.feed_management = FeedManagementView(self.config_manager, self.image_manager)
-        self.feeds_layout.addWidget(self.feed_management)
-        self.container_layout.addWidget(self.feeds_group)
+        self.container_layout.addWidget(self.feed_management)
 
         # Library Folder
-        self.library_group = QGroupBox("Local Library Storage")
+        self.library_group = QWidget()
         self.library_layout = QVBoxLayout(self.library_group)
-        self.library_layout.setContentsMargins(s(15), s(25), s(15), s(15))
-        self.library_layout.setSpacing(s(10))
+        self.library_layout.setContentsMargins(0, 0, 0, 0)
+        self.library_layout.setSpacing(s(5))
+        self.library_label = QLabel("Local Library Storage")
+        self.library_label.setObjectName("section_header")
+        self.library_layout.addWidget(self.library_label)
         
         self.library_layout.addWidget(QLabel("Base folder for downloaded comics and local scans:"))
         
@@ -101,10 +103,13 @@ class SettingsView(BaseBrowserView):
         self.container_layout.addWidget(self.library_group)
 
         # Maintenance (Caches)
-        self.maintenance_group = QGroupBox("System Maintenance")
+        self.maintenance_group = QWidget()
         self.maintenance_layout = QVBoxLayout(self.maintenance_group)
-        self.maintenance_layout.setContentsMargins(s(15), s(25), s(15), s(15))
-        self.maintenance_layout.setSpacing(s(15))
+        self.maintenance_layout.setContentsMargins(0, 0, 0, 0)
+        self.maintenance_layout.setSpacing(s(5))
+        self.maintenance_label = QLabel("System Maintenance")
+        self.maintenance_label.setObjectName("section_header")
+        self.maintenance_layout.addWidget(self.maintenance_label)
         
         self.maintenance_layout.addWidget(QLabel("Perform maintenance tasks to free up space or fix database issues:"))
         
@@ -124,7 +129,6 @@ class SettingsView(BaseBrowserView):
         self.btn_reset_library.clicked.connect(self._on_reset_library_clicked)
         self.btn_reset_library.setObjectName("secondary_button")
         self.btn_reset_library.setIcon(ThemeManager.get_icon("action_delete", "danger"))
-        self.btn_reset_library.setMinimumHeight(s(35))
         
         cache_buttons.addWidget(self.btn_clear_thumbnails)
         cache_buttons.addWidget(self.btn_clear_metadata)
@@ -133,9 +137,13 @@ class SettingsView(BaseBrowserView):
         self.container_layout.addWidget(self.maintenance_group)
 
         # About
-        self.about_group = QGroupBox("About ComicCatcher")
+        self.about_group = QWidget()
         self.about_layout = QVBoxLayout(self.about_group)
-        self.about_layout.setContentsMargins(s(15), s(25), s(15), s(15))
+        self.about_layout.setContentsMargins(0, 0, 0, 0)
+        self.about_layout.setSpacing(s(5))
+        self.about_label = QLabel("About ComicCatcher")
+        self.about_label.setObjectName("section_header")
+        self.about_layout.addWidget(self.about_label)
         
         about_header = QHBoxLayout()
         self.icon_label = QLabel()
@@ -171,39 +179,34 @@ class SettingsView(BaseBrowserView):
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
         
-        self.container.setStyleSheet(f"background-color: {theme['bg_main']};")
+        self.container.setObjectName("settings_container")
+        self.container.setStyleSheet(f"QWidget#settings_container {{ background-color: {theme['bg_main']}; }}")
         self.scroll.setStyleSheet(f"QScrollArea {{ border: none; background-color: {theme['bg_main']}; }}")
         
         # Propagation to sub-widgets
         self.feed_management.reapply_theme()
-        
-        for group in self.findChildren(QGroupBox):
-            group.setStyleSheet(f"""
-                QGroupBox {{
-                    font-weight: bold;
-                    font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
-                    border: {max(1, s(1))}px solid {theme['border']};
-                    border-radius: {s(8)}px;
-                    margin-top: {s(20)}px;
-                    background-color: {theme['card_bg']};
-                }}
-                QGroupBox::title {{
-                    subcontrol-origin: margin;
-                    subcontrol-position: top left;
-                    left: {s(15)}px;
-                    padding: 0 {s(5)}px;
-                    color: {theme['accent']};
-                }}
-                QLabel, QCheckBox {{
-                    background-color: transparent;
-                    font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
-                    color: {theme['text_main']};
-                }}
-                QComboBox, QLineEdit {{
-                    font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
-                    padding: {s(4)}px;
-                }}
-            """)
+
+        self.container.setStyleSheet(f"""
+            QWidget#settings_container {{
+                background-color: {theme['bg_main']};
+            }}
+            QLabel#section_header {{
+                font-weight: bold;
+                font-size: {UIConstants.FONT_SIZE_DETAIL_SUBTITLE}px;
+                color: {theme['accent']};
+                margin-bottom: {s(5)}px;
+            }}
+            QLabel, QCheckBox {{
+                background-color: transparent;
+                font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
+                color: {theme['text_main']};
+            }}
+            QComboBox, QLineEdit {{
+                font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
+                padding: {s(4)}px;
+            }}
+        """)
+
 
     def _on_theme_combo_changed(self, index):
         theme = self.theme_combo.itemData(index)

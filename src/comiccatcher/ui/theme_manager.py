@@ -15,6 +15,7 @@ THEMES = {
         "text_main": "#1a1d21",
         "text_dim": "#5a6270",
         "text_selected": "#004bb0",
+        "text_on_accent": "#ffffff",
         "accent": "#004bb0",
         "accent_dim": "rgba(0, 75, 176, 40)",
         "border": "#c8cdd4",
@@ -22,7 +23,9 @@ THEMES = {
         "card_border": "#d1d5db",
         "white": "#ffffff",
         "danger": "#dc3545",
-        "success": "#28a745"
+        "success": "#28a745",
+        "bg_reader": "#ffffff",
+        "text_reader": "#1a1d21"
     },
     "dark": {
         "bg_main": "#1e1e1e",
@@ -33,6 +36,7 @@ THEMES = {
         "text_main": "#e1e1e1",
         "text_dim": "#a0a0a0",
         "text_selected": "#ffffff",
+        "text_on_accent": "#ffffff",
         "accent": "#007fd4",
         "accent_dim": "rgba(0, 127, 212, 40)",
         "border": "#333333",
@@ -40,7 +44,9 @@ THEMES = {
         "card_border": "#3f3f46",
         "white": "#ffffff",
         "danger": "#f44336",
-        "success": "#4caf50"
+        "success": "#4caf50",
+        "bg_reader": "#2d2d2d",
+        "text_reader": "#e1e1e1"
     },
     "oled": {
         "bg_main": "#000000",
@@ -51,6 +57,7 @@ THEMES = {
         "text_main": "#ffffff",
         "text_dim": "#bbbbbb",
         "text_selected": "#ffffff",
+        "text_on_accent": "#ffffff",
         "accent": "#007fd4",
         "accent_dim": "rgba(0, 127, 212, 60)",
         "border": "#404040",
@@ -58,7 +65,9 @@ THEMES = {
         "card_border": "#333333",
         "white": "#ffffff",
         "danger": "#f44336",
-        "success": "#4caf50"
+        "success": "#4caf50",
+        "bg_reader": "#000000",
+        "text_reader": "#ffffff"
     },
     "blue": {
         "bg_main": "#0f172a",
@@ -69,6 +78,7 @@ THEMES = {
         "text_main": "#f1f5f9",
         "text_dim": "#94a3b8",
         "text_selected": "#ffffff",
+        "text_on_accent": "#0f172a",
         "accent": "#0ea5e9",
         "accent_dim": "rgba(14, 165, 233, 40)",
         "border": "#334155",
@@ -76,7 +86,9 @@ THEMES = {
         "card_border": "#334155",
         "white": "#ffffff",
         "danger": "#ef4444",
-        "success": "#10b981"
+        "success": "#10b981",
+        "bg_reader": "#1e293b",
+        "text_reader": "#f1f5f9"
     },
     "light_blue": {
         "bg_main": "#f0f7ff",
@@ -87,6 +99,7 @@ THEMES = {
         "text_main": "#1e3a8a",
         "text_dim": "#3b82f6",
         "text_selected": "#1e3a8a",
+        "text_on_accent": "#ffffff",
         "accent": "#1d4ed8",
         "accent_dim": "rgba(29, 78, 216, 40)",
         "border": "#bfdbfe",
@@ -94,7 +107,9 @@ THEMES = {
         "card_border": "#bfdbfe",
         "white": "#ffffff",
         "danger": "#dc3545",
-        "success": "#16a34a"
+        "success": "#16a34a",
+        "bg_reader": "#ffffff",
+        "text_reader": "#1e3a8a"
     }
 }
 
@@ -120,6 +135,12 @@ class UIConstants:
     _BASE_FONT_SIZE_BREADCRUMB = 13
     _BASE_FONT_SIZE_SIDEBAR = 12
     _BASE_FONT_SIZE_FEED_LIST = 14
+    _BASE_FONT_SIZE_FEED_NAME_LARGE = 18
+    _BASE_FONT_SIZE_FEED_URL_LARGE = 14
+    _BASE_FEED_ICON_SIZE_LARGE = 48
+    _BASE_FONT_SIZE_FEED_NAME_SMALL = 16
+    _BASE_FONT_SIZE_FEED_URL_SMALL = 12
+    _BASE_FEED_ICON_SIZE_SMALL = 32
     
     _BASE_SIDEBAR_WIDTH = 85
     _BASE_NAV_ICON_SIZE = 32
@@ -192,6 +213,12 @@ class UIConstants:
     FONT_SIZE_BREADCRUMB = _BASE_FONT_SIZE_BREADCRUMB
     FONT_SIZE_SIDEBAR = _BASE_FONT_SIZE_SIDEBAR
     FONT_SIZE_FEED_LIST = _BASE_FONT_SIZE_FEED_LIST
+    FONT_SIZE_FEED_NAME_LARGE = _BASE_FONT_SIZE_FEED_NAME_LARGE
+    FONT_SIZE_FEED_URL_LARGE = _BASE_FONT_SIZE_FEED_URL_LARGE
+    FEED_ICON_SIZE_LARGE = _BASE_FEED_ICON_SIZE_LARGE
+    FONT_SIZE_FEED_NAME_SMALL = _BASE_FONT_SIZE_FEED_NAME_SMALL
+    FONT_SIZE_FEED_URL_SMALL = _BASE_FONT_SIZE_FEED_URL_SMALL
+    FEED_ICON_SIZE_SMALL = _BASE_FEED_ICON_SIZE_SMALL
     
     SIDEBAR_WIDTH = _BASE_SIDEBAR_WIDTH
     NAV_ICON_SIZE = _BASE_NAV_ICON_SIZE
@@ -312,6 +339,12 @@ class UIConstants:
         cls.FONT_SIZE_BREADCRUMB = cls.scale(cls._BASE_FONT_SIZE_BREADCRUMB)
         cls.FONT_SIZE_SIDEBAR = cls.scale(cls._BASE_FONT_SIZE_SIDEBAR)
         cls.FONT_SIZE_FEED_LIST = cls.scale(cls._BASE_FONT_SIZE_FEED_LIST)
+        cls.FONT_SIZE_FEED_NAME_LARGE = cls.scale(cls._BASE_FONT_SIZE_FEED_NAME_LARGE)
+        cls.FONT_SIZE_FEED_URL_LARGE = cls.scale(cls._BASE_FONT_SIZE_FEED_URL_LARGE)
+        cls.FEED_ICON_SIZE_LARGE = cls.scale(cls._BASE_FEED_ICON_SIZE_LARGE)
+        cls.FONT_SIZE_FEED_NAME_SMALL = cls.scale(cls._BASE_FONT_SIZE_FEED_NAME_SMALL)
+        cls.FONT_SIZE_FEED_URL_SMALL = cls.scale(cls._BASE_FONT_SIZE_FEED_URL_SMALL)
+        cls.FEED_ICON_SIZE_SMALL = cls.scale(cls._BASE_FEED_ICON_SIZE_SMALL)
 
         cls.SIDEBAR_WIDTH = cls.scale(cls._BASE_SIDEBAR_WIDTH)
         cls.NAV_ICON_SIZE = cls.scale(cls._BASE_NAV_ICON_SIZE)
@@ -498,6 +531,10 @@ class ThemeManager:
                 color: {theme['text_main']};
             }}
             
+            QFormLayout {{
+                background-color: transparent;
+            }}
+            
             /* Broad text settings */
             QLabel, QRadioButton, QCheckBox {{
                 color: {theme['text_main']};
@@ -645,24 +682,24 @@ class ThemeManager:
             }}
             
             QPushButton#reader_button {{
-                background-color: #333333;
-                color: #ffffff;
-                border: 1px solid #444444;
+                background-color: {theme['bg_reader']};
+                color: {theme['text_reader']};
+                border: 1px solid {theme['border']};
                 border-radius: {s(4)}px;
                 padding: {s(4)}px;
             }}
 
             QPushButton#reader_button:hover {{
-                background-color: #555555;
-                border-color: #666666;
+                background-color: {theme['bg_item_hover']};
             }}
 
             QPushButton#reader_button:pressed {{
-                background-color: #222222;
+                background-color: {theme['accent']};
+                color: {theme['text_on_accent']};
             }}
 
             QPushButton#reader_button:disabled {{
-                color: #555555;
+                color: {theme['text_dim']};
                 background-color: transparent;
             }}
 
@@ -852,8 +889,8 @@ class ThemeManager:
             }}
 
             QSlider#reader_slider::handle:horizontal:hover {{
-                background: {theme['white']};
-                border: {max(1, s(1))}px solid {theme['white']};
+                background: {theme['text_on_accent']};
+                border: {max(1, s(1))}px solid {theme['text_on_accent']};
             }}
 
             QSlider#reader_slider::sub-page:horizontal {{
@@ -964,9 +1001,9 @@ class ThemeManager:
 
             /* UNIFIED ACTION BUTTONS (Read, Download, etc) */
             QPushButton#primary_button {{
-                background-color: {theme['accent']} !important;
-                color: {theme['white']} !important;
-                border: 1px solid {theme['accent']} !important;
+                background-color: {theme['accent']};
+                color: {theme['text_on_accent']};
+                border: 1px solid {theme['accent']};
                 border-radius: {s(4)}px;
                 padding: {s(8)}px {s(16)}px;
                 font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
@@ -974,15 +1011,14 @@ class ThemeManager:
             }}
 
             QPushButton#primary_button:hover {{
-                background-color: {theme['bg_item_selected']} !important;
-                border: 1px solid {theme['white']} !important;
-                color: {theme['white']} !important;
+                background-color: {theme['accent']};
+                opacity: 0.85;
             }}
 
             QPushButton#secondary_button {{
-                background-color: {theme['bg_main']} !important;
-                color: {theme['text_main']} !important;
-                border: 1px solid {theme['border']} !important;
+                background-color: {theme['bg_main']};
+                color: {theme['text_main']};
+                border: 1px solid {theme['border']};
                 border-radius: {s(4)}px;
                 padding: {s(8)}px {s(16)}px;
                 font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
@@ -990,23 +1026,23 @@ class ThemeManager:
             }}
 
             QPushButton#secondary_button:hover {{
-                background-color: {theme['bg_item_hover']} !important;
-                border: 1px solid {theme['accent']} !important;
+                background-color: {theme['bg_item_hover']};
+                border: 1px solid {theme['accent']};
             }}
 
             QPushButton#primary_button:pressed,
             QPushButton#secondary_button:pressed {{
-                background-color: {theme['bg_item_selected']} !important;
-                color: {theme['text_selected']} !important;
-                border-color: {theme['accent']} !important;
+                background-color: {theme['bg_item_selected']};
+                color: {theme['text_selected']};
+                border-color: {theme['accent']};
             }}
 
             QPushButton#primary_button:disabled,
             QPushButton#secondary_button:disabled {{
-                background-color: transparent !important;
-                color: {theme['text_dim']} !important;
-                border: 1px solid {theme['border']} !important;
-                opacity: 0.5;
+                background-color: {theme['bg_item_hover']};
+                color: {theme['text_dim']};
+                border: 1px solid {theme['border']};
+                opacity: 0.6;
             }}
 
             QPushButton#danger_button {{

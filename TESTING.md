@@ -434,33 +434,18 @@ ui.debug_overlay   BaseCardRibbon   x=    0  y=   29  w= 1090  h=  260
 
 ## 8. Unit Tests (pytest)
 
-Run the full test suite:
+Run the current test suite:
 
 ```bash
 cd /home/tony/cc/comiccatcher
 /home/tony/cc/test/venv/bin/pytest tests/ -v
 ```
 
-Run a specific test file:
-
-```bash
-/home/tony/cc/test/venv/bin/pytest tests/test_reader_logic_unit.py -v
-```
-
-Tests live in `tests/` and cover:
+Tests cover:
 
 | File | What it tests |
 |---|---|
-| `test_reader_logic_unit.py` | `ReaderSession` state machine + 5 000-op fuzz |
-| `test_viewport_paging_logic.py` | ReFit virtual-page maths |
-| `test_download_filename.py` | Content-Disposition parsing |
-| `test_reader_integration_manifest.py` | Full manifest parsing |
-| `test_local_archive_cbz.py` | CBZ extraction |
-| `test_local_comicbox_flatten.py` | comicbox metadata flattening |
-| `test_config_library_dir.py` | Cross-platform path resolution |
-
-Unit tests do **not** require Xvfb or a QApplication — they test pure logic
-with no UI dependencies.
+| `tests/scrolling/repro_fast_scroll_drift.py` | Grid scroll positioning stability |
 
 ---
 
@@ -468,14 +453,7 @@ with no UI dependencies.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `AttributeError: 'ScrolledFeedView' object has no attribute 'view'` | Code references old `.view` attribute | Use `._vp` (viewport) or `._grids[sid]` (grid view) |
-| `get_item()` returns `None` for ribbon items | Model has no `_logical_items` (ribbon models use `_sparse_items` directly) | Fixed in `FeedBrowserModel.get_item` — falls back to `_sparse_items.get(row)` |
-| Cards rendered as a horizontal ribbon instead of a grid | Section layout not promoted to GRID | `ScrolledFeedView.render()` uses `_main_grid_sid`; check `_descs[i].is_grid` |
 | `RuntimeError: no running event loop` | `asyncio.create_task` called before qasync loop | Apply the async patch at top of script (see §2) |
 | `Aborted (core dumped)` | No display server | `pgrep Xvfb || Xvfb :99 -screen 0 1280x800x24 &` then set `DISPLAY=:99` |
 | `ModuleNotFoundError` | Wrong working directory or missing `sys.path` | Add `sys.path.insert(0, '/home/tony/cc/comiccatcher')` and `os.chdir(...)` |
-| Icons appear wrong colour after theme switch | Icons set at init time, not refreshed | Recreate widget after applying theme (Pattern 3), or call `ThemeManager.get_icon` again |
-| `GroupBox` shows white background in dark mode | Missing `background-color` in CSS rule | Add `background-color: {theme['bg_main']}` to the `QGroupBox` stylesheet rule |
-| Live theme switch leaves stale colours | Qt caches widget style | Call `unpolish/polish/update` on all widgets after stylesheet change |
-| Popup menu not captured in screenshot | Menu closes when focus lost | Use `grabWindow(0)` (root window) and capture while menu is open |
 | `UIConstants` values are 0 or default | `init_scale()` not called | Call `UIConstants.init_scale()` before creating any widget |
