@@ -1,6 +1,8 @@
 import asyncio
 import urllib.parse
+from urllib.parse import urljoin
 import time
+import uuid
 from typing import Dict, Optional, Set
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QHBoxLayout, 
@@ -96,6 +98,7 @@ class FeedBrowser(BaseBrowserView):
         self._active_busy_sources: Set[str] = set()
         self._pending_covers: Set[str] = set()
         self._last_scrolled_status = ""
+        self._active_popover_load_id: Optional[str] = None
         
         # 1. Setup Toolbar (from BaseBrowserView)
         self._setup_toolbar()
@@ -579,11 +582,42 @@ class FeedBrowser(BaseBrowserView):
         self.refresh_icons()
 
     def _show_mini_detail(self, item, global_pos, model):
-        """Displays the metadata popover for a publication card."""
+        """Displays the metadata popover for a publication card and triggers enrichment."""
         from comiccatcher.models.feed_page import ItemType
         if not item or item.type == ItemType.FOLDER or not item.raw_pub:
             return
 
+        # 1. Immediate UI update with what we have
+        self._populate_mini_detail(item)
+
+        # 2. Position and show (only on initial request)
+        card_w = UIConstants.CARD_WIDTH
+        pop_x = global_pos.x() + (card_w // 2)
+        pop_y = global_pos.y()
+        arrow_side = "left"
+
+        screen = QApplication.primaryScreen().availableGeometry()
+        if pop_x + self.detail_popover.width() > screen.right():
+            pop_x = global_pos.x() - (card_w // 2)
+            arrow_side = "right"
+
+        self.detail_popover.show_at(QPoint(pop_x, pop_y), arrow_side=arrow_side)
+
+        # 3. Check for manifest to enrich metadata
+        pub = item.raw_pub
+        manifest_url = None
+        for link in (pub.links or []):
+            if link.type in ["application/webpub+json", "application/divina+json", "application/opds-publication+json"]:
+                manifest_url = link.href
+                break
+
+        if manifest_url and self._last_loaded_url:
+            self._active_popover_load_id = str(uuid.uuid4())
+            full_url = urljoin(self._last_loaded_url, manifest_url)
+            asyncio.create_task(self._enrich_mini_detail(item, full_url, self._active_popover_load_id))
+
+    def _populate_mini_detail(self, item):
+        """UI-only logic to update popover content from item.raw_pub."""
         pub = item.raw_pub
         meta = pub.metadata
         if not meta: return
@@ -595,7 +629,7 @@ class FeedBrowser(BaseBrowserView):
             ("artist", "Artist"), ("inker", "Inker"), ("colorist", "Colorist"),
             ("letterer", "Letterer"), ("editor", "Editor"), ("translator", "Translator")
         ]
-        
+
         for attr, label in roles:
             contributors = getattr(meta, attr, None)
             if contributors:
@@ -606,14 +640,11 @@ class FeedBrowser(BaseBrowserView):
         publisher = None
         if meta.publisher:
             publisher = ", ".join(c.name for c in meta.publisher)
-        
+
         published = meta.published
         if published:
-            # OPDS dates are typically ISO 8601 (e.g., 2024-03-11)
-            # Local library uses "Month Year"
             import calendar
             try:
-                # Basic parse of YYYY-MM-DD
                 parts = published.split('-')
                 if len(parts) >= 2:
                     y_val = parts[0]
@@ -621,10 +652,9 @@ class FeedBrowser(BaseBrowserView):
                     if 1 <= m_val <= 12:
                         published = f"{calendar.month_name[m_val]} {y_val}"
                 elif len(parts) == 1 and len(parts[0]) == 4:
-                    # Just Year
                     published = parts[0]
             except Exception:
-                pass # Fallback to raw value if parsing fails
+                pass
 
         # 3. Assemble Data Dict
         data = {
@@ -632,33 +662,46 @@ class FeedBrowser(BaseBrowserView):
             "publisher": publisher,
             "published": published,
             "summary": meta.description,
-            "web": None # Handled via detail view usually, keeping it simple for now
+            "web": None
         }
 
-        # 4. Configure and Show Popover
+        # 4. Configure Popover
         self.detail_popover.set_show_cover(False)
         self.detail_popover.clear_actions()
-        
+
         self.detail_popover.populate(
             data=data, 
             title=meta.title, 
             subtitle=meta.subtitle
         )
-        # Smart Positioning (Similar to local_library)
-        # We use global_pos as a base. We need to know the card size to offset properly.
-        card_w = UIConstants.CARD_WIDTH
 
-        
-        # Default: To the right of the card center
-        pop_x = global_pos.x() + (card_w // 2)
-        pop_y = global_pos.y()
-        arrow_side = "left"
-        
-        # Screen boundary check
-        screen = QApplication.primaryScreen().availableGeometry()
-        if pop_x + self.detail_popover.width() > screen.right():
-            # Show to the left instead
-            pop_x = global_pos.x() - (card_w // 2)
-            arrow_side = "right"
-            
-        self.detail_popover.show_at(QPoint(pop_x, pop_y), arrow_side=arrow_side)
+    async def _enrich_mini_detail(self, item, full_url, load_id):
+        """Async worker to fetch full manifest and update popover."""
+        try:
+            full_pub = await self.opds_client.get_publication(full_url)
+
+            # Verify we are still looking at the same request
+            if load_id != self._active_popover_load_id:
+                return
+
+            # Merge metadata carefully (logic from FeedDetailView)
+            pub = item.raw_pub
+            if not full_pub.images and pub.images: full_pub.images = pub.images
+            if full_pub.metadata and pub.metadata:
+                if not full_pub.metadata.description and pub.metadata.description: 
+                    full_pub.metadata.description = pub.metadata.description
+                if not full_pub.metadata.numberOfBytes and pub.metadata.numberOfBytes:
+                    full_pub.metadata.numberOfBytes = pub.metadata.numberOfBytes
+            elif not full_pub.metadata and pub.metadata:
+                full_pub.metadata = pub.metadata
+
+            # Update the item so subsequent clicks are "already enriched"
+            item.raw_pub = full_pub
+
+            # Update UI if popover is still visible
+            if self.detail_popover.isVisible():
+                self._populate_mini_detail(item)
+
+        except Exception as e:
+            logger.error(f"Failed to enrich popover metadata from {full_url}: {e}")
+
