@@ -16,8 +16,6 @@
 * keystrokes for feed and library
 * reader keystrokes and controls fixing
 
-* mini-details add loading indicator
-
 * better feedback on failed connection to server
 
 * Warning about logo fetch fail.  Is that always happing in the background?

@@ -11,6 +11,7 @@ from PyQt6.QtGui import (
 from comiccatcher.ui.theme_manager import THEMES, UIConstants, ThemeManager
 from comiccatcher.ui.utils import format_artist_credits
 from comiccatcher.ui.components.popover_mixin import BubbleMixin
+from comiccatcher.ui.components.loading_spinner import LoadingSpinner
 from comiccatcher.logger import get_logger
 
 logger = get_logger("ui.mini_detail_popover")
@@ -77,12 +78,41 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         self.info_layout.addWidget(self.actions_widget)
         self.actions_widget.hide()
         
+        # Loading Indicator (Indeterminate spinner)
+        # Use absolute positioning so it doesn't push down other widgets
+        self.spinner = LoadingSpinner(self.container, size=s(24))
+        
         self.reapply_theme()
+
+    def set_loading(self, loading: bool):
+        """Toggles the loading spinner."""
+        if loading:
+            self.spinner.start()
+            self._position_spinner()
+        else:
+            self.spinner.stop()
+
+    def _position_spinner(self):
+        """Manually position the spinner in the top-right of the container."""
+        if hasattr(self, 'spinner') and hasattr(self, 'container'):
+            s = UIConstants.scale
+            padding = s(10)
+            self.spinner.move(
+                self.container.width() - self.spinner.width() - padding,
+                padding
+            )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_spinner()
 
     def reapply_theme(self):
         """Standardized method to update styles when theme changes."""
         self.theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
+        
+        if hasattr(self, 'spinner'):
+            self.spinner.set_color(QColor(self.theme['accent']))
         
         # Stylesheet for internal widgets only. Container background handled in paintEvent.
         self.container.setStyleSheet(f"""
@@ -196,7 +226,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
                     si = l.takeAt(0)
                     if si.widget(): si.widget().deleteLater()
                 l.deleteLater()
-            
+        
         # 3. Build Header Section
         web_data = data.get("web")
         urls = [u.strip() for u in web_data.split(",") if u.strip()] if web_data else []

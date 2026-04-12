@@ -673,7 +673,10 @@ class FeedBrowser(BaseBrowserView):
         if manifest_url and self._last_loaded_url:
             self._active_popover_load_id = str(uuid.uuid4())
             full_url = urljoin(self._last_loaded_url, manifest_url)
+            self.detail_popover.set_loading(True)
             asyncio.create_task(self._enrich_mini_detail(item, full_url, self._active_popover_load_id))
+        else:
+            self.detail_popover.set_loading(False)
 
     def _populate_mini_detail(self, item, model):
         """UI-only logic to update popover content from item.raw_pub."""
@@ -752,9 +755,18 @@ class FeedBrowser(BaseBrowserView):
         try:
             full_pub = await self.opds_client.get_publication(full_url)
 
-            # Verify we are still looking at the same request
-            if load_id != self._active_popover_load_id:
-                return
+            # Verify we are still looking at the same request and widget is alive
+            try:
+                if load_id != self._active_popover_load_id or not self.detail_popover:
+                    return
+            except RuntimeError:
+                return # Popover likely deleted
+
+            # Stop loading indicator
+            try:
+                self.detail_popover.set_loading(False)
+            except RuntimeError:
+                pass
 
             # Merge metadata carefully (logic from FeedDetailView)
             pub = item.raw_pub
@@ -771,11 +783,20 @@ class FeedBrowser(BaseBrowserView):
             item.raw_pub = full_pub
 
             # Update UI if popover is still visible
-            if self.detail_popover.isVisible():
-                self._populate_mini_detail(item, None)
+            try:
+                if self.detail_popover.isVisible():
+                    self._populate_mini_detail(item, None)
+            except RuntimeError:
+                pass
 
         except Exception as e:
             logger.error(f"Failed to enrich popover metadata from {full_url}: {e}")
+            try:
+                if load_id == self._active_popover_load_id:
+                    self.detail_popover.set_loading(False)
+            except RuntimeError:
+                pass
+
 
     def _on_mini_detail_download(self, item):
         """Starts a download for a single item from the popover."""

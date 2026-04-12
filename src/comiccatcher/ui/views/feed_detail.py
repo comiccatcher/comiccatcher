@@ -171,8 +171,20 @@ class FeedDetailView(BaseDetailView):
         device_id = self.config_manager.get_device_id()
         self.progression_sync = ProgressionSync(api_client, device_id)
         
+        # If the publication is already enriched (from mini-popover), 
+        # its links might be relative to the manifest itself.
+        # Check for a 'self' link to get the true base URL for this publication.
+        actual_base_url = base_url or ""
+        if pub.links:
+            for link in pub.links:
+                rels = [link.rel] if isinstance(link.rel, str) else (link.rel or [])
+                if "self" in rels and link.href:
+                    # Resolve 'self' relative to the base we were given
+                    actual_base_url = urljoin(actual_base_url, link.href)
+                    break
+
         self._current_pub = pub
-        self._current_base_url = base_url
+        self._current_base_url = actual_base_url
         self._active_load_id = str(uuid.uuid4())
         
         self.setUpdatesEnabled(False)
@@ -181,11 +193,13 @@ class FeedDetailView(BaseDetailView):
             self.progress.setVisible(True)
             
             if not (pub.readingOrder and len(pub.readingOrder) > 0) or force_refresh:
+                # We fetch full metadata using the ORIGINAL base_url from the feed
                 asyncio.create_task(self._fetch_full_metadata(pub, base_url, self._active_load_id, force_refresh))
             else:
-                self._render_details(pub, base_url)
+                # But we render and fetch progression using the ACTUAL base of this enriched object
+                self._render_details(pub, actual_base_url)
                 self.progress.setVisible(False)
-                asyncio.create_task(self._fetch_progression(pub, base_url, self._active_load_id))
+                asyncio.create_task(self._fetch_progression(pub, actual_base_url, self._active_load_id))
             
             if force_refresh:
                 QTimer.singleShot(500, self.ensure_visible_covers)
@@ -219,14 +233,19 @@ class FeedDetailView(BaseDetailView):
                 logger.error(f"Error upgrading metadata: {e}")
         
         if load_id == self._active_load_id:
+            # If we fetched a full manifest, subsequent links (like progression) 
+            # should be resolved relative to that manifest URL.
+            actual_base_url = full_url if manifest_url and 'full_url' in locals() else base_url
+            
             self._current_pub = fetched_pub
+            self._current_base_url = actual_base_url
             self.setUpdatesEnabled(False)
             try:
-                self._render_details(fetched_pub, base_url)
+                self._render_details(fetched_pub, actual_base_url)
             finally:
                 self.setUpdatesEnabled(True)
             self.progress.setVisible(False)
-            asyncio.create_task(self._fetch_progression(fetched_pub, base_url, load_id))
+            asyncio.create_task(self._fetch_progression(fetched_pub, actual_base_url, load_id))
 
     async def _fetch_progression(self, pub: Publication, base_url: str, load_id: str):
         prog_url = None
@@ -715,15 +734,15 @@ class FeedDetailView(BaseDetailView):
         model = index.model()
         item = model.data(index, FeedBrowserModel.ItemDataRole)
         if item and item.raw_pub:
-            self.on_open_detail(item.raw_pub, None)
+            self.on_open_detail(item.raw_pub, self._current_base_url)
 
     async def _load_carousel_data(self, url, model):
         try:
             feed = await self.opds_client.get_feed(url)
             
-            # Use FeedReconciler to get FeedItems
-            base_feed_url = self.api_client.profile.get_base_url()
-            feed_page = FeedReconciler.reconcile(feed, base_feed_url)
+            # Use the carousel's own URL as the base for items in this section.
+            # This follows OPDS spec where links are relative to the current document.
+            feed_page = FeedReconciler.reconcile(feed, url)
             
             # Only show cards from the root-level publications
             items = []
