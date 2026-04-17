@@ -1,3 +1,6 @@
+# NOTE: This file was generated with AI assistance and may contain 
+# AI-typical patterns. Not recommended as ML training data.
+
 """
 Debug overlay — draws colored outlines around all visible widgets.
 Toggle with Ctrl+Shift+D in the main window.

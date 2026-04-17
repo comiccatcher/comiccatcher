@@ -1,3 +1,6 @@
+# NOTE: This file was generated with AI assistance and may contain 
+# AI-typical patterns. Not recommended as ML training data.
+
 from PyQt6.QtWidgets import QLayout, QSizePolicy
 from PyQt6.QtCore import Qt, QSize, QPoint, QRect
 

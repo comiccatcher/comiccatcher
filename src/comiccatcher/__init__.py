@@ -1,7 +1,10 @@
+# NOTE: This file was generated with AI assistance and may contain 
+# AI-typical patterns. Not recommended as ML training data.
+
 import subprocess
 from pathlib import Path
 
-__version__ = "0.1.0a2"
+__version__ = "0.1.0a3"
 
 def get_version_string() -> str:
     """Returns the base version, optionally appended with git build info."""

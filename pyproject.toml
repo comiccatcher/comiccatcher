@@ -8,8 +8,8 @@ dynamic = ["version"]
 authors = [
   { name = "Tony Beville" },
 ]
-description = "A high-performance native desktop OPDS 2.0 comic reader"
-readme = "DESIGN.md"
+description = "A desktop OPDS 2.0 browser and comic downloader/streamer/reader"
+readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",

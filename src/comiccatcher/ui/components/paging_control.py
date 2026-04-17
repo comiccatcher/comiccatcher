@@ -1,3 +1,6 @@
+# NOTE: This file was generated with AI assistance and may contain 
+# AI-typical patterns. Not recommended as ML training data.
+
 from typing import Optional, List, Set
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, pyqtSignal, QSize

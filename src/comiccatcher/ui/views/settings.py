@@ -1,3 +1,6 @@
+# NOTE: This file was generated with AI assistance and may contain 
+# AI-typical patterns. Not recommended as ML training data.
+
 from __future__ import annotations
 from typing import Optional, List, Dict, Any
 from pathlib import Path

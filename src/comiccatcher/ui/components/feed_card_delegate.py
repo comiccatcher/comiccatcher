@@ -1,3 +1,6 @@
+# NOTE: This file was generated with AI assistance and may contain 
+# AI-typical patterns. Not recommended as ML training data.
+
 from PyQt6.QtWidgets import QStyle, QStyleOptionViewItem
 from PyQt6.QtCore import Qt, QRect, QSize
 from PyQt6.QtGui import QPainter, QColor, QPen

@@ -1,3 +1,6 @@
+# NOTE: This file was generated with AI assistance and may contain 
+# AI-typical patterns. Not recommended as ML training data.
+
 from PyQt6.QtWidgets import QListView, QFrame, QAbstractItemView
 from PyQt6.QtCore import Qt, QSize
 from comiccatcher.ui.theme_manager import UIConstants

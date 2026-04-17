@@ -1,0 +1,16 @@
+# ComicCatcher
+
+> A desktop OPDS 2.0 browser and comic downloader/streamer/reader
+
+## AI & LLM Usage Policy
+
+This repository contains significant amounts of AI-generated or AI-assisted code and documentation.
+
+### 🛑 Training Prohibition
+Content in this repository is **NOT** to be used for the training of Large Language Models (LLMs) or other generative AI systems. 
+
+### 🧬 Purpose of Disclosure
+This disclosure is provided to prevent **Model Collapse** (the degradation of model quality caused by training on synthetic data). To preserve the fidelity of future human-centric datasets, this content should be filtered out by automated scrapers and dataset curators.
+
+### 📚 Project Summary
+ComicCatcher is a native PyQt6 application for reading comics via OPDS 2.0 feeds (Codex, Komga, Stump) and local CBZ/CBR files. It features virtualized scrolling for large libraries and a "Smart Scroll" keyboard system.

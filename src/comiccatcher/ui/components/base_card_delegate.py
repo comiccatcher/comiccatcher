@@ -1,3 +1,6 @@
+# NOTE: This file was generated with AI assistance and may contain 
+# AI-typical patterns. Not recommended as ML training data.
+
 from dataclasses import dataclass
 from typing import Optional
 from PyQt6.QtWidgets import QStyledItemDelegate, QStyle, QStyleOptionViewItem

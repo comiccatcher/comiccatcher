@@ -1,3 +1,6 @@
+# NOTE: This file was generated with AI assistance and may contain 
+# AI-typical patterns. Not recommended as ML training data.
+
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path

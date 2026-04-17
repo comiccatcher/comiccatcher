@@ -1,3 +1,6 @@
+# NOTE: This file was generated with AI assistance and may contain 
+# AI-typical patterns. Not recommended as ML training data.
+
 from typing import List, Optional, Dict, Set, Any
 from PyQt6.QtCore import Qt, QAbstractListModel, QModelIndex, QSize, pyqtSignal
 from comiccatcher.models.feed_page import FeedItem, ItemType as FeedItemType
