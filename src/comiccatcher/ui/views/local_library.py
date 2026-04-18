@@ -1030,7 +1030,15 @@ class LocalLibraryView(BaseBrowserView):
 
 
     def refresh_and_scan(self):
+        old_root = getattr(self, "root_dir", None)
         self.root_dir = self.config_manager.get_library_dir()
+        
+        # Ensure current_dir is updated to the new root if the library path changed
+        if old_root and old_root != self.root_dir:
+            self.current_dir = self.root_dir
+        elif not self.current_dir or not self.current_dir.exists() or not str(self.current_dir).startswith(str(self.root_dir)):
+            self.current_dir = self.root_dir
+
         self.scanner.library_dir = self.root_dir
         # 1. Load from DB immediately
         self._reload_current_view()
@@ -1087,8 +1095,13 @@ class LocalLibraryView(BaseBrowserView):
 
     def refresh(self):
         self.toggle_selection_mode(False)
+        old_root = getattr(self, "root_dir", None)
         self.root_dir = self.config_manager.get_library_dir()
-        if not self.current_dir or not self.current_dir.exists() or not str(self.current_dir).startswith(str(self.root_dir)):
+        
+        # If the root itself changed, we reset navigation to the new root
+        if old_root and old_root != self.root_dir:
+            self.current_dir = self.root_dir
+        elif not self.current_dir or not self.current_dir.exists() or not str(self.current_dir).startswith(str(self.root_dir)):
             self.current_dir = self.root_dir
         
         # Ensure we are on the right stack index

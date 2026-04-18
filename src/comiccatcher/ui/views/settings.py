@@ -221,7 +221,15 @@ class SettingsView(BaseBrowserView):
         pass
 
     def _on_browse_clicked(self):
-        path = QFileDialog.getExistingDirectory(self, "Select Library Directory", self.library_path_input.text())
+        current_path = self.config_manager.get_library_dir()
+        start_dir = str(current_path if current_path.exists() else Path.home())
+        
+        path = QFileDialog.getExistingDirectory(
+            self, 
+            "Select Library Directory", 
+            start_dir,
+            QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontUseNativeDialog
+        )
         if path:
             self.config_manager.set_library_dir(path)
             self.library_path_input.setText(str(self.config_manager.get_library_dir()))

@@ -10,17 +10,17 @@
 **ComicCatcher** is a desktop OPDS 2.0 browser and comic reader. It's been mostly tested with self-hosted comic servers like [**Codex**](https://github.com/ajslater/codex), [**Komga**](https://komga.org), and [**Stump**](https://stumpapp.dev), but should work with any server that supports similar features. If supported by the server, comics can be streamed page-by-page, or downloaded and read offline.  The usage paradigm is inspired by podcast "podcatcher" apps which stream and download, but don't maintain huge libraries of local files. It's written in Python and runs on Linux, Windows, and macOS (not yet tested 🤞).
 
 
-🚨 **NOTE** This is still an early alpha and is very untested, so mostly likely it will be broken for you. 🙈 
+🚨 **NOTE** 🚨 This is still an early alpha and is very untested, so mostly likely it will be broken for you. 🙈 
 
 ---
 
 ## 📸 Screenshots
 
-| Feed Selection | Feed Browser | Popup Details |
+| Feed Selection | Feed Browser | Popup Mini Details |
 |:---:|:---:|:---:|
 | ![Feed Selection](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/feed-selection.png) | ![Feed Browser](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/komga-browse.png) | ![Popup Details](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/codex-mini-details.png) |
 
-| Full Comic Details | Reader with Transition | Library Groups |
+| Full Comic Details | Reader | Library Groups |
 |:---:|:---:|:---:|
 | ![Full Comic Details](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/stump-feed-details.png) | ![Reader Transition](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/reader-with-prev.png) | ![Library Groups](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/library-groups.png) |
 
@@ -59,8 +59,8 @@ pip install comiccatcher
 
 1.  **Launch** the app by running `comiccatcher` in your terminal.
 2.  **Add a Feed:** Go to Settings -> Feeds and add your OPDS 2.0 server URL (e.g., `http://your-server:9810/opds/v2.0/`).
-3.  **Local Library:** Point the Library Directory in settings to your local comic collection.
-4.  **Read:** Click on any cover to see details, then hit **Read** to start your session.
+3.  **Local Library:** Point the Library Directory in settings to where to download comics.
+4.  **Read:** Click on any cover in feeds or libraries to see details, then hit **Read** to start your session.
 
 ---
 

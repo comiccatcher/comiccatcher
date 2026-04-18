@@ -265,7 +265,8 @@ class ConfigManager:
     def get_library_dir(self) -> Path:
         val = self.settings.get("library_dir") or str(DEFAULT_LIBRARY_DIR)
         try:
-            p = Path(os.path.expanduser(str(val))).resolve()
+            # We use absolute() but NOT resolve() to keep symlinks intact for the UI
+            p = Path(os.path.expanduser(str(val))).absolute()
         except Exception:
             p = DEFAULT_LIBRARY_DIR
         return p
