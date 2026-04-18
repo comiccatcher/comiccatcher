@@ -207,3 +207,11 @@ marimo/_lsp/
 __marimo__/
 
 assets/
+
+# Packaging artifacts
+packaging/AppDir/
+packaging/builder-env/
+packaging/*.AppImage
+packaging/metadata/
+dist/
+

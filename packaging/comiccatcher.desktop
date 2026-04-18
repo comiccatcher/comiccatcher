@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ComicCatcher
+Comment=A desktop OPDS 2.0 browser and comic reader
+Exec=comiccatcher
+Icon=comiccatcher
+Terminal=false
+Categories=Office;Graphics;
+Keywords=comic;reader;opds;
