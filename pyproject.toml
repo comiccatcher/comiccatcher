@@ -11,6 +11,8 @@ authors = [
 description = "A desktop OPDS 2.0 browser and comic downloader/streamer/reader"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+urls = { Homepage = "https://github.com/comiccatcher/comiccatcher", Repository = "https://github.com/comiccatcher/comiccatcher", Issues = "https://github.com/comiccatcher/comiccatcher/issues" }
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",

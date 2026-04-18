@@ -1,7 +1,7 @@
 # ComicCatcher
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/beville/comiccatcher/main/src/comiccatcher/resources/app.png" width="128" height="128" alt="ComicCatcher Logo">
+  <img src="https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/src/comiccatcher/resources/app.png" width="128" height="128" alt="ComicCatcher Logo">
 </p>
 
 [![PyPI version](https://img.shields.io/pypi/v/comiccatcher.svg)](https://pypi.org/project/comiccatcher/)
@@ -18,11 +18,11 @@
 
 | Feed Selection | Feed Browser | Popup Mini Details |
 |:---:|:---:|:---:|
-| ![Feed Selection](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/feed-selection.png) | ![Feed Browser](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/komga-browse.png) | ![Popup Details](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/codex-mini-details.png) |
+| ![Feed Selection](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/feed-selection.png) | ![Feed Browser](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/komga-browse.png) | ![Popup Details](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/codex-mini-details.png) |
 
 | Full Comic Details | Reader | Library Groups |
 |:---:|:---:|:---:|
-| ![Full Comic Details](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/stump-feed-details.png) | ![Reader Transition](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/reader-with-prev.png) | ![Library Groups](https://raw.githubusercontent.com/beville/comiccatcher/main/docs/screenshots/library-groups.png) |
+| ![Full Comic Details](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/stump-feed-details.png) | ![Reader Transition](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/reader-with-prev.png) | ![Library Groups](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/library-groups.png) |
 
 ---
 
