@@ -47,17 +47,31 @@ if [ "$BEHIND_COUNT" -gt 0 ]; then
     exit 1
 fi
 
+if [ "$AHEAD_COUNT" -gt 1 ]; then
+    echo "❌ Error: 'devel' is ahead of 'main' by $AHEAD_COUNT commits."
+    echo "   This script requires exactly 1 commit to promote for a clean history."
+    echo "   Please squash your commits (e.g., git rebase -i origin/main) before running."
+    exit 1
+fi
+
 if [ "$AHEAD_COUNT" -eq 0 ]; then
     echo "ℹ️  'main' is already up to date with 'devel'."
     exit 0
 fi
 
-echo "🚀 'devel' is ahead of 'main' by $AHEAD_COUNT commit(s)."
-echo "📡 Promoting 'devel' to 'origin/main' (Fast-Forward)..."
+# Get the commit message of the single commit for the PR body
+COMMIT_MSG=$(git log -1 --pretty=%B)
 
-# 3. Perform the remote fast-forward
-# This pushes our local 'devel' to the remote 'main'
-git push origin devel:main
+echo "🚀 'devel' is ahead of 'main' by $AHEAD_COUNT commit."
+echo "📡 Creating and merging promotion PR (Fast-Forward)..."
+
+# 3. Use GitHub CLI to create and merge a rebase PR
+# This satisfies "Require a pull request" branch protection
+PR_URL=$(gh pr create --base main --head devel --title "Promote: $COMMIT_MSG" --body "$COMMIT_MSG" --draft=false)
+echo "✅ PR Created: $PR_URL"
+
+echo "⚙️ Merging PR with rebase..."
+gh pr merge "$PR_URL" --rebase --delete-branch=false
 
 # 4. Sync local main
 echo "📥 Updating local 'main' branch to match..."
