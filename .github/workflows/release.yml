@@ -1,37 +1,58 @@
-name: Release
+name: Unified Release
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      build_linux:
+        description: 'Build Linux AppImage'
+        required: true
+        type: boolean
+        default: true
+      build_windows:
+        description: 'Build Windows EXE'
+        required: true
+        type: boolean
+        default: true
+      build_macos:
+        description: 'Build macOS DMG'
+        required: true
+        type: boolean
+        default: true
+      publish_pypi:
+        description: 'Publish to PyPI'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  build-and-release:
+  publish-pypi:
+    if: github.event_name == 'push' || github.event.inputs.publish_pypi == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install build
-
+          pip install build twine
       - name: Build package
         run: |
           bash scripts/ops/build_package.sh
-
-      - name: Create GitHub Release
+      - name: Create GitHub Release and Upload Source
         uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -40,5 +61,100 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref, 'a') || contains(github.ref, 'b') || contains(github.ref, 'rc') }}
           generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish to PyPI
+        if: github.event_name == 'push' || github.event.inputs.publish_pypi == 'true'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          twine upload dist/* --skip-existing
+
+  build-linux:
+    if: github.event_name == 'push' || github.event.inputs.build_linux == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller Pillow python-appimage .
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 curl
+      - name: Build AppImage
+        run: python packaging/build.py --linux
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComicCatcher-Linux
+          path: dist/ComicCatcher-x86_64.AppImage
+      - name: Upload to Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ComicCatcher-x86_64.AppImage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    if: github.event_name == 'push' || github.event.inputs.build_windows == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller Pillow .
+      - name: Build EXE
+        run: python packaging/build.py --windows
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComicCatcher-Windows
+          path: dist/ComicCatcher.exe
+      - name: Upload to Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ComicCatcher.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    if: github.event_name == 'push' || github.event.inputs.build_macos == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller Pillow .
+      - name: Build DMG
+        run: python packaging/build.py --macos
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComicCatcher-macOS
+          path: dist/ComicCatcher-macOS.dmg
+      - name: Upload to Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ComicCatcher-macOS.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
