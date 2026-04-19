@@ -28,7 +28,7 @@ jobs:
           pip install build twine
       - name: Build package
         run: |
-          bash scripts/build_package.sh
+          bash scripts/ops/build_package.sh
       - name: Publish package
         env:
           TWINE_USERNAME: __token__

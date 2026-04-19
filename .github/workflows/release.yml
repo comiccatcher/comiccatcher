@@ -29,7 +29,7 @@ jobs:
 
       - name: Build package
         run: |
-          bash scripts/build_package.sh
+          bash scripts/ops/build_package.sh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
