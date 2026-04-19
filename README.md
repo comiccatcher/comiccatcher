@@ -7,7 +7,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/comiccatcher.svg)](https://pypi.org/project/comiccatcher/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**ComicCatcher** is a desktop OPDS 2.0 browser and comic reader. It's been mostly tested with self-hosted comic servers like [**Codex**](https://github.com/ajslater/codex), [**Komga**](https://komga.org), and [**Stump**](https://stumpapp.dev), but should work with any server that supports similar features. If supported by the server, comics can be streamed page-by-page, or downloaded and read offline.  The usage paradigm is inspired by podcast "podcatcher" apps which stream and download, but don't maintain huge libraries of local files. It's written in Python and runs on Linux, Windows, and macOS (not yet tested 🤞).
+**ComicCatcher** is a desktop OPDS 2.0 browser and comic reader. It's been mostly tested with self-hosted comic servers like [**Codex**](https://github.com/ajslater/codex), [**Komga**](https://komga.org), and [**Stump**](https://stumpapp.dev), but should work with any server that supports similar features. Comics can be streamed page-by-page, or downloaded and read offline.  The usage paradigm is inspired by podcast "podcatcher" apps which stream and download, but don't maintain huge libraries of local files. It's written in Python and runs on Linux, Windows, and macOS (not yet tested 🤞).
 
 
 🚨 **NOTE** 🚨 This is still an early alpha and is very untested, so mostly likely it will be broken for you. 🙈 
@@ -18,11 +18,11 @@
 
 | Feed Selection | Feed Browser | Popup Mini Details |
 |:---:|:---:|:---:|
-| ![Feed Selection](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/feed-selection.png) | ![Feed Browser](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/komga-browse.png) | ![Popup Details](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/codex-mini-details.png) |
+| ![Feed Selection](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/feed-selection.jpg) | ![Feed Browser](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/komga-browse.jpg) | ![Popup Details](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/codex-mini-details.jpg) |
 
 | Full Comic Details | Reader | Library Groups |
 |:---:|:---:|:---:|
-| ![Full Comic Details](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/stump-feed-details.png) | ![Reader Transition](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/reader-with-prev.png) | ![Library Groups](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/library-groups.png) |
+| ![Full Comic Details](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/stump-feed-details.jpg) | ![Reader Transition](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/reader-with-prev.jpg) | ![Library Groups](https://raw.githubusercontent.com/comiccatcher/comiccatcher/main/docs/screenshots/library-groups.jpg) |
 
 ---
 
@@ -37,9 +37,9 @@
 * **Support for Mutiple Feeds**
 
 ### 🏠 Local Library Management
-*   **Format Support:** Read CBZ, CBR, PDF, and 7Z files natively.
-*   **Metadata Extraction:** Automatically extracts and flattens series metadata from your local files.
-*   **Flexible Grouping:** Organize your local collection by folder, series, or alphabetical order.
+*   **Format Support:** Read CBZ, CBR, CBT, CB7, and PDF files.
+*   **Metadata:** Uses in-file metadata for display and organization.
+*   **Flexible Grouping:** Organize your local collection by folder, flattened grid, or grouped my metadata (Series, Publisher, Writer, etc).
 
 ---
 
@@ -59,8 +59,9 @@ pip install comiccatcher
 
 1.  **Launch** the app by running `comiccatcher` in your terminal.
 2.  **Add a Feed:** Go to Settings -> Feeds and add your OPDS 2.0 server URL (e.g., `http://your-server:9810/opds/v2.0/`).
-3.  **Local Library:** Point the Library Directory in settings to where to download comics.
-4.  **Read:** Click on any cover in feeds or libraries to see details, then hit **Read** to start your session.
+3.  **Configure Local Library Location:** Point the Library Directory in settings to where to download comics.
+4.  **Browse:** Browse the feed to find a comic.
+5.  **Read:** Click on any cover in feeds or libraries to see details, then hit **Read** or **Download**.  Downloaded comics will appear in the Library tab.
 
 ---
 
