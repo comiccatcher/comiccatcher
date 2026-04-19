@@ -212,6 +212,7 @@ assets/
 packaging/AppDir/
 packaging/builder-env/
 packaging/*.AppImage
+packaging/appimagetool
 packaging/metadata/
 dist/
 

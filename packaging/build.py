@@ -82,7 +82,11 @@ def build_windows():
     
     from PIL import Image
     
-    icon_ico = PACKAGING_DIR / "windows/comiccatcher.ico"
+    # Ensure build directory exists for temporary icon
+    build_dir = PROJECT_ROOT / "build"
+    build_dir.mkdir(exist_ok=True)
+    
+    icon_ico = build_dir / "comiccatcher.ico"
     img = Image.open(PROJECT_ROOT / "src/comiccatcher/resources/app_256.png")
     img.save(icon_ico, format='ICO', sizes=[(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)])
     
