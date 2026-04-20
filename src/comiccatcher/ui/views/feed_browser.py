@@ -268,15 +268,9 @@ class FeedBrowser(BaseBrowserView):
 
     def _refresh_status_label(self):
         # 1. Update Top Label (Feed Title)
-        title_text = ""
-        if self._last_page:
-            title_text = self._last_page.title
-            if self._last_page.subtitle:
-                title_text = f"{title_text} | {self._last_page.subtitle}"
-        elif self.current_profile:
-            title_text = self.current_profile.name
-            
-        self.status_label.setText(title_text)
+        # NOTE: This label is currently unused/hidden as it is redundant with the 
+        # server identity pill in the main header. Consider for removal in future cleanup.
+        self.status_label.setText("")
 
         # 2. Update Bottom Label (Technical Stats & Progress)
         status_parts = []

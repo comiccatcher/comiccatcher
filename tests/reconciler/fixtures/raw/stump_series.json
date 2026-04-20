@@ -1,0 +1,145 @@
+{
+  "links": [
+    {
+      "rel": "self",
+      "href": "http://juke.local:10801/opds/v2.0/series"
+    },
+    {
+      "rel": "start",
+      "href": "http://juke.local:10801/opds/v2.0/catalog"
+    },
+    {
+      "rel": "next",
+      "href": "http://juke.local:10801/opds/v2.0/series?page=2"
+    }
+  ],
+  "navigation": [
+    {
+      "title": "655gu Naavirefnel Fcrpvny - Niratref (7569)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/2ba1cc5a-f6d2-43ca-a724-5560d9de255d",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "655gu Naavirefnel Fcrpvny - Snagnfgvp Sbhe (7569)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/d0cf5e21-9cb6-4863-81c7-4e2a71556e0e",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "655gu Naavirefnel Fcrpvny - Thneqvnaf bs gur Tnynkl (7569)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/3952740f-0383-484c-b2d6-20abc9c71864",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "655gu Naavirefnel Fcrpvny - K-Zra (7569)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/7b3a01a4-a2e9-4433-9afc-dbf80bc8b084",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "6327 (7560)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/78194d81-b9b5-40b9-bdef-a6661ba35bee",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "6418 (6448)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/fcbbb987-4e12-4c5c-bb8d-c989884fe083",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "6430 (7553)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/03423364-72ba-49e8-9a7d-61725bb4a077",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "7555 NQ (6422)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/51f75e2b-561c-4596-9606-71586395d50f",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "7575 Sbepr Jbexf (7575)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/108f9bb9-bae8-4e27-8d8f-6391d695936f",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "7575 Veba Ntr (7575)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/798fa488-14bf-4e13-9d4d-814ea6c56adb",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "7544 Nycun (7564)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/d64c71f6-56e2-4f35-bfb2-48b1ca5d5ba3",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "7544 Bzrtn (7564)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/2c4eca44-d4af-4c58-b52c-dc8cfdc55417",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "75KK (7564)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/644dc137-e96f-4d93-b05f-32742b490e09",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "75KK - Genafcbeg (7577)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/e57d8909-ff4b-44b2-a7ec-508dcbc4a3b2",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "06 (7571)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/22297a34-1357-4cac-9354-ad8160e19c45",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "N Obl & N Tvey (7568)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/04f0bc12-5aec-46dc-9701-e8cd8216483f",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "N Pnyphyngrq Zna (7577)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/24f861ec-44d8-4ff1-ac5f-a1303683aaec",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "N Tbq Fbzrjurer (7565)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/80fe85d4-8917-43cd-8d7c-12ff91bcaafb",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "N Zna Nzbat Lr (7575)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/1abece8a-c1ff-4d07-9794-090b2b8ec882",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "N Ercbeg gb na Npnqrzl (7577)",
+      "rel": "subsection",
+      "href": "http://juke.local:10801/opds/v2.0/series/66480392-ac8d-405a-84e3-7297ec8a2b1e",
+      "type": "application/opds+json"
+    }
+  ],
+  "metadata": {
+    "title": "Oebjfr Frevrf",
+    "modified": "2026-04-20T04:30:23.288458603+00:00",
+    "numberOfItems": 3636,
+    "itemsPerPage": 20,
+    "currentPage": 1
+  }
+}

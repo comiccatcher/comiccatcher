@@ -1,0 +1,33 @@
+{
+  "title": "All Publishers",
+  "paginated": true,
+  "page_info": {
+    "current": 3,
+    "total_pages": 3,
+    "items_per_page": 40,
+    "total_items": 106
+  },
+  "next_url": null,
+  "offset_based": false,
+  "paging_base": 1,
+  "paging_template": null,
+  "search_template": "http://juke.local:9810/codex/opds/v2.0/s/0/1{?query}&topGroup=s",
+  "main_section": "Browse",
+  "scroll_mode": "Virtualized Grid (pre-allocates rows for total count)",
+  "sections": [
+    {
+      "title": "Browse",
+      "count": 26,
+      "layout": "GRID",
+      "is_main": true,
+      "source": "root:navigation"
+    },
+    {
+      "title": "Top Groups",
+      "count": 5,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[1]:navigation"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "title": "Recent releases",
+  "paginated": true,
+  "page_info": {
+    "current": 1,
+    "total_pages": 307,
+    "items_per_page": 40,
+    "total_items": 12258
+  },
+  "next_url": "https://www.lirtuel.be/v1/resources.opds2?available_now_for_opds=1&page=2&sort_by=issued_on_desc",
+  "offset_based": false,
+  "paging_base": 1,
+  "paging_template": "https://www.lirtuel.be/v1/resources.opds2?available_now_for_opds=1&page={page}&sort_by=issued_on_desc",
+  "search_template": "https://www.lirtuel.be/v1/resources.opds2{?query}",
+  "main_section": "Publications",
+  "scroll_mode": "Virtualized Grid (pre-allocates rows for total count)",
+  "sections": [
+    {
+      "title": "Publications",
+      "count": 40,
+      "layout": "GRID",
+      "is_main": true,
+      "source": "root:publications"
+    }
+  ]
+}

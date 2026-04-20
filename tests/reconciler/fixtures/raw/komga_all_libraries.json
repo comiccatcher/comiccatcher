@@ -1,0 +1,693 @@
+{
+  "metadata": {
+    "title": "Nyy yvoenevrf",
+    "modified": "2026-04-19T21:30:22.852239513-07:00",
+    "itemsPerPage": 20,
+    "currentPage": 1,
+    "numberOfItems": 3635
+  },
+  "links": [
+    {
+      "rel": "self",
+      "href": "http://juke.local:8443/komga/opds/v2/libraries/browse"
+    },
+    {
+      "title": "Home",
+      "rel": "start",
+      "href": "http://juke.local:8443/komga/opds/v2/catalog",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "Search",
+      "rel": "search",
+      "href": "http://juke.local:8443/komga/opds/v2/search{?query}",
+      "type": "application/opds+json",
+      "templated": true
+    },
+    {
+      "rel": "next",
+      "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?page=1"
+    }
+  ],
+  "navigation": [
+    {
+      "title": "Erpbzzraqrq",
+      "rel": "subsection",
+      "href": "http://juke.local:8443/komga/opds/v2/libraries",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "Oebjfr",
+      "rel": "subsection",
+      "href": "http://juke.local:8443/komga/opds/v2/libraries/browse",
+      "type": "application/opds+json"
+    },
+    {
+      "title": "Ernq yvfgf",
+      "rel": "subsection",
+      "href": "http://juke.local:8443/komga/opds/v2/libraries/readlists",
+      "type": "application/opds+json"
+    }
+  ],
+  "groups": [
+    {
+      "metadata": {
+        "title": "Frevrf"
+      },
+      "navigation": [
+        {
+          "title": "655gu Naavirefnel Fcrpvny: Niratref (7569)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAGYXPMVBBQ",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "655gu Naavirefnel Fcrpvny: Snagnfgvp Sbhe (7569)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAH94CGV55E",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "655gu Naavirefnel Fcrpvny: Thneqvnaf bs gur Tnynkl (7569)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAH5QARV3H7",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "655gu Naavirefnel Fcrpvny: K-Zra (7569)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAGZ5T4V211",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "6327 (7560)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHBDYWVCM5",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "6418 (6448)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHP2YCVCPS",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "6430 (7553)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHBDV0V1VE",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "7555 NQ (6422)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAGSBA0V8KC",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "7575 Sbepr Jbexf (7575)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHF5HRV55G",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "7575 Veba Ntr (7575)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAH7Q50VCSQ",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "7544 Nycun (7564)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHE1CGV1SZ",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "7544 Bzrtn (7564)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAGXEHGVDRJ",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "75KK (7564)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHPQE8V1JM",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "75KK: Genafcbeg (7577)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHFWHWV5JB",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "06 (7571)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0Q2NZ09W5M2AW",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "N Obl & N Tvey (7568)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHFWP0V9N8",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "N Pnyphyngrq Zna (7577)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAGSE68V7AE",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "N Tbq Fbzrjurer (7565)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHKY10V8EJ",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "N Zna Nzbat Lr (7575)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHNHMCV17D",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "N Ercbeg gb na Npnqrzl (7577)",
+          "href": "http://juke.local:8443/komga/opds/v2/series/0PKAHGZ4CVEJV",
+          "type": "application/opds+json"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "Choyvfure"
+      },
+      "navigation": [
+        {
+          "title": "9Gjragl Yvzvgrq",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=4Twenty%20Limited",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Noynmr",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Ablaze",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Noenzf PbzvpNegf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Abrams%20ComicArts",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nofgenpg Fghqvb",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Abstract%20Studio",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nsgrefubpx Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Aftershock%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nubl Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Ahoy%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nyvra Obbxf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Alien%20Books",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nzrevpn'f Orfg Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=America's%20Best%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nzrevpna Tbguvp Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=American%20Gothic%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nzrevpna Zlgubybtl Cebqhpgvbaf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=American%20Mythology%20Productions",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nagnepgvp Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Antarctic%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nepnan Fghqvb",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Arcana%20Studio",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nepunvn",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Archaia",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Nepuvr Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Archie%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Ngbzrxn Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Atomeka%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Ningne Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Avatar%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Niba",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Avon",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "NJN Fghqvbf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=AWA%20Studios",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Njrfbzr Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Awesome%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Ornajbeyq Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Beanworld%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Orurzbgu Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Behemoth%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Orfg Wnpxrgg Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Best%20Jackett%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "OvgpbvaPbzvp.bet",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=BitcoinComic.org",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Oynpx Znfx Fghqvbf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Black%20Mask%20Studios",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Oyvaq Sreerg",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Blind%20Ferret",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "OyvaqQrnsTubfg",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=BlindDeafGhost",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Obbz! Fghqvbf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Boom!%20Studios",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Pneyfra Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Carlsen%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Pnegbba Obbxf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Cartoon%20Books",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Puneygba",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Charlton",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Puebavpyr Obbxf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Chronicle%20Books",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Pvarobbxf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Cinebooks",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Pyvssunatre",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Cliffhanger",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Pybire Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Clover%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Pbzvpb",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Comico",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Pbzvpf Rkcrevrapr",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Comics%20Experience",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Pbzvkbybtl",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Comixology",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Pbcen Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Copra%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Phegvf Zntnmvarf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Curtis%20Magazines",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Qnetnhq",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Dargaud",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Qnex Ubefr Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Dark%20Horse%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "QP Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=DC%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Qrngu Enggyr",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Death%20Rattle",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Qrrc-Frn Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Deep-Sea%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Qry Erl",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Del%20Rey",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Qrypbheg",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Delcourt",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Qenja & Dhnegreyl",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Drawn%20%26%20Quarterly",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "QFGYEL",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=DSTLRY",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Qlanzvgr Ragregnvazrag",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Dynamite%20Entertainment",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Rpyvcfr",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Eclipse",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Rhebcr Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Europe%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Snagntencuvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Fantagraphics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Snjprgg Choyvpngvbaf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Fawcett%20Publications",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Svefg Frpbaq Obbxf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=First%20Second%20Books",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Sbk Pbzvpf (HF)",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Fox%20Comics%20(US)",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Shgher Qhqr",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Future%20Dude",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Tnyyrel 68",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Gallery%2013",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "UnecrePbyyvaf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=HarperCollins",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Urnil Zrgny",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Heavy%20Metal",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Ubzntr Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Homage%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Uhznabvqf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Humanoids",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Vpba Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Icon%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "VQJ Choyvfuvat",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=IDW%20Publishing",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Vzntr",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Image",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Vzntr Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Image%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Wrg Pvgl Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Jet%20City%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Xvat Uryy",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=King%20Hell",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Yrf Uhznab\u00efqrf Nffbpv\u00e9f",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Les%20Humano%C3%AFdes%20Associ%C3%A9s",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Yvba Sbetr Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Lion%20Forge%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Znq Pnir Fghqvbf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Mad%20Cave%20Studios",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Zntargvp Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Magnetic%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Znexbfvn",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Markosia",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Zneiry",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Marvel",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Zneiry Pbzvpf naq QP Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Marvel%20Comics%20and%20DC%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Znffvir Choyvfuvat",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Massive%20Publishing",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Znkvzhz Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Maximum%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Bav Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Oni%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Cnaryflaqvpngr",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Panelsyndicate",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Cnavav Ireynt",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Panini%20Verlag",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Cnagurba Obbxf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Pantheon%20Books",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Cvcre Fabj Cebqhpgvbaf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Piper%20Snow%20Productions",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Dhnyvgl Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Quality%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Dhnyvgl Pbzzhavpngvbaf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Quality%20Communications",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Enqvpny Choyvfuvat",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Radical%20Publishing",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Eroryyvba",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Rebellion",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Erq 0 Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Red%205%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Fpbhg Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Scout%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "frys choyvfurq",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=self%20published",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Funqbjyvar",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Shadowline",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Fxlobhaq",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Skybound",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Fcyvggre",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Splitter",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Fjbeqf & Fnffrel",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Swords%20%26%20Sassery",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Gra Fcrrq Cerff",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Ten%20Speed%20Press",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Gvgna Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Titan%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "GXB Fghqvbf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=TKO%20Studios",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Gbc Pbj",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Top%20Cow",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Gbc Furys",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Top%20Shelf",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Ghaqen",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Tundra",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Inyvnag",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Valiant",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Inhyg Pbzvpf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Vault%20Comics",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Iregvtb",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Vertigo",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Jvyqfgbez",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Wildstorm",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Jbaqreznfbaf",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Wondermasons",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Mqnefpb, Vap.",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Zdarsco,%20Inc.",
+          "type": "application/opds+json"
+        },
+        {
+          "title": "Mrarfpbcr Ragregnvazrag",
+          "href": "http://juke.local:8443/komga/opds/v2/libraries/browse?publisher=Zenescope%20Entertainment",
+          "type": "application/opds+json"
+        }
+      ]
+    }
+  ]
+}

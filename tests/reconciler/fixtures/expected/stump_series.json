@@ -1,0 +1,26 @@
+{
+  "title": "Browse Series",
+  "paginated": true,
+  "page_info": {
+    "current": 1,
+    "total_pages": 182,
+    "items_per_page": 20,
+    "total_items": 3636
+  },
+  "next_url": "http://juke.local:10801/opds/v2.0/series?page=2",
+  "offset_based": false,
+  "paging_base": 1,
+  "paging_template": "http://juke.local:10801/opds/v2.0/series?page={page}",
+  "search_template": null,
+  "main_section": "Oebjfr",
+  "scroll_mode": "Virtualized Grid (pre-allocates rows for total count)",
+  "sections": [
+    {
+      "title": "Oebjfr",
+      "count": 20,
+      "layout": "GRID",
+      "is_main": true,
+      "source": "root:navigation"
+    }
+  ]
+}

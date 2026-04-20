@@ -193,6 +193,10 @@ class SearchRootView(QWidget):
             
         self.btn_clear.setVisible(len(history) > 0)
 
+    def clear_input(self):
+        """Clears the search text input."""
+        self.search_input.clear()
+
     def _do_search(self):
         q = self.search_input.text().strip()
         if q:

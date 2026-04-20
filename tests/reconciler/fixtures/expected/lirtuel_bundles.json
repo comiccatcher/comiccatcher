@@ -1,0 +1,187 @@
+{
+  "title": "Selections",
+  "paginated": true,
+  "page_info": {
+    "current": 1,
+    "total_pages": null,
+    "items_per_page": null,
+    "total_items": null
+  },
+  "next_url": "https://www.lirtuel.be/v1/bundles.opds2?page=2",
+  "offset_based": false,
+  "paging_base": 1,
+  "paging_template": "https://www.lirtuel.be/v1/bundles.opds2?page={page}",
+  "search_template": "https://www.lirtuel.be/v1/resources.opds2{?query}",
+  "main_section": null,
+  "scroll_mode": "Infinite Sections (appends new sections/headers)",
+  "sections": [
+    {
+      "title": "S\u00e9lection SF",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[0]:publications"
+    },
+    {
+      "title": "Lisez-vous le belge ? 2026",
+      "count": 10,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[1]:publications"
+    },
+    {
+      "title": "S\u00e9lection de l'\u00e9t\u00e9",
+      "count": 12,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[2]:publications"
+    },
+    {
+      "title": "Un cadeau ? Un livre !",
+      "count": 13,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[3]:publications"
+    },
+    {
+      "title": "Suggestions de lecture : Litt\u00e9rature am\u00e9ricaine",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[4]:publications"
+    },
+    {
+      "title": "BD Comic Strip Festival 2024",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[5]:publications"
+    },
+    {
+      "title": "Jeunesse - Vacances d'\u00e9t\u00e9",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[6]:publications"
+    },
+    {
+      "title": "A nos amours",
+      "count": 4,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[8]:publications"
+    },
+    {
+      "title": "Espace Nord ",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[9]:publications"
+    },
+    {
+      "title": "S\u00e9lection No\u00ebl",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[10]:publications"
+    },
+    {
+      "title": "Cap au Nord Fureur de Lire 2023",
+      "count": 8,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[11]:publications"
+    },
+    {
+      "title": "Peut-on lire de tout ?",
+      "count": 3,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[12]:publications"
+    },
+    {
+      "title": "BD Comic Strip Festival 2023",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[13]:publications"
+    },
+    {
+      "title": "S\u00e9lection Prix Farniente 2024",
+      "count": 1,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[14]:publications"
+    },
+    {
+      "title": "LGBTQIA+",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[15]:publications"
+    },
+    {
+      "title": "Made in Asia",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[16]:publications"
+    },
+    {
+      "title": "C'est l'histoire d'un documentaire belge (Lisez-vous le belge ?)",
+      "count": 4,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[17]:publications"
+    },
+    {
+      "title": "Litt\u00e9rature (Lisez-vous le belge ?)",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[18]:publications"
+    },
+    {
+      "title": "Traverser la fronti\u00e8re (Lisez-vous le belge ?)",
+      "count": 2,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[19]:publications"
+    },
+    {
+      "title": "Grand Prix Victor Rossel 2022",
+      "count": 12,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[20]:publications"
+    },
+    {
+      "title": "Annie Ernaux",
+      "count": 4,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[21]:publications"
+    },
+    {
+      "title": "S\u00e9lection diabolique \ud83d\ude08",
+      "count": 15,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[22]:publications"
+    },
+    {
+      "title": "Rentr\u00e9e litt\u00e9raire 2022",
+      "count": 11,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[23]:publications"
+    },
+    {
+      "title": "S\u00e9lection Prix Farniente 2023",
+      "count": 1,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[24]:publications"
+    }
+  ]
+}
