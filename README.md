@@ -19,16 +19,18 @@
 
 ### 📚 Full OPDS 2.0 Browsing, Optimized for Comics
 
-* **Streamed Reading** Read page-by-page with no download. (_Depends on server support of OPDS 2.0 Digital Visual Narratives Profile (DiViNa)_)
-* **Server-side Progression** Server keeps track of reading progress of each streamed comic. (_Depends on sever support for OPDS 2.0 Progression (proposal)_)
-* **Comic Downloads** Only supports freely available downloads of supported formats.  No purchases or borrows.
+* **Streamed Reading Support:** Read page-by-page with no download. (_Depends on server support of OPDS 2.0 Digital Visual Narratives Profile (DiViNa)_)
+* **Server-side Progression Support:** Server keeps track of reading progress of each streamed comic. (_Depends on sever support for OPDS 2.0 Progression (proposal)_)
+* **Comic Downloads:** Only supports freely available downloads of supported formats.  No purchases or borrows.
 * **Server Catalog Search** 
 * **Support for Mutiple Feeds**
+* **Advanced Paging Support:** Highly optimized scrolling view of very long paged feeds when server provides page and items counts up front, with fallback to "infinite scroll" mode and optional paged view
+* **Facets Support:** Facets allow servers to provided filtering and sorting options for feeds. 
 
 ### 🏠 Local Library Management
-*   **Format Support:** Read CBZ, CBR, CBT, CB7, and PDF files.
-*   **Metadata:** Uses in-file metadata for display and organization.
-*   **Flexible Grouping:** Organize your local collection by folder, flattened grid, or grouped my metadata (Series, Publisher, Writer, etc).
+*  **Format Support:** Read CBZ, CBR, CBT, CB7, and PDF files.
+*  **Metadata:** Uses in-file metadata for display and organization.
+*  **Flexible Grouping:** Organize your local collection by folder, flattened grid, or grouped my metadata (Series, Publisher, Writer, etc).
 
 ---
 
