@@ -670,9 +670,9 @@ class MainWindow(QMainWindow):
 
         # 1. If we are on search tab, reset it and switch back to feed browser
         if self.active_tab == "search":
-            # Clear search history stack for this feed
-            self.search_histories[fid] = []
-            self.search_indices[fid] = -1
+            # Reset search history to just the root view for this feed
+            self.search_histories[fid] = [{"type": "search_root", "title": "Search", "feed_id": fid}]
+            self.search_indices[fid] = 0
             # Force switch to feed tab (without trigger navigation because we'll do it below)
             self._on_tab_clicked("feed", navigate=False)
 
@@ -1015,6 +1015,7 @@ class MainWindow(QMainWindow):
                 self.content_stack.setCurrentIndex(ViewIndex.FEED_BROWSER)
                 self.feed_browser.setFocus()
         
+        self.search_root_view.clear_input()
         self.search_root_view.update_data(feed.search_history, feed.pinned_searches)
         self.update_header()
 

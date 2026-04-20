@@ -1,0 +1,431 @@
+{
+  "metadata": {
+    "title": "All Publishers",
+    "modified": "2026-04-20T04:48:31.829000Z",
+    "itemsPerPage": 40,
+    "currentPage": 1,
+    "numberOfItems": 106
+  },
+  "links": [
+    {
+      "href": "/codex/opds/v2.0/r/0/1?topGroup=p",
+      "rel": "self",
+      "type": "application/opds+json"
+    },
+    {
+      "href": "/codex/opds/auth/v1",
+      "rel": "http://opds-spec.org/auth/document",
+      "type": "application/opds-authentication+json"
+    },
+    {
+      "href": "/codex/opds/v2.0/s/0/1{?query}&topGroup=s",
+      "rel": "search",
+      "type": "application/opds+json",
+      "templated": true
+    },
+    {
+      "href": "/codex/opds/v2.0/",
+      "rel": "start",
+      "type": "application/opds+json"
+    },
+    {
+      "href": "/codex/opds/v2.0/r/0/2?topGroup=p",
+      "rel": "next",
+      "type": "application/opds+json"
+    },
+    {
+      "href": "/codex/opds/v2.0/r/0/3?topGroup=p",
+      "rel": "last",
+      "type": "application/opds+json"
+    }
+  ],
+  "navigation": [
+    {
+      "href": "/codex/opds/v2.0/p/2/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "(Empty)"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/3/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "4Twenty Limited"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/5/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Ablaze"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/6/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Abrams ComicArts"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/7/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Abstract Studio"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/8/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Aftershock Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/9/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Ahoy Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/10/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Alien Books"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/1/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "America's Best Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/11/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "American Gothic Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/12/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "American Mythology Productions"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/13/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Antarctic Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/14/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Arcana Studio"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/15/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Archaia"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/16/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Archie Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/17/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Atomeka Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/18/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Avatar Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/105/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Avon"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/4/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "AWA Studios"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/19/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Awesome Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/20/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Beanworld Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/21/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Behemoth Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/22/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Best Jackett Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/23/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "BitcoinComic.org"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/24/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Black Mask Studios"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/25/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Blind Ferret"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/26/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "BlindDeafGhost"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/27/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Boom! Studios"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/28/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Carlsen Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/29/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Cartoon Books"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/30/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Charlton"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/31/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Chronicle Books"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/32/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Cinebooks"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/33/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Cliffhanger"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/34/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Clover Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/35/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Comico"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/36/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Comics Experience"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/37/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Comixology"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/38/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Copra Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/39/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Curtis Magazines"
+    }
+  ],
+  "groups": [
+    {
+      "metadata": {
+        "title": "All Publishers",
+        "itemsPerPage": 40,
+        "currentPage": 1,
+        "numberOfItems": 106
+      }
+    },
+    {
+      "metadata": {
+        "title": "Top Groups"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p",
+          "rel": [
+            "self",
+            "subsection"
+          ],
+          "type": "application/opds+json",
+          "title": "Publishers"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=s",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Series"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=c",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Issues"
+        },
+        {
+          "href": "/codex/opds/v2.0/f/0/1?topGroup=f",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Folders"
+        },
+        {
+          "href": "/codex/opds/v2.0/a/0/1?topGroup=a&orderBy=story_arc_number",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Story Arcs"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "\u23ff Read Filter"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22UNREAD%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Unread"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22IN_PROGRESS%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "In Progress"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22READ%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Read"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22%22%7D",
+          "rel": [
+            "http://opds-spec.org/facet",
+            "self"
+          ],
+          "type": "application/opds+json",
+          "title": "All"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "\u2b04 Order By"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderBy=date",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Date"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderBy=sort_name",
+          "rel": [
+            "http://opds-spec.org/facet",
+            "self"
+          ],
+          "type": "application/opds+json",
+          "title": "Name"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderBy=filename",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Filename"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "\u21d5 Order Direction"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderReverse=False",
+          "rel": [
+            "http://opds-spec.org/facet",
+            "self"
+          ],
+          "type": "application/opds+json",
+          "title": "Ascending"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderReverse=True",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Descending"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "Start (Reset filters & order)"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/",
+          "rel": "start",
+          "type": "application/opds+json",
+          "title": "Start"
+        }
+      ]
+    }
+  ]
+}

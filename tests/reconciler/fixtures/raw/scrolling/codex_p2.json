@@ -1,0 +1,425 @@
+{
+  "metadata": {
+    "title": "All Publishers",
+    "modified": "2026-04-20T04:48:31.829000Z",
+    "itemsPerPage": 40,
+    "currentPage": 2,
+    "numberOfItems": 106
+  },
+  "links": [
+    {
+      "href": "/codex/opds/v2.0/r/0/2?topGroup=p",
+      "rel": "self",
+      "type": "application/opds+json"
+    },
+    {
+      "href": "/codex/opds/auth/v1",
+      "rel": "http://opds-spec.org/auth/document",
+      "type": "application/opds-authentication+json"
+    },
+    {
+      "href": "/codex/opds/v2.0/s/0/1{?query}&topGroup=s",
+      "rel": "search",
+      "type": "application/opds+json",
+      "templated": true
+    },
+    {
+      "href": "/codex/opds/v2.0/",
+      "rel": "start",
+      "type": "application/opds+json"
+    },
+    {
+      "href": "/codex/opds/v2.0/r/0/1?topGroup=p",
+      "rel": [
+        "first",
+        "previous"
+      ],
+      "type": "application/opds+json"
+    },
+    {
+      "href": "/codex/opds/v2.0/r/0/3?topGroup=p",
+      "rel": [
+        "last",
+        "next"
+      ],
+      "type": "application/opds+json"
+    }
+  ],
+  "navigation": [
+    {
+      "href": "/codex/opds/v2.0/p/42/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Dargaud"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/43/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Dark Horse Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/40/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "DC Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/44/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Death Rattle"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/45/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Deep-Sea Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/46/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Del Rey"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/47/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Delcourt"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/48/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Drawn & Quarterly"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/41/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "DSTLRY"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/49/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Dynamite Entertainment"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/50/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Eclipse"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/51/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Europe Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/52/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Fantagraphics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/53/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Fawcett Publications"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/54/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "First Second Books"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/55/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Fox Comics (US)"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/56/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Future Dude"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/57/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Gallery 13"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/58/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "HarperCollins"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/59/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Heavy Metal"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/60/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Homage Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/61/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Humanoids"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/68/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Les Humano\u00efdes Associ\u00e9s"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/63/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Icon Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/62/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "IDW Publishing"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/65/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Image"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/64/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Image Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/66/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Jet City Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/67/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "King Hell"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/69/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Lion Forge Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/70/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Mad Cave Studios"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/71/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Magnetic Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/72/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Markosia"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/74/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Marvel"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/73/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Marvel Comics and DC Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/75/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Massive Publishing"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/76/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Maximum Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/77/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Oni Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/78/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Panelsyndicate"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/79/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Panini Verlag"
+    }
+  ],
+  "groups": [
+    {
+      "metadata": {
+        "title": "All Publishers",
+        "itemsPerPage": 40,
+        "currentPage": 2,
+        "numberOfItems": 106
+      }
+    },
+    {
+      "metadata": {
+        "title": "Top Groups"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Publishers"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=s",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Series"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=c",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Issues"
+        },
+        {
+          "href": "/codex/opds/v2.0/f/0/1?topGroup=f",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Folders"
+        },
+        {
+          "href": "/codex/opds/v2.0/a/0/1?topGroup=a&orderBy=story_arc_number",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Story Arcs"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "\u23ff Read Filter"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22UNREAD%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Unread"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22IN_PROGRESS%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "In Progress"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22READ%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Read"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "All"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "\u2b04 Order By"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderBy=date",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Date"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderBy=sort_name",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Name"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderBy=filename",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Filename"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "\u21d5 Order Direction"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderReverse=False",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Ascending"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderReverse=True",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Descending"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "Start (Reset filters & order)"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/",
+          "rel": "start",
+          "type": "application/opds+json",
+          "title": "Start"
+        }
+      ]
+    }
+  ]
+}

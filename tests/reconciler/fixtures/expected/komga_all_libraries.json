@@ -1,0 +1,40 @@
+{
+  "title": "All libraries",
+  "paginated": true,
+  "page_info": {
+    "current": 1,
+    "total_pages": 182,
+    "items_per_page": 20,
+    "total_items": 3635
+  },
+  "next_url": "http://juke.local:8443/komga/opds/v2/libraries/browse?page=1",
+  "offset_based": false,
+  "paging_base": 0,
+  "paging_template": "http://juke.local:8443/komga/opds/v2/libraries/browse?page={page}",
+  "search_template": "http://juke.local:8443/komga/opds/v2/search{?query}",
+  "main_section": "Series",
+  "scroll_mode": "Virtualized Grid (pre-allocates rows for total count)",
+  "sections": [
+    {
+      "title": "Oebjfr",
+      "count": 3,
+      "layout": "GRID",
+      "is_main": false,
+      "source": "root:navigation"
+    },
+    {
+      "title": "Series",
+      "count": 20,
+      "layout": "GRID",
+      "is_main": true,
+      "source": "group[0]:navigation"
+    },
+    {
+      "title": "Publisher",
+      "count": 105,
+      "layout": "RIBBON",
+      "is_main": false,
+      "source": "group[1]:navigation"
+    }
+  ]
+}

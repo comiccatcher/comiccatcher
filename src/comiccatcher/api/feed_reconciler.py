@@ -34,9 +34,8 @@ class FeedReconciler:
         sections = []
         facets = []
         
-        # Robust logical ID and self/start detection
+        # Robust identity and URL detection
         self_url = base_url
-        start_url = None
         first_page_url = None
         if feed.links:
             for l in feed.links:
@@ -44,24 +43,11 @@ class FeedReconciler:
                 target_url = urllib.parse.urljoin(base_url, l.href)
                 if "self" in rels:
                     self_url = target_url
-                if "start" in rels:
-                    start_url = target_url
                 if "first" in rels:
                     first_page_url = target_url
         
-        # 1. Determine stable logical ID for the entire feed
-        # Priority: Metadata ID -> First Page URL -> Normalised Self URL
-        logical_id = None
-        if feed.metadata and feed.metadata.identifier:
-            logical_id = feed.metadata.identifier
-        elif first_page_url:
-            logical_id = first_page_url
-        else:
-            # Fallback: Strip query params and Codex-style page components
-            # Example: /codex/opds/v2.0/p/0/1?q=foo -> /codex/opds/v2.0/p/
-            clean_url = self_url.split('?')[0]
-            logical_id = re.sub(r'/[a-z]/\d+/\d+', '', clean_url)
-        
+        # Determine stable logical ID for the entire feed
+        logical_id = FeedReconciler._get_stable_id(feed, self_url, first_page_url)
         logger.debug(f"FeedReconciler: base_url={base_url} -> logical_id={logical_id}")
 
         # Check if the feed indicates pagination at the root level
@@ -227,6 +213,7 @@ class FeedReconciler:
 
         # 4b. Pagination Sanity Check
         # Discard root itemsPerPage/numberOfItems if they don't match the actual content of any section.
+        root_next_for_section = root_next
         if root_ipp is not None and root_next:
             match_found = False
             for s in sections:
@@ -241,6 +228,7 @@ class FeedReconciler:
                 )
                 root_ipp = None
                 root_total = None
+                root_next_for_section = None
 
         # 4c. Determine Global Page
         # (Already defined above as part of root metadata capture)
@@ -313,12 +301,12 @@ class FeedReconciler:
             # Transfer root metadata to the main section
             if root_total is not None:
                 main_sec.total_items = root_total
-            elif root_next is not None:
+            elif root_next_for_section is not None:
                 # If we have a next link but no root_total, we don't know the full length
                 main_sec.total_items = None
             
-            if root_next:
-                main_sec.next_url = root_next
+            if root_next_for_section:
+                main_sec.next_url = root_next_for_section
             if root_ipp is not None:
                 main_sec.items_per_page = root_ipp
         
@@ -597,3 +585,33 @@ class FeedReconciler:
             if "next" in rel:
                 return urllib.parse.urljoin(base_url, l.href)
         return None
+
+    @staticmethod
+    def _get_stable_id(feed: OPDSFeed, self_url: str, first_url: Optional[str]) -> str:
+        """Determines a stable logical ID for a feed across different pages."""
+        # 1. Highest Priority: Metadata Identifier
+        if feed.metadata and feed.metadata.identifier:
+            return feed.metadata.identifier
+            
+        # 2. Next Priority: Normalized 'first' page URL
+        if first_url:
+            return FeedReconciler._normalize_url(first_url)
+            
+        # 3. Fallback: Normalized current 'self' URL
+        return FeedReconciler._normalize_url(self_url)
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """Strips query parameters and pagination components from a URL to create a base ID."""
+        if not url: return url
+        
+        # Strip query parameters (?page=2, etc)
+        clean = url.split('?')[0].rstrip('/')
+        
+        # Strip Codex-style paging (/r/0/1, /s/0/2)
+        clean = re.sub(r'/[a-z]/\d+/\d+$', '', clean)
+        
+        # Strip generic paging (/page/2, /offset/20)
+        clean = re.sub(r'/(page|offset|start)/\d+$', '', clean)
+        
+        return clean

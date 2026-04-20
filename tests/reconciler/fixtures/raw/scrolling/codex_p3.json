@@ -1,0 +1,335 @@
+{
+  "metadata": {
+    "title": "All Publishers",
+    "modified": "2026-04-20T04:48:31.829000Z",
+    "itemsPerPage": 40,
+    "currentPage": 3,
+    "numberOfItems": 106
+  },
+  "links": [
+    {
+      "href": "/codex/opds/v2.0/r/0/3?topGroup=p",
+      "rel": "self",
+      "type": "application/opds+json"
+    },
+    {
+      "href": "/codex/opds/auth/v1",
+      "rel": "http://opds-spec.org/auth/document",
+      "type": "application/opds-authentication+json"
+    },
+    {
+      "href": "/codex/opds/v2.0/s/0/1{?query}&topGroup=s",
+      "rel": "search",
+      "type": "application/opds+json",
+      "templated": true
+    },
+    {
+      "href": "/codex/opds/v2.0/",
+      "rel": "start",
+      "type": "application/opds+json"
+    },
+    {
+      "href": "/codex/opds/v2.0/r/0/1?topGroup=p",
+      "rel": "first",
+      "type": "application/opds+json"
+    },
+    {
+      "href": "/codex/opds/v2.0/r/0/2?topGroup=p",
+      "rel": "previous",
+      "type": "application/opds+json"
+    }
+  ],
+  "navigation": [
+    {
+      "href": "/codex/opds/v2.0/p/80/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Pantheon Books"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/81/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Piper Snow Productions"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/106/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Quality Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/82/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Quality Communications"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/83/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Radical Publishing"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/84/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Rebellion"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/85/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Red 5 Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/86/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Scout Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/104/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "self published"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/87/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Shadowline"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/88/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Skybound"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/89/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Splitter"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/90/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Swords & Sassery"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/92/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Ten Speed Press"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/93/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Titan Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/91/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "TKO Studios"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/94/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Top Cow"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/95/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Top Shelf"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/96/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Tundra"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/97/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Valiant"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/98/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Vault Comics"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/99/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Vertigo"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/100/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Wildstorm"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/101/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Wondermasons"
+    },
+    {
+      "href": "/codex/opds/v2.0/p/102/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Zdarsco, Inc."
+    },
+    {
+      "href": "/codex/opds/v2.0/p/103/1?topGroup=p",
+      "rel": "subsection",
+      "type": "application/opds+json",
+      "title": "Zenescope Entertainment"
+    }
+  ],
+  "groups": [
+    {
+      "metadata": {
+        "title": "All Publishers",
+        "itemsPerPage": 40,
+        "currentPage": 3,
+        "numberOfItems": 106
+      }
+    },
+    {
+      "metadata": {
+        "title": "Top Groups"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Publishers"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=s",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Series"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=c",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Issues"
+        },
+        {
+          "href": "/codex/opds/v2.0/f/0/1?topGroup=f",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Folders"
+        },
+        {
+          "href": "/codex/opds/v2.0/a/0/1?topGroup=a&orderBy=story_arc_number",
+          "rel": "subsection",
+          "type": "application/opds+json",
+          "title": "Story Arcs"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "\u23ff Read Filter"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22UNREAD%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Unread"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22IN_PROGRESS%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "In Progress"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22READ%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Read"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&filters=%7B%22bookmark%22%3A+%22%22%7D",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "All"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "\u2b04 Order By"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderBy=date",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Date"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderBy=sort_name",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Name"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderBy=filename",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Filename"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "\u21d5 Order Direction"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderReverse=False",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Ascending"
+        },
+        {
+          "href": "/codex/opds/v2.0/r/0/1?topGroup=p&orderReverse=True",
+          "rel": "http://opds-spec.org/facet",
+          "type": "application/opds+json",
+          "title": "Descending"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "title": "Start (Reset filters & order)"
+      },
+      "navigation": [
+        {
+          "href": "/codex/opds/v2.0/",
+          "rel": "start",
+          "type": "application/opds+json",
+          "title": "Start"
+        }
+      ]
+    }
+  ]
+}

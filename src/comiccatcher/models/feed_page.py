@@ -86,18 +86,11 @@ class FeedPage(BaseModel):
         """
         Identifies the primary content section for continuous scrolling.
         
-        Current Logic (Strict Match):
-        1. The feed MUST have pagination links at the root level.
-        2. We iterate through root-level collections first, then grouped collections.
-        3. A section is ONLY considered the "main" section if its exact item count perfectly 
-           matches the server's `itemsPerPage` metadata (`feed_items_per_page`).
-           
-        Known Failure Case:
-        If a server returns fewer items than its stated `itemsPerPage` on the first page 
-        (e.g., due to filtering bugs, deleted items, or being a short feed like the Readino 
-        'space_opera' tag returning 23 items when itemsPerPage=24), this strict heuristic 
-        will FAIL to identify the main section. In ScrolledFeedView, this forces a fallback 
-        to "Infinite Sections" mode rather than the preferred "Infinite Grid" mode.
+        Logic:
+        1. If main_section_id is explicitly set, use it.
+        2. If feed is not paginated, return None.
+        3. If feed_items_per_page is known, prefer an EXACT match (full page).
+        4. Fallback to the first non-empty section matching source priority.
         """
         if not self.sections:
             return None
@@ -111,27 +104,67 @@ class FeedPage(BaseModel):
         # 1. Only consider feeds that indicate pagination at the root level
         if not self.is_paginated:
             return None
-            
-        # 2. Iterate over root candidate sources in priority order
-        for target_source in ("root:publications", "root:navigation"):
+
+        # Tiered Heuristic:
+        # Tier A: Exact matches (len == items_per_page)
+        # Tier B: Partial matches (0 < len <= items_per_page)
+        # Within each tier, we follow source priority: root:pubs > root:nav > group:pubs > group:nav
+
+        def find_in_tier(exact_only: bool) -> Optional[FeedSection]:
+            # Priority 1: Root Publications
             for s in self.sections:
-                if s.source_element == target_source:
-                    # On the last page, the item count may be less than the per-page stride
-                    if self.feed_items_per_page is not None and 0 < len(s.items) <= self.feed_items_per_page:
-                        return s
+                if s.source_element == "root:publications":
+                    if self.feed_items_per_page is not None:
+                        if len(s.items) == self.feed_items_per_page: return s
+                        if not exact_only and 0 < len(s.items) < self.feed_items_per_page: return s
+                    elif not exact_only and s.items: return s
+            
+            # Priority 2: Root Navigation
+            for s in self.sections:
+                if s.source_element == "root:navigation":
+                    if self.feed_items_per_page is not None:
+                        if len(s.items) == self.feed_items_per_page: return s
+                        if not exact_only and 0 < len(s.items) < self.feed_items_per_page: return s
+                    elif not exact_only and s.items: return s
+
+            # Priority 3: Grouped Publications
+            for s in self.sections:
+                if s.source_element and s.source_element.startswith("group[") and "publications" in s.source_element:
+                    if self.feed_items_per_page is not None:
+                        if len(s.items) == self.feed_items_per_page: return s
+                        if not exact_only and 0 < len(s.items) < self.feed_items_per_page: return s
+                    elif not exact_only and s.items: return s
+
+            # Priority 4: Grouped Navigation
+            for s in self.sections:
+                if s.source_element and s.source_element.startswith("group[") and "navigation" in s.source_element:
+                    if self.feed_items_per_page is not None:
+                        if len(s.items) == self.feed_items_per_page: return s
+                        if not exact_only and 0 < len(s.items) < self.feed_items_per_page: return s
+                    elif not exact_only and s.items: return s
+            return None
+
+        # Try Tier A first (Exact Match)
+        if self.feed_items_per_page is not None:
+            res = find_in_tier(exact_only=True)
+            if res: return res
         
-        # 3. If no root candidate found, iterate over groups:
-        # 3a. Grouped publication elements
-        for s in self.sections:
-            if s.source_element and s.source_element.startswith("group[") and "publications" in s.source_element:
-                if self.feed_items_per_page is not None and 0 < len(s.items) <= self.feed_items_per_page:
-                    return s
-        
-        # 3b. Grouped navigation elements
-        for s in self.sections:
-            if s.source_element and s.source_element.startswith("group[") and "navigation" in s.source_element:
-                if self.feed_items_per_page is not None and 0 < len(s.items) <= self.feed_items_per_page:
-                    return s
-                        
+        # If we have no exact match (either because items_per_page was nullified by 
+        # a sanity check or because we are on a short last page), we only 
+        # designate a 'main' section if the choice is unambiguous.
+        content_sections = [s for s in self.sections if s.items]
+        if len(content_sections) == 1:
+            return content_sections[0]
+            
+        # Last Page Heuristic: If we have multiple sections, but one is a root 
+        # collection (pubs/nav) and it contains more items than others, it is likely the main content.
+        root_sections = [s for s in content_sections if s.source_element in ("root:publications", "root:navigation")]
+        if len(root_sections) == 1:
+            # If the root section has more items than any other content section, pick it
+            others = [s for s in content_sections if s.section_id != root_sections[0].section_id]
+            max_other_count = max([len(s.items) for s in others]) if others else 0
+            if len(root_sections[0].items) >= max_other_count:
+                return root_sections[0]
+
         return None
 
