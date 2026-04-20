@@ -62,9 +62,9 @@
 
 ## 🚦 Quick Start
 
-1.  **Launch** the app by running `comiccatcher` in your terminal.
+1.  **Launch** the app by running `comiccatcher` in your terminal, or double-clicking on the stand-alone application package.
 2.  **Add a Feed:** Go to Settings -> Feeds and add your OPDS 2.0 server URL (e.g., `http://your-server:9810/opds/v2.0/`).
-3.  **Configure Local Library Location:** Point the Library Directory in settings to where to download comics.
+3.  **Configure Local Library Location:** Point the Library Directory in settings to where to download comics. (Defaults to `~/ComicCatcher`)
 4.  **Browse:** Browse the feed to find a comic.
 5.  **Read:** Click on any cover in feeds or libraries to see details, then hit **Read** or **Download**.  Downloaded comics will appear in the Library tab.
 
