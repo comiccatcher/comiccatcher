@@ -17,14 +17,13 @@ _DBG_COLORS = {
 }
 
 class FeedCardDelegate(BaseCardDelegate):
-    def __init__(self, parent, image_manager, show_labels=True):
-        super().__init__(parent, show_labels=show_labels, reserve_progress_space=False)
+    def __init__(self, parent, image_manager, show_labels=True, card_size="medium"):
+        super().__init__(parent, show_labels=show_labels, reserve_progress_space=False, card_size=card_size)
         self.image_manager = image_manager
         
         # Sizing constants
         s = UIConstants.scale
         self.header_height = UIConstants.TOGGLE_BUTTON_SIZE + UIConstants.SECTION_HEADER_MARGIN_TOP
-        self.ribbon_height = UIConstants.CARD_HEIGHT + s(30) # Space for ribbon widget
 
     def sizeHint(self, option: QStyleOptionViewItem, index):
         s = UIConstants.scale
@@ -41,7 +40,7 @@ class FeedCardDelegate(BaseCardDelegate):
                 h = self.header_height
             else:
                 # Ribbon height must match BaseCardRibbon's internal calculation exactly
-                card_h = UIConstants.get_card_height(self.show_labels, reserve_progress_space=False)
+                card_h = UIConstants.get_card_height(self.show_labels, reserve_progress_space=False, card_size=self.card_size)
                 # Total height = Card + Gutter + Scrollbar
                 h = card_h + UIConstants.RIBBON_SCROLLBAR_GUTTER + UIConstants.SCROLLBAR_SIZE
                     
@@ -78,7 +77,8 @@ class FeedCardDelegate(BaseCardDelegate):
                 cover_pixmap=pixmap,
                 is_folder=(item.type == ItemType.FOLDER),
                 image_manager=self.image_manager,
-                reserve_progress_space=self.reserve_progress_space
+                reserve_progress_space=self.reserve_progress_space,
+                card_size=self.card_size
             )
             self.paint_card(painter, option, theme, config)
 

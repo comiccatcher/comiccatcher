@@ -17,29 +17,42 @@ class ImageManager:
     def __init__(self, api_client: APIClient):
         self.api_client = api_client
         self._memory_cache = {} # URL -> Base64 string
+        self._pixmap_memory_cache = {} # URL -> QPixmap
+        self._path_cache = {} # URL -> Path
         self._created_subdirs = set()
         self._pending_tasks = {} # URL -> asyncio.Task
         import asyncio
         self._semaphore = asyncio.Semaphore(4) # Limit concurrent image downloads to prioritize feeds
+        
+        from PyQt6.QtGui import QPixmapCache
+        # Increase cache to 50MB (default is often only 10MB)
+        QPixmapCache.setCacheLimit(50 * 1024)
 
     def get_image_sync(self, url: str):
         """Synchronously retrieves an image from cache (memory or disk)."""
         if not url: return None
         
+        # 1. Check ultra-fast Python memory cache
+        if url in self._pixmap_memory_cache:
+            return self._pixmap_memory_cache[url]
+            
         from PyQt6.QtGui import QPixmap, QPixmapCache
         
-        # 1. Check QPixmapCache
+        # 2. Check QPixmapCache (Keyed by path string)
         cache_path = self._get_cache_path(url)
-        pixmap = QPixmapCache.find(str(cache_path))
+        path_str = str(cache_path)
+        pixmap = QPixmapCache.find(path_str)
         if pixmap:
+            self._pixmap_memory_cache[url] = pixmap
             return pixmap
             
-        # 2. Check Disk Cache
+        # 3. Check Disk Cache
         if cache_path.exists():
             try:
-                pixmap = QPixmap(str(cache_path))
+                pixmap = QPixmap(path_str)
                 if not pixmap.isNull():
-                    QPixmapCache.insert(str(cache_path), pixmap)
+                    QPixmapCache.insert(path_str, pixmap)
+                    self._pixmap_memory_cache[url] = pixmap
                     return pixmap
             except Exception as e:
                 logger.error(f"Error loading pixmap from disk {url}: {e}")
@@ -151,15 +164,22 @@ class ImageManager:
         return scaled if scaled else data
 
     def _get_cache_path(self, url: str) -> Path:
-        """Generates a unique file path for a URL."""
+        """Generates a unique file path for a URL. Result is cached to avoid hashing."""
+        if url in self._path_cache:
+            return self._path_cache[url]
+
         url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
         # Ensure subdirectory based on hash to avoid flat folder limits
         prefix = url_hash[:2]
         sub_dir = CACHE_DIR / prefix
         if prefix not in self._created_subdirs:
-            sub_dir.mkdir(exist_ok=True)
+            sub_dir.mkdir(parents=True, exist_ok=True)
             self._created_subdirs.add(prefix)
-        return sub_dir / url_hash
+
+        path = sub_dir / url_hash
+        self._path_cache[url] = path
+        return path
+
 
     def clear_memory_cache(self):
         self._memory_cache.clear()

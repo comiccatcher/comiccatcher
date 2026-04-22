@@ -395,6 +395,10 @@ class MainWindow(QMainWindow):
         self.feed_browser.navigate_requested.connect(self.on_navigate_to_url)
         self.feed_browser.download_requested.connect(self.on_start_download)
         self.feed_browser.page_loaded.connect(self.update_header)
+        self.feed_browser.card_size_changed.connect(self._sync_card_size)
+        self.feed_browser.show_labels_changed.connect(self._sync_show_labels)
+        self.local_library_view.card_size_changed.connect(self._sync_card_size)
+        self.local_library_view.show_labels_changed.connect(self._sync_show_labels)
         self.content_stack.addWidget(self.feed_browser) # Index 8 (Match ViewIndex)
 
         self.feed_list_view.icon_loaded.connect(self._on_feed_icon_loaded)
@@ -412,6 +416,16 @@ class MainWindow(QMainWindow):
         self.local_library_view.set_dirty()
         if self.download_manager:
             self.download_manager.set_download_dir(new_path)
+
+    def _sync_card_size(self, size: str):
+        """Propagate card size changes across all browser views."""
+        self.feed_browser._on_card_size_changed(size)
+        self.local_library_view._on_card_size_changed(size)
+
+    def _sync_show_labels(self, enabled: bool):
+        """Propagate label toggle changes across all browser views."""
+        self.feed_browser.toggle_labels(enabled)
+        self.local_library_view.toggle_labels(enabled)
 
     def _apply_theme(self):
         theme_name = self.config_manager.get_theme()

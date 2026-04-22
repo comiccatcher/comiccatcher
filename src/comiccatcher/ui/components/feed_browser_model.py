@@ -151,10 +151,6 @@ class FeedBrowserModel(QAbstractListModel):
         if not index.isValid(): return None
         row = index.row()
         
-        # Suppress tooltips for cards in the feed view
-        if role == Qt.ItemDataRole.ToolTipRole:
-            return None
-
         # 1. Handle Composite Type Role
         if role == self.CompositeTypeRole:
             if row < len(self._logical_items):
@@ -169,8 +165,8 @@ class FeedBrowserModel(QAbstractListModel):
             abs_idx = row
             item = self._sparse_items.get(abs_idx)
             
-            if role == Qt.ItemDataRole.DisplayRole:
-                return item.title if item else "Loading..."
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
+                return item.title if item else ("Loading..." if role == Qt.ItemDataRole.DisplayRole else None)
             if role == self.ItemDataRole:
                 return item
             return None
@@ -181,6 +177,9 @@ class FeedBrowserModel(QAbstractListModel):
         if logical_item.type in (CompositeItemType.HEADER, CompositeItemType.RIBBON):
             if role == self.ItemDataRole:
                 return logical_item.data
+            if role == Qt.ItemDataRole.ToolTipRole:
+                # Sections don't need tooltips
+                return None
             return None
 
         # For Grid Items, handle the sparse buffer
@@ -196,8 +195,8 @@ class FeedBrowserModel(QAbstractListModel):
                 # Small Grid (Pre-loaded)
                 item = logical_item.data
 
-            if role == Qt.ItemDataRole.DisplayRole:
-                return item.title if item else "Loading..."
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
+                return item.title if item else ("Loading..." if role == Qt.ItemDataRole.DisplayRole else None)
 
             if role == self.ItemDataRole:
                 if item is None and abs_idx != -1:

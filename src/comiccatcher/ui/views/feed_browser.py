@@ -10,7 +10,8 @@ import uuid
 from typing import Dict, Optional, Set
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QHBoxLayout, 
-    QMenu, QStackedWidget, QApplication, QPushButton
+    QMenu, QStackedWidget, QApplication, QPushButton,
+    QButtonGroup
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPoint
 from PyQt6.QtGui import QPixmap
@@ -116,15 +117,18 @@ class FeedBrowser(BaseBrowserView):
     download_requested = pyqtSignal(object, str) # pub, download_url
     selection_changed = pyqtSignal()
     page_loaded = pyqtSignal()
+    card_size_changed = pyqtSignal(str)
+    show_labels_changed = pyqtSignal(bool)
 
 
-    def __init__(self, opds_client: OPDS2Client, image_manager: ImageManager, config_manager=None, download_manager=None, parent=None, show_labels=True):
+    def __init__(self, opds_client: OPDS2Client, image_manager: ImageManager, config_manager=None, download_manager=None, parent=None):
         super().__init__(parent)
         self.opds_client = opds_client
         self.image_manager = image_manager
         self.config_manager = config_manager
         self.download_manager = download_manager
-        self._show_labels = show_labels
+        self._show_labels = self.config_manager.get_show_labels() if config_manager else True
+        self._card_size = self.config_manager.get_card_size() if config_manager else "medium"
         
         # Shared State
         self._current_context_id: float = 0
@@ -149,8 +153,8 @@ class FeedBrowser(BaseBrowserView):
         self._setup_toolbar()
         
         # 2. Setup Sub-Views
-        self.paged_view = PagedFeedView(self.image_manager, self._collapsed_sections, self)
-        self.scrolled_view = ScrolledFeedView(self.opds_client, self.image_manager, self._collapsed_sections, self)
+        self.paged_view = PagedFeedView(self.image_manager, self._collapsed_sections, self, card_size=self._card_size)
+        self.scrolled_view = ScrolledFeedView(self.opds_client, self.image_manager, self._collapsed_sections, self, card_size=self._card_size)
         self.loading_view = LoadingOverlay(self)
         self.error_view = ErrorOverlay(self)
         
@@ -333,6 +337,18 @@ class FeedBrowser(BaseBrowserView):
         self.btn_mode_scrolled.clicked.connect(lambda: self._on_paging_mode_changed("scrolled"))
         self.btn_mode_paged.clicked.connect(lambda: self._on_paging_mode_changed("paged"))
 
+        self.btn_card_small = self.create_header_button("card_small", "Small Cards", checkable=True)
+        self.btn_card_medium = self.create_header_button("card_medium", "Medium Cards", checkable=True)
+        self.btn_card_large = self.create_header_button("card_large", "Large Cards", checkable=True)
+        self.card_size_group = QButtonGroup(self)
+        self.card_size_group.setExclusive(True)
+        self.card_size_group.addButton(self.btn_card_small)
+        self.card_size_group.addButton(self.btn_card_medium)
+        self.card_size_group.addButton(self.btn_card_large)
+        self.btn_card_small.clicked.connect(lambda: self._on_card_size_changed("small"))
+        self.btn_card_medium.clicked.connect(lambda: self._on_card_size_changed("medium"))
+        self.btn_card_large.clicked.connect(lambda: self._on_card_size_changed("large"))
+
         self.btn_labels = self.create_header_button("label", "Toggle Labels", checkable=True)
         self.btn_labels.setChecked(self._show_labels)
         self.btn_labels.clicked.connect(self.toggle_labels)
@@ -356,6 +372,15 @@ class FeedBrowser(BaseBrowserView):
         paging_mode_layout.addWidget(self.btn_mode_paged)
         self.right_layout.addLayout(paging_mode_layout)
         self.right_layout.addSpacing(UIConstants.TOOLBAR_GAP)
+
+        card_size_layout = QHBoxLayout()
+        card_size_layout.setSpacing(0)
+        card_size_layout.addWidget(self.btn_card_small)
+        card_size_layout.addWidget(self.btn_card_medium)
+        card_size_layout.addWidget(self.btn_card_large)
+        self.right_layout.addLayout(card_size_layout)
+        self.right_layout.addSpacing(UIConstants.TOOLBAR_GAP)
+
         self.right_layout.addWidget(self.btn_labels)
         self.right_layout.addWidget(self.btn_select)
         self.right_layout.addWidget(self.btn_facets)
@@ -784,31 +809,75 @@ class FeedBrowser(BaseBrowserView):
                 opacity: 0.3;
             }}
         """
-        
+
         if hasattr(self, 'btn_mode_scrolled') and hasattr(self, 'btn_mode_paged'):
-            # Mode buttons: Segments use accent for the active one, text_dim for inactive
-            self.btn_mode_scrolled.setIcon(ThemeManager.get_icon("scrolling", "text_dim"))
-            self.btn_mode_paged.setIcon(ThemeManager.get_icon("paging", "text_dim"))
             self._style_segmented_group([self.btn_mode_scrolled, self.btn_mode_paged])
-            
+
+        if hasattr(self, 'btn_card_small') and hasattr(self, 'btn_card_medium') and hasattr(self, 'btn_card_large'):
+            self._style_segmented_group([self.btn_card_small, self.btn_card_medium, self.btn_card_large])
+
         if hasattr(self, 'btn_labels'):
-            # Label toggle: Use segmented style (even if solo) to match Library view
-            self.btn_labels.setIcon(ThemeManager.get_icon("label", "text_dim"))
             self._style_segmented_group([self.btn_labels])
 
         if hasattr(self, 'btn_select'):
-            self.btn_select.setIcon(ThemeManager.get_icon("select", "text_dim"))
             self._style_segmented_group([self.btn_select])
-            
+
         if hasattr(self, 'btn_facets'):
-            self.btn_facets.setIcon(ThemeManager.get_icon("filter", "text_dim"))
             self.btn_facets.setStyleSheet(btn_style)
 
+        self._refresh_toolbar_states()
+
+    def _on_card_size_changed(self, size: str):
+        if self._card_size == size: return
+        self._card_size = size
+        if self.config_manager:
+            self.config_manager.set_card_size(size)
+
+        self.paged_view.set_card_size(size)
+        self.scrolled_view.set_card_size(size)
+        self._refresh_toolbar_states()
+        self.card_size_changed.emit(size)
+
+    def _refresh_toolbar_states(self):
+        """Syncs button states and icons with current configuration."""
+        if hasattr(self, 'btn_mode_scrolled') and hasattr(self, 'btn_mode_paged'):
+            scrolled = self._paging_mode == "scrolled"
+            self.btn_mode_scrolled.setChecked(scrolled)
+            self.btn_mode_paged.setChecked(not scrolled)
+            self.btn_mode_scrolled.setIcon(ThemeManager.get_icon("scrolling", "accent" if scrolled else "text_dim"))
+            self.btn_mode_paged.setIcon(ThemeManager.get_icon("paging", "accent" if not scrolled else "text_dim"))
+
+        if hasattr(self, 'btn_card_small') and hasattr(self, 'btn_card_medium') and hasattr(self, 'btn_card_large'):
+            small = self._card_size == "small"
+            medium = self._card_size == "medium"
+            large = self._card_size == "large"
+            self.btn_card_small.setChecked(small)
+            self.btn_card_medium.setChecked(medium)
+            self.btn_card_large.setChecked(large)
+            self.btn_card_small.setIcon(ThemeManager.get_icon("card_small", "accent" if small else "text_dim"))
+            self.btn_card_medium.setIcon(ThemeManager.get_icon("card_medium", "accent" if medium else "text_dim"))
+            self.btn_card_large.setIcon(ThemeManager.get_icon("card_large", "accent" if large else "text_dim"))
+
+        if hasattr(self, 'btn_labels'):
+            self.btn_labels.setChecked(self._show_labels)
+            self.btn_labels.setIcon(ThemeManager.get_icon("label", "accent" if self._show_labels else "text_dim"))
+
+        if hasattr(self, 'btn_select'):
+            self.btn_select.setChecked(self._selection_mode)
+            self.btn_select.setIcon(ThemeManager.get_icon("select", "accent" if self._selection_mode else "text_dim"))
+
+        if hasattr(self, 'btn_facets'):
+            self.btn_facets.setIcon(ThemeManager.get_icon("filter", "text_dim"))
+
     def toggle_labels(self, enabled: bool):
+        if self._show_labels == enabled: return
         self._show_labels = enabled
+        if self.config_manager:
+            self.config_manager.set_show_labels(enabled)
         self.paged_view.set_show_labels(enabled)
         self.scrolled_view.set_show_labels(enabled)
         self.refresh_icons()
+        self.show_labels_changed.emit(enabled)
 
     def _show_mini_detail(self, item, index, view, model):
         """Displays the metadata popover for a publication card and triggers enrichment."""
@@ -817,7 +886,7 @@ class FeedBrowser(BaseBrowserView):
             return
 
         # 1. Immediate UI update with what we have
-        self._populate_mini_detail(item, model)
+        ViewportHelper.enrich_popover_for_item(self.detail_popover, item, self._last_loaded_url)
 
         # 2. Position and show (only on initial request)
         self.detail_popover.clear_actions()
@@ -878,117 +947,19 @@ class FeedBrowser(BaseBrowserView):
         download_url, _ = FeedReconciler._find_acquisition_link(item.raw_pub, self._last_loaded_url)
         btn_down.setEnabled(download_url is not None)
 
-        # 3. Position and show (Anchored to item rect)
-        item_rect = view.visualRect(index)
-        global_item_topleft = view.viewport().mapToGlobal(item_rect.topLeft())
-
-        # Anchoring logic similar to library view: 
-        # Show to the right of the card, centered vertically on the card
-        pop_x = global_item_topleft.x() + item_rect.width()
-        pop_y = global_item_topleft.y() + item_rect.height() // 2
-        arrow_side = "left"
-
-        screen = QApplication.primaryScreen().availableGeometry()
-        if pop_x + self.detail_popover.width() > screen.right():
-            # Show to the left instead
-            pop_x = global_item_topleft.x()
-            arrow_side = "right"
-
-        self.detail_popover.show_at(QPoint(pop_x, pop_y), arrow_side=arrow_side)
-        # 3. Check for manifest to enrich metadata
-        pub = item.raw_pub
-        manifest_url = None
-        for link in (pub.links or []):
-            if link.type in ["application/webpub+json", "application/divina+json", "application/opds-publication+json"]:
-                manifest_url = link.href
-                break
-
-        if manifest_url and self._last_loaded_url:
-            self._active_popover_load_id = str(uuid.uuid4())
-            full_url = urljoin(self._last_loaded_url, manifest_url)
-            self.detail_popover.set_loading(True)
-            asyncio.create_task(self._enrich_mini_detail(item, full_url, self._active_popover_load_id))
-        else:
-            self.detail_popover.set_loading(False)
-
-    def _populate_mini_detail(self, item, model):
-        """UI-only logic to update popover content from item.raw_pub."""
-        pub = item.raw_pub
-        if not pub or not pub.metadata: return
-
-        from comiccatcher.ui.components.mini_detail_popover import format_opds_publication
-        data = format_opds_publication(pub)
-
-        # 4. Configure Popover
-        self.detail_popover.set_show_cover(False)
-
-        self.detail_popover.populate(
-            data=data,
-            title=data.get("title"),
-            subtitle=data.get("subtitle")
+        # 3. Position and show
+        ViewportHelper.position_popover(self.detail_popover, view, index)
+        # 4. Enrichment
+        self._active_popover_load_id = ViewportHelper.trigger_manifest_enrichment(
+            self.detail_popover, 
+            item, 
+            self.opds_client, 
+            self._last_loaded_url,
+            lambda: self._active_popover_load_id
         )
-        # 5. Check acquisition to enable/disable download button
-        from comiccatcher.api.feed_reconciler import FeedReconciler
-        download_url, _ = FeedReconciler._find_acquisition_link(item.raw_pub, self._last_loaded_url)
-
-        # Find the download button in popover to update it
-        # (This is why returning the button from add_action was useful, but we also can find it)
-        for i in range(self.detail_popover.actions_layout.count()):
-            btn = self.detail_popover.actions_layout.itemAt(i).widget()
-            if isinstance(btn, QPushButton) and btn.property("icon_name") == "download":
-                btn.setEnabled(download_url is not None)
-                break
-
-
-    async def _enrich_mini_detail(self, item, full_url, load_id):
-        """Async worker to fetch full manifest and update popover."""
-        try:
-            full_pub = await self.opds_client.get_publication(full_url)
-
-            # Verify we are still looking at the same request and widget is alive
-            try:
-                if load_id != self._active_popover_load_id or not self.detail_popover:
-                    return
-            except RuntimeError:
-                return # Popover likely deleted
-
-            # Stop loading indicator
-            try:
-                self.detail_popover.set_loading(False)
-            except RuntimeError:
-                pass
-
-            # Merge metadata carefully (logic from FeedDetailView)
-            pub = item.raw_pub
-            if not full_pub.images and pub.images: full_pub.images = pub.images
-            if full_pub.metadata and pub.metadata:
-                if not full_pub.metadata.description and pub.metadata.description: 
-                    full_pub.metadata.description = pub.metadata.description
-                if not full_pub.metadata.numberOfBytes and pub.metadata.numberOfBytes:
-                    full_pub.metadata.numberOfBytes = pub.metadata.numberOfBytes
-            elif not full_pub.metadata and pub.metadata:
-                full_pub.metadata = pub.metadata
-
-            # Update the item so subsequent clicks are "already enriched"
-            item.raw_pub = full_pub
-
-            # Update UI if popover is still visible
-            try:
-                if self.detail_popover.isVisible():
-                    self._populate_mini_detail(item, None)
-            except RuntimeError:
-                pass
-
-        except Exception as e:
-            logger.error(f"Failed to enrich popover metadata from {full_url}: {e}")
-            try:
-                if load_id == self._active_popover_load_id:
-                    self.detail_popover.set_loading(False)
-            except RuntimeError:
-                pass
-
 
     def _on_mini_detail_download(self, item):
+
         """Starts a download for a single item from the popover."""
         from comiccatcher.api.feed_reconciler import FeedReconciler
         pub = item.raw_pub

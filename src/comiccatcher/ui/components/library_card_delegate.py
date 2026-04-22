@@ -11,8 +11,8 @@ from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
 from comiccatcher.ui.components.mini_detail_popover import MiniDetailPopover
 
 class LibraryCardDelegate(BaseCardDelegate):
-    def __init__(self, parent=None, show_labels=True, image_manager=None, folder_icon="folder"):
-        super().__init__(parent, show_labels=show_labels)
+    def __init__(self, parent=None, show_labels=True, image_manager=None, folder_icon="folder", card_size="medium"):
+        super().__init__(parent, show_labels=show_labels, card_size=card_size)
         self.image_manager = image_manager
         self.folder_icon = folder_icon
 
@@ -64,7 +64,8 @@ class LibraryCardDelegate(BaseCardDelegate):
             progress_color=option.palette.highlight().color(),
             image_manager=self.image_manager,
             dim_cover=dim_cover,
-            reserve_progress_space=self.reserve_progress_space
+            reserve_progress_space=self.reserve_progress_space,
+            card_size=self.card_size
         )
         
         self.paint_card(painter, option, theme, config)

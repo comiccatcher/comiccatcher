@@ -25,6 +25,6 @@ $VENV_PYTHON src/comiccatcher/main.py --timeout 5
 
 # 2. Then run the integrity script to catch missing imports and undefined symbols
 echo "🔍 Running Integrity Check..."
-$VENV_PYTHON scripts/validate_integrity.py
+$VENV_PYTHON scripts/ops/validate_integrity.py
 
 echo "✅ Smoke Test: App launched and exited cleanly."
