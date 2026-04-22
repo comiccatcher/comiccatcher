@@ -127,3 +127,140 @@ class ViewportHelper:
             
         if on_done_callback:
             on_done_callback()
+
+    @staticmethod
+    def position_popover(popover, view, index_or_item):
+        """
+        Calculates and applies the optimal bubble position for a popover anchored to a list item.
+        Handles screen boundary detection and arrow side selection.
+        Supports both QListView (index) and QListWidget (item).
+        """
+        from PyQt6.QtWidgets import QApplication, QListWidget
+        from PyQt6.QtCore import QPoint
+        
+        if not view:
+            return
+            
+        # 1. Get item global rect
+        if isinstance(view, QListWidget):
+            item_rect = view.visualItemRect(index_or_item)
+        else:
+            item_rect = view.visualRect(index_or_item)
+            
+        global_item_topleft = view.viewport().mapToGlobal(item_rect.topLeft())
+
+        # 2. Default: Show to the right of the card, centered vertically
+        pop_x = global_item_topleft.x() + item_rect.width()
+        pop_y = global_item_topleft.y() + item_rect.height() // 2
+        arrow_side = "left"
+
+        # 3. Screen boundary check
+        screen = QApplication.primaryScreen().availableGeometry()
+        if pop_x + popover.width() > screen.right():
+            # Show to the left instead
+            pop_x = global_item_topleft.x()
+            arrow_side = "right"
+
+        popover.show_at(QPoint(pop_x, pop_y), arrow_side=arrow_side)
+
+    @staticmethod
+    def enrich_popover_for_item(popover, item, last_loaded_url: Optional[str] = None):
+        """
+        Standardizes the metadata population for a MiniDetailPopover from a FeedItem.
+        Ensures consistent presentation (no thumbnail) and field formatting.
+        Also updates action button states (like Download) if last_loaded_url is provided.
+        """
+        if not item or not item.raw_pub:
+            return
+
+        from comiccatcher.ui.components.mini_detail_popover import format_opds_publication
+        data = format_opds_publication(item.raw_pub)
+
+        # Standards: No thumbnail in mini-details, use title/subtitle from formatted data
+        popover.set_show_cover(False)
+        popover.populate(
+            data=data,
+            title=data.get("title"),
+            subtitle=data.get("subtitle")
+        )
+
+        # Update action button states (e.g. Download)
+        if last_loaded_url:
+            from comiccatcher.api.feed_reconciler import FeedReconciler
+            download_url, _ = FeedReconciler._find_acquisition_link(item.raw_pub, last_loaded_url)
+            
+            # Find the download button in popover to update it
+            from PyQt6.QtWidgets import QPushButton
+            for i in range(popover.actions_layout.count()):
+                btn = popover.actions_layout.itemAt(i).widget()
+                if isinstance(btn, QPushButton) and btn.property("icon_name") == "download":
+                    btn.setEnabled(download_url is not None)
+                    break
+
+    @staticmethod
+    def trigger_manifest_enrichment(popover, item, opds_client, last_loaded_url: Optional[str], active_load_id_getter: Callable[[], str]):
+        """
+        Detects if an item has a JSON manifest and triggers an async enrichment fetch.
+        Updates the popover metadata once fetched, ensuring loading states are managed.
+        """
+        from urllib.parse import urljoin
+        import uuid
+        
+        pub = item.raw_pub
+        manifest_url = None
+        for link in (pub.links or []):
+            if link.type in ["application/webpub+json", "application/divina+json", "application/opds-publication+json"]:
+                manifest_url = link.href
+                break
+
+        if manifest_url and last_loaded_url:
+            load_id = str(uuid.uuid4())
+            # We assume the caller manages the 'active' load ID to prevent race conditions
+            # on the shared popover widget.
+            full_url = urljoin(last_loaded_url, manifest_url)
+            popover.set_loading(True)
+            
+            async def _do_enrich():
+                try:
+                    full_pub = await opds_client.get_publication(full_url)
+                    
+                    # Verify we are still looking at the same request
+                    try:
+                        if load_id != active_load_id_getter() or not popover:
+                            return
+                    except (RuntimeError, AttributeError):
+                        return 
+
+                    # Stop loading indicator
+                    try:
+                        popover.set_loading(False)
+                    except (RuntimeError, AttributeError):
+                        pass
+
+                    # Merge logic (preserving descriptions/bytes if better in original)
+                    if not full_pub.images and pub.images: full_pub.images = pub.images
+                    if full_pub.metadata and pub.metadata:
+                        if not full_pub.metadata.description and pub.metadata.description: 
+                            full_pub.metadata.description = pub.metadata.description
+                        if not full_pub.metadata.numberOfBytes and pub.metadata.numberOfBytes:
+                            full_pub.metadata.numberOfBytes = pub.metadata.numberOfBytes
+                    
+                    # Update item with enriched data
+                    item.raw_pub = full_pub
+                    
+                    # Refresh Popover UI (with button state update)
+                    ViewportHelper.enrich_popover_for_item(popover, item, last_loaded_url)
+                    
+                except Exception as e:
+                    from comiccatcher.logger import get_logger
+                    get_logger("ui.view_helpers").debug(f"Manifest enrichment failed for {full_url}: {e}")
+                    try:
+                        popover.set_loading(False)
+                    except (RuntimeError, AttributeError):
+                        pass
+            
+            asyncio.create_task(_do_enrich())
+            return load_id
+        else:
+            popover.set_loading(False)
+            return None

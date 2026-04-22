@@ -2,17 +2,16 @@
 # AI-typical patterns. Not recommended as ML training data.
 
 import asyncio
-import traceback
 import uuid
 from pathlib import Path
-from typing import List, Union, Any, Optional, Set, Tuple
+from typing import Optional, Dict
 from urllib.parse import urljoin
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QScrollArea, QFrame, QProgressBar
+    QWidget, QHBoxLayout, QLabel, QPushButton, 
+    QFrame
 )
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
 
@@ -20,15 +19,13 @@ from comiccatcher.logger import get_logger
 from comiccatcher.api.image_manager import ImageManager
 from comiccatcher.api.opds_v2 import OPDSClientError
 from comiccatcher.api.progression import ProgressionSync
-from comiccatcher.models.opds import Publication, Contributor, Link
-from comiccatcher.models.feed_page import FeedItem
+from comiccatcher.models.opds import Publication, Metadata
 from comiccatcher.api.feed_reconciler import FeedReconciler
 from comiccatcher.ui.flow_layout import FlowLayout
-from comiccatcher.ui.image_data import TRANSPARENT_DATA_URL
 from comiccatcher.ui.views.base_detail import BaseDetailView
 from comiccatcher.ui.utils import format_artist_credits, format_publication_date, format_file_size, parse_opds_date
-from comiccatcher.ui.components.base_ribbon import BaseCardRibbon
-from comiccatcher.ui.components.feed_card_delegate import FeedCardDelegate
+from comiccatcher.ui.components.base_ribbon import BaseCardRibbon, FeedCardRibbon
+from comiccatcher.ui.components.mini_detail_popover import MiniDetailPopover, format_opds_publication
 from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
 from comiccatcher.ui.view_helpers import ViewportHelper
 
@@ -97,6 +94,8 @@ class FeedDetailView(BaseDetailView):
         self._active_load_id = None
         self._pending_covers: Dict[str, asyncio.Task] = {} # url -> Task
         
+        self.detail_popover = MiniDetailPopover(self)
+
         # Monitor scrolling to trigger cover fetches for carousels
         self.scroll.verticalScrollBar().valueChanged.connect(lambda: self._on_scroll_debounced())
         self._scroll_timer = QTimer(self)
@@ -735,15 +734,11 @@ class FeedDetailView(BaseDetailView):
                     self.content_layout.insertLayout(self.content_layout.count() - 1, header)
                     
                     # Use a horizontal ribbon-style list view
-                    model = FeedBrowserModel()
-                    delegate = FeedCardDelegate(self, self.image_manager, show_labels=True)
-                    
-                    view = BaseCardRibbon(self, show_labels=True)
-                    view.setModel(model)
+                    view = FeedCardRibbon(self, self.image_manager, show_labels=True, card_size="small")
+                    model = view.model()
                     model.cover_request_needed.connect(self._on_cover_request)
-                    view.setItemDelegate(delegate)
-                    view.update_ribbon_height()
                     view.clicked.connect(self._on_carousel_clicked)
+                    view.mini_detail_requested.connect(self._on_mini_detail_requested)
                     
                     self.content_layout.insertWidget(self.content_layout.count() - 1, view)
                     self.reapply_theme()
@@ -755,6 +750,57 @@ class FeedDetailView(BaseDetailView):
         item = model.data(index, FeedBrowserModel.ItemDataRole)
         if item and item.raw_pub:
             self.on_open_detail(item.raw_pub, self._current_base_url)
+
+    def _on_mini_detail_requested(self, item, index, view, model):
+        """Show the metadata popover for a publication card in a carousel."""
+        from comiccatcher.models.feed_page import ItemType
+        if not item or item.type != ItemType.BOOK or not item.raw_pub:
+            return
+
+        pub = item.raw_pub
+        
+        # 1. Populate metadata using standardized helper (no thumbnail per requirement)
+        ViewportHelper.enrich_popover_for_item(self.detail_popover, item, self._current_base_url)
+        
+        # 2. Add Actions (No select button in Detail view)
+        self.detail_popover.clear_actions()
+        
+        # Details Action
+        self.detail_popover.add_action("eye", "Details", 
+                                      lambda: self.on_open_detail(pub, self._current_base_url))
+        
+        # Read Action (if readable)
+        has_readable = any(getattr(link, 'rel', None) == "http://opds-spec.org/acquisition" and 
+                          (getattr(link, 'type', '').startswith("application/epub+zip") or 
+                           getattr(link, 'type', '').startswith("application/pdf") or
+                           getattr(link, 'type', '').endswith("cbz") or 
+                           getattr(link, 'type', '').endswith("cbr"))
+                          for link in pub.links)
+        if has_readable:
+            self.detail_popover.add_action("book-open", "Read", 
+                                          lambda: self.on_read(pub))
+
+        # Download Action
+        from comiccatcher.api.feed_reconciler import FeedReconciler
+        download_url, _ = FeedReconciler._find_acquisition_link(pub, self._current_base_url)
+        if download_url:
+            self.detail_popover.add_action("download", "Download", 
+                                          lambda u=download_url: self.on_start_download(pub, u))
+
+        # 3. Position and show using standardized helper
+        ViewportHelper.position_popover(self.detail_popover, view, index)
+
+        # 4. Trigger Enrichment (if applicable)
+        if not hasattr(self, "_active_popover_load_id"):
+            self._active_popover_load_id = None
+            
+        self._active_popover_load_id = ViewportHelper.trigger_manifest_enrichment(
+            self.detail_popover,
+            item,
+            self.opds_client,
+            self._current_base_url,
+            lambda: self._active_popover_load_id
+        )
 
     async def _load_carousel_data(self, url, model):
         try:

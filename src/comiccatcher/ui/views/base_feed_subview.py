@@ -28,6 +28,13 @@ class BaseFeedSubView(QWidget):
         self._collapsed_sections = collapsed_sections
         self._show_labels = True
         self._selection_mode = False
+        self._card_size = "medium"
+
+    def set_show_labels(self, show: bool):
+        self._show_labels = show
+
+    def set_card_size(self, size: str):
+        self._card_size = size
 
     def configure_list_view(self, view: QListView):
         """Applies standardized settings to a QListView for consistent card rendering."""
@@ -54,21 +61,22 @@ class BaseFeedSubView(QWidget):
             if dy != 0:
                 sb = self._get_target_scrollbar()
                 if sb:
+                    # Use standard wheel scroll amount
                     step = UIConstants.scale(20)
                     sb.setValue(sb.value() - (dy * step) // 120)
-                    return True # Eat the event so the internal widget doesn't nudge
+                    return True 
 
-        # 2. Shared cursor management for all list viewports
+        # 2. Cursor management for list viewports (only for those not handling it themselves)
         if event.type() == QEvent.Type.MouseMove:
-            # Find which view this viewport belongs to
-            views = self._get_all_subviews()
-            for view in views:
-                if source is view.viewport():
-                    index = view.indexAt(event.pos())
-                    view.setCursor(
-                        Qt.CursorShape.PointingHandCursor if index.isValid()
-                        else Qt.CursorShape.ArrowCursor)
-                    break
+            view = source.parent()
+            if isinstance(view, QListView) and not hasattr(view, 'mouseMoveEvent_overridden'):
+                # Only do this if the view isn't a BaseCardRibbon (which handles its own)
+                # or if we really need centralized control.
+                # For now, let's just make sure we aren't looping.
+                index = view.indexAt(event.pos())
+                view.setCursor(
+                    Qt.CursorShape.PointingHandCursor if index.isValid()
+                    else Qt.CursorShape.ArrowCursor)
 
         return super().eventFilter(source, event)
 
@@ -95,20 +103,20 @@ class BaseFeedSubView(QWidget):
         sp = UIConstants.GRID_GUTTER
 
         # We account for a bit of horizontal padding to avoid tight fits
-        effective_w = UIConstants.CARD_WIDTH + sp
+        effective_w = UIConstants.get_card_width(self._card_size) + sp
         cols = max(1, vp_w // effective_w)
 
         # Use the centralized height helper - disable progress space for feeds
-        row_h = UIConstants.get_card_height(self._show_labels, reserve_progress_space=False) + sp
+        row_h = UIConstants.get_card_height(self._show_labels, reserve_progress_space=False, card_size=self._card_size) + sp
 
         return cols, row_h, sp
 
     def get_ribbon_height(self) -> int:
         """Returns consistent height for ribbon sections."""
-        # Use the centralized metric from UIConstants
-        scrollbar_h = UIConstants.SCROLLBAR_SIZE
+        # Use the specialized ribbon scrollbar height
+        scrollbar_h = UIConstants.RIBBON_SCROLLBAR_HEIGHT
         # Feed ribbons NEVER show progress bars
-        card_h = UIConstants.get_card_height(self._show_labels, reserve_progress_space=False)
+        card_h = UIConstants.get_card_height(self._show_labels, reserve_progress_space=False, card_size=self._card_size)
 
         # Ribbon height = Card + Gutter + Scrollbar
         return card_h + UIConstants.RIBBON_SCROLLBAR_GUTTER + scrollbar_h

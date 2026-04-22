@@ -1,7 +1,6 @@
 # NOTE: This file was generated with AI assistance and may contain 
 # AI-typical patterns. Not recommended as ML training data.
 
-import os
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QColor, QPalette, QIcon
@@ -159,10 +158,19 @@ class UIConstants:
     _BASE_READER_FONT_COUNTER = 16
     
     _BASE_CARD_WIDTH = 150
+    _BASE_CARD_WIDTH_SMALL = 110
+    _BASE_CARD_WIDTH_MEDIUM = 150
+    _BASE_CARD_WIDTH_LARGE = 210
+
     _BASE_CARD_HEIGHT = 250
     _BASE_CARD_SPACING = 10
     _BASE_CARD_LABEL_HEIGHT = 55
+
     _BASE_CARD_COVER_HEIGHT = 180
+    _BASE_CARD_COVER_HEIGHT_SMALL = 132
+    _BASE_CARD_COVER_HEIGHT_MEDIUM = 180
+    _BASE_CARD_COVER_HEIGHT_LARGE = 252
+
     _BASE_CARD_PADDING = 5
     _BASE_CARD_MARGIN_TOP = 2
     _BASE_CARD_ROUNDING = 5
@@ -181,7 +189,8 @@ class UIConstants:
     
     _BASE_GRID_GUTTER = 10
     _BASE_RIBBON_LABEL_GAP = 25
-    _BASE_RIBBON_SCROLLBAR_GUTTER = 8
+    _BASE_RIBBON_SCROLLBAR_GUTTER = 10
+    _BASE_RIBBON_SCROLLBAR_HEIGHT = 6
     _BASE_LARGE_SECTION_THRESHOLD = 200
     _BASE_VIEWPORT_MARGIN = 20
     
@@ -189,7 +198,7 @@ class UIConstants:
     _BASE_SKELETON_ROUNDING = 3
     
     _BASE_SECTION_SPACING = 2
-    _BASE_SECTION_MARGIN_BOTTOM = 0
+    _BASE_SECTION_MARGIN_BOTTOM = 10
     _BASE_SECTION_HEADER_SPACING = 5
     _BASE_SECTION_HEADER_MARGIN_TOP = 2
     _BASE_SECTION_HEADER_HEIGHT = 30
@@ -262,6 +271,7 @@ class UIConstants:
     GRID_GUTTER = _BASE_GRID_GUTTER
     RIBBON_LABEL_GAP = _BASE_RIBBON_LABEL_GAP
     RIBBON_SCROLLBAR_GUTTER = _BASE_RIBBON_SCROLLBAR_GUTTER
+    RIBBON_SCROLLBAR_HEIGHT = 6
     LARGE_SECTION_THRESHOLD = _BASE_LARGE_SECTION_THRESHOLD
     VIEWPORT_MARGIN = _BASE_VIEWPORT_MARGIN
     SKELETON_PADDING = _BASE_SKELETON_PADDING
@@ -297,7 +307,17 @@ class UIConstants:
     DEBUG_OUTLINES = False
 
     @classmethod
-    def get_card_height(cls, show_labels: bool, reserve_progress_space: bool = True) -> int:
+    def get_card_width(cls, size: str = "medium") -> int:
+        base = getattr(cls, f"_BASE_CARD_WIDTH_{size.upper()}", cls._BASE_CARD_WIDTH_MEDIUM)
+        return cls.scale(base)
+
+    @classmethod
+    def get_card_cover_height(cls, size: str = "medium") -> int:
+        base = getattr(cls, f"_BASE_CARD_COVER_HEIGHT_{size.upper()}", cls._BASE_CARD_COVER_HEIGHT_MEDIUM)
+        return cls.scale(base)
+
+    @classmethod
+    def get_card_height(cls, show_labels: bool, reserve_progress_space: bool = True, card_size: str = "medium") -> int:
         """Returns the total vertical height of a card based on visibility of labels and progress bar space."""
         p = cls.CARD_PADDING
         
@@ -309,7 +329,7 @@ class UIConstants:
         height += (p * 2)
         
         # 3. Content: The Cover image
-        height += cls.CARD_COVER_HEIGHT
+        height += cls.get_card_cover_height(card_size)
         
         # 4. Optional: Progress Bar Area + Gap
         if reserve_progress_space:
@@ -435,6 +455,7 @@ class UIConstants:
         cls.GRID_GUTTER = cls.scale(cls._BASE_GRID_GUTTER)
         cls.RIBBON_LABEL_GAP = cls.scale(cls._BASE_RIBBON_LABEL_GAP)
         cls.RIBBON_SCROLLBAR_GUTTER = cls.scale(cls._BASE_RIBBON_SCROLLBAR_GUTTER)
+        cls.RIBBON_SCROLLBAR_HEIGHT = cls.scale(cls._BASE_RIBBON_SCROLLBAR_HEIGHT)
         cls.LARGE_SECTION_THRESHOLD = cls._BASE_LARGE_SECTION_THRESHOLD
         cls.VIEWPORT_MARGIN = cls.scale(cls._BASE_VIEWPORT_MARGIN)
         
@@ -466,7 +487,8 @@ class UIConstants:
 
 class ThemeManager:
     _current_theme: str = "dark"
-    _icon_cache: dict = {}
+    _icon_cache: dict = {}    # name, color -> QIcon
+    _pixmap_cache: dict = {}  # name, color, size -> QPixmap
 
     @classmethod
     def get_current_theme_colors(cls) -> dict:
@@ -490,13 +512,17 @@ class ThemeManager:
         theme = THEMES.get(cls._current_theme, THEMES["dark"])
         
         def generate_pixmap(target_color):
+            size = UIConstants.scale(64)
+            pix_key = (name, target_color, size)
+            if pix_key in cls._pixmap_cache:
+                return cls._pixmap_cache[pix_key]
+                
             try:
                 from PyQt6.QtCore import QByteArray, Qt
                 from PyQt6.QtGui import QPixmap, QPainter
                 from PyQt6.QtSvg import QSvgRenderer
                 import re
                 
-                # logger.debug(f"ThemeManager: generate_pixmap for {name} with color {target_color}")
                 svg_text = path.read_text(encoding='utf-8')
                 
                 def color_replacer(match):
@@ -512,12 +538,15 @@ class ThemeManager:
                 if not renderer.isValid():
                     return None
                     
-                size = UIConstants.scale(64)
                 pixmap = QPixmap(size, size)
                 pixmap.fill(Qt.GlobalColor.transparent)
                 painter = QPainter(pixmap)
                 renderer.render(painter)
                 painter.end()
+                
+                if len(cls._pixmap_cache) > 500:
+                    cls._pixmap_cache.clear()
+                cls._pixmap_cache[pix_key] = pixmap
                 return pixmap
             except Exception:
                 return None
@@ -559,6 +588,7 @@ class ThemeManager:
         
         cls._current_theme = theme_name
         cls._icon_cache.clear()
+        cls._pixmap_cache.clear()
         theme = THEMES.get(theme_name, THEMES["dark"])
         
         stylesheet = f"""
@@ -574,6 +604,14 @@ class ThemeManager:
             /* Broad text settings */
             QWidget {{
                 font-size: {UIConstants.FONT_SIZE_DEFAULT}px;
+            }}
+
+            QToolTip {{
+                background-color: {theme['bg_header']};
+                color: {theme['text_main']};
+                border: {max(1, s(1))}px solid {theme['border']};
+                border-radius: {s(4)}px;
+                padding: {s(4)}px;
             }}
 
             QLabel, QRadioButton, QCheckBox {{

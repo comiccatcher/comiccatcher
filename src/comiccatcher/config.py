@@ -43,6 +43,7 @@ class ConfigManager:
             "scroll_method": "continuous",  # "continuous", "paging", or "refit"
             "library_dir": str(DEFAULT_LIBRARY_DIR),
             "show_labels": True,
+            "card_size": "medium",
             "library_view_mode": 0, # 0: Folders, 1: Series, 2: Alpha, etc.
             "last_view_type": "library", # "library" or "feed"
             "last_feed_id": None,
@@ -197,6 +198,13 @@ class ConfigManager:
 
     def set_show_labels(self, val: bool):
         self.settings["show_labels"] = val
+        self.save_settings()
+
+    def get_card_size(self) -> str:
+        return self.settings.get("card_size", "medium")
+
+    def set_card_size(self, val: str):
+        self.settings["card_size"] = val
         self.save_settings()
 
     def get_library_display_mode(self) -> str:

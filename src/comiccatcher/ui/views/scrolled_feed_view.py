@@ -22,19 +22,18 @@ original implementation is preserved unchanged.
 import asyncio
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
-from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal, QSize
 from PyQt6.QtWidgets import (
     QAbstractItemView, QAbstractScrollArea, QFrame, QListView, QWidget,
 )
 
 from comiccatcher.api.feed_reconciler import FeedReconciler
-from comiccatcher.api.opds_v2 import OPDSClientError
 from comiccatcher.logger import get_logger
-from comiccatcher.models.feed_page import FeedItem, FeedPage, FeedSection, ItemType, SectionLayout
+from comiccatcher.models.feed_page import FeedPage, FeedSection, ItemType, SectionLayout
 
-from comiccatcher.ui.components.base_ribbon import BaseCardRibbon
+from comiccatcher.ui.components.base_ribbon import BaseCardRibbon, FeedCardRibbon
 from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
 from comiccatcher.ui.components.feed_card_delegate import FeedCardDelegate
 from comiccatcher.ui.components.section_header import SectionHeader
@@ -55,14 +54,9 @@ class _SectionDesc:
 
     @property
     def total_h(self) -> int:
-        """Total vertical footprint of this section, including bottom margins."""
-        h = self.header_h + self.content_h
-        # Mirror CollapsibleSection / QVBoxLayout behavior:
-        # 1. Internal bottom margin of the section
-        h += UIConstants.SECTION_MARGIN_BOTTOM
-        # 2. Outer spacing between sections in the main layout
-        h += UIConstants.SECTION_SPACING
-        return h
+        """Total vertical footprint of this section, including internal margins."""
+        # Spacing BETWEEN sections is applied in _recompute_positions to match QVBoxLayout behavior.
+        return self.header_h + self.content_h + UIConstants.SECTION_MARGIN_BOTTOM
 
     is_grid: bool = False   # set by render() based on _main_grid_sid, not section.layout
 
@@ -95,9 +89,10 @@ class ScrolledFeedView(BaseFeedSubView):
 
     # ------------------------------------------------------------------ init --
 
-    def __init__(self, opds_client, image_manager, collapsed_sections: Set[str], parent=None):
+    def __init__(self, opds_client, image_manager, collapsed_sections: Set[str], parent=None, card_size="medium"):
         super().__init__(image_manager, collapsed_sections, parent)
         self.opds_client = opds_client
+        self._card_size = card_size
 
         # Scrollable container — viewport() is a properly-clipping QWidget
         self._impl = _ScrollImpl(self)
@@ -179,15 +174,15 @@ class ScrolledFeedView(BaseFeedSubView):
         if main and main.total_items is None and self._next_url:
             self._is_infinite_grid = True
             page.sections = [s for s in page.sections if s != main] + [main]
-            logger.debug(f"ScrolledFeedView: 'Infinite Grid' Mode enabled. Reordered main section to end.")
+            logger.debug("ScrolledFeedView: 'Infinite Grid' Mode enabled. Reordered main section to end.")
         elif not main and self._next_url and not has_root_content:
             # ONLY enter infinite sections if the feed lacks root-level lists.
             self._is_infinite_sections = True
-            logger.debug(f"ScrolledFeedView: 'Infinite Sections' Mode enabled.")
+            logger.debug("ScrolledFeedView: 'Infinite Sections' Mode enabled.")
         elif main and main.total_items is not None:
-            logger.debug(f"ScrolledFeedView: 'Virtualized Grid' Mode enabled.")
+            logger.debug("ScrolledFeedView: 'Virtualized Grid' Mode enabled.")
         else:
-            logger.debug(f"ScrolledFeedView: Static Mode enabled (no pagination).")
+            logger.debug("ScrolledFeedView: Static Mode enabled (no pagination).")
 
         # Robust items_per_page detection:
         # 1. Use metadata if the reconciler found it
@@ -272,6 +267,31 @@ class ScrolledFeedView(BaseFeedSubView):
             view.doItemsLayout()
         
         # Recalibrate heights immediately based on new label state
+        self._refresh_layout_full()
+
+    def set_card_size(self, size: str):
+        self._card_size = size
+        for ribbon in self._ribbons.values():
+            if hasattr(ribbon, 'card_size'):
+                ribbon.card_size = size
+            ribbon.viewport().update()
+            ribbon.doItemsLayout()
+        for view in self._grids.values():
+            d = view.itemDelegate()
+            if hasattr(d, 'card_size'):
+                d.card_size = size
+            
+            if not hasattr(view, 'update_ribbon_height'):
+                view.setIconSize(QSize(UIConstants.get_card_width(size), UIConstants.get_card_height(self._show_labels, reserve_progress_space=False, card_size=size)))
+            
+            view.viewport().update()
+            view.doItemsLayout()
+        
+        # Recalibrate heights immediately based on new size state
+        self._refresh_layout_full()
+
+    def _refresh_layout_full(self):
+        """Helper to recompute and update all layout components."""
         self._recompute_positions()
         self._update_scrollbar()
         self._update_layout()
@@ -344,7 +364,7 @@ class ScrolledFeedView(BaseFeedSubView):
 
         self._descs_dict.clear()
         y = 0
-        for desc in self._descs:
+        for i, desc in enumerate(self._descs):
             sid = desc.section.section_id
             self._descs_dict[sid] = desc
             
@@ -363,14 +383,16 @@ class ScrolledFeedView(BaseFeedSubView):
                 if total == 0:
                     desc.content_h = 0
                 else:
-                    # Add a tiny bottom gutter (matching GRID_GUTTER) to the grid container height.
-                    # This ensures that visibility probes (indexAt) performed near the bottom edge
-                    # of the widget reliably hit actual card content instead of falling into the 
-                    # dead zone at the widget's physical boundary.
-                    desc.content_h = (math.ceil(total / cols) * row_h) + UIConstants.GRID_GUTTER
+                    # Grid height matches the exact content height (rows * row_h).
+                    # row_h already includes GRID_SPACING, providing a natural bottom gutter.
+                    desc.content_h = (math.ceil(total / cols) * row_h)
             else:
                 desc.content_h = self.get_ribbon_height()
+            
             y += desc.total_h
+            if i < len(self._descs) - 1:
+                y += UIConstants.SECTION_SPACING
+        
         self._total_height = y
 
     def _update_scrollbar(self):
@@ -554,7 +576,10 @@ class ScrolledFeedView(BaseFeedSubView):
         model.page_request_needed.connect(self._on_page_needed)
         model.cover_request_needed.connect(self.cover_request_needed.emit)
 
-        delegate = FeedCardDelegate(view, self.image_manager, show_labels=self._show_labels)
+        # Standard icon size for cards
+        view.setIconSize(QSize(UIConstants.get_card_width(self._card_size), UIConstants.get_card_height(self._show_labels, reserve_progress_space=False, card_size=self._card_size)))
+        
+        delegate = FeedCardDelegate(view, self.image_manager, show_labels=self._show_labels, card_size=self._card_size)
         view.setModel(model)
         view.setItemDelegate(delegate)
         view.clicked.connect(lambda idx, m=model: self._on_grid_clicked(idx, m))
@@ -564,21 +589,17 @@ class ScrolledFeedView(BaseFeedSubView):
         self._models[sec.section_id] = model
         return view
 
-    def _make_ribbon(self, sec: FeedSection) -> BaseCardRibbon:
-        ribbon = BaseCardRibbon(self._vp, show_labels=self._show_labels, reserve_progress_space=False)
-        ribbon.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        ribbon.viewport().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+    def _make_ribbon(self, sec: FeedSection) -> FeedCardRibbon:
+        ribbon = FeedCardRibbon(self._vp, self.image_manager, show_labels=self._show_labels, reserve_progress_space=False, card_size=self._card_size)
         # Register for unified wheel/cursor handling
         ribbon.viewport().installEventFilter(self)
-        rmodel = FeedBrowserModel(items_per_page=max(1, len(sec.items)))
+        rmodel = ribbon.model()
+        rmodel.items_per_page = max(1, len(sec.items))
         rmodel.set_items_for_page(1, sec.items)
-        ribbon.setModel(rmodel)
         rmodel.cover_request_needed.connect(self.cover_request_needed.emit)
-        ribbon.setItemDelegate(
-            FeedCardDelegate(ribbon, self.image_manager, self._show_labels))
         ribbon.clicked.connect(
             lambda idx, m=rmodel: self._on_ribbon_clicked(idx, m))
-        ribbon.customContextMenuRequested.connect(lambda pos, v=ribbon, m=rmodel: self._on_custom_context_menu(pos, v, m))
+        ribbon.mini_detail_requested.connect(self.mini_detail_requested)
         ribbon.hide()
         return ribbon
 

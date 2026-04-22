@@ -1,22 +1,20 @@
 # NOTE: This file was generated with AI assistance and may contain 
 # AI-typical patterns. Not recommended as ML training data.
 
-import asyncio
 import math
-from typing import List, Optional, Set, Any
+from typing import List, Set
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QListView, QScrollArea, QSizePolicy, QPushButton, QFrame
+    QWidget, QVBoxLayout, QListView, QScrollArea, QSizePolicy, QFrame
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer, QEvent, QPoint, QRect
+from PyQt6.QtCore import Qt, QSize, QTimer, QPoint, QRect
 
 from comiccatcher.models.feed_page import FeedPage, FeedSection, FeedItem, SectionLayout, ItemType
 from comiccatcher.ui.theme_manager import UIConstants, ThemeManager
 from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
 from comiccatcher.ui.components.feed_card_delegate import FeedCardDelegate
-from comiccatcher.ui.components.base_ribbon import BaseCardRibbon
+from comiccatcher.ui.components.base_ribbon import FeedCardRibbon
 from comiccatcher.ui.components.collapsible_section import CollapsibleSection
 from comiccatcher.ui.views.base_feed_subview import BaseFeedSubView
-from comiccatcher.ui.view_helpers import ViewportHelper
 from comiccatcher.logger import get_logger
 
 logger = get_logger("ui.paged_feed_view")
@@ -27,9 +25,10 @@ class PagedFeedView(BaseFeedSubView):
     Strictly paged: only shows what the server provided in the current payload.
     """
     
-    def __init__(self, image_manager, collapsed_sections: Set[str], parent=None):
+    def __init__(self, image_manager, collapsed_sections: Set[str], parent=None, card_size="medium"):
         super().__init__(image_manager, collapsed_sections, parent)
         self._section_views: List[QListView] = []
+        self._card_size = card_size
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -80,6 +79,24 @@ class PagedFeedView(BaseFeedSubView):
         # Immediate update instead of debounced
         self._do_recalculate_heights()
 
+    def set_card_size(self, size: str):
+        self._card_size = size
+        for view in self._section_views:
+            if hasattr(view, 'card_size'):
+                view.card_size = size
+            
+            delegate = view.itemDelegate()
+            if hasattr(delegate, 'card_size'):
+                delegate.card_size = size
+            
+            if not hasattr(view, 'update_ribbon_height'): # Is grid
+                view.setIconSize(QSize(UIConstants.get_card_width(size), UIConstants.get_card_height(self._show_labels, reserve_progress_space=False, card_size=size)))
+            
+            view.viewport().update()
+            view.doItemsLayout()
+        
+        self._do_recalculate_heights()
+
     def reapply_theme(self):
         """Refreshes themed elements in all active sections."""
         theme = ThemeManager.get_current_theme_colors()
@@ -120,25 +137,23 @@ class PagedFeedView(BaseFeedSubView):
         self.scroll_area.verticalScrollBar().setValue(0)
 
     def _add_section(self, section: FeedSection, layout: SectionLayout):
-        # Paged views typically show one static page at a time.
-        # We use the actual item count as the stride to ensure local rows map correctly to this page.
-        model = FeedBrowserModel(items_per_page=len(section.items) or UIConstants.DEFAULT_PAGING_STRIDE)
-        
         if layout == SectionLayout.RIBBON:
-            view = BaseCardRibbon(self, show_labels=self._show_labels, reserve_progress_space=False)
-            view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            view.viewport().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            view = FeedCardRibbon(self, self.image_manager, show_labels=self._show_labels, reserve_progress_space=False, card_size=self._card_size)
+            model = view.model()
+            view.mini_detail_requested.connect(self.mini_detail_requested)
             # Register for unified wheel/cursor handling
             view.viewport().installEventFilter(self)
         else:
             view = QListView()
             self.configure_list_view(view)
+            model = FeedBrowserModel(items_per_page=len(section.items) or UIConstants.DEFAULT_PAGING_STRIDE)
+            delegate = FeedCardDelegate(view, self.image_manager, show_labels=self._show_labels, card_size=self._card_size)
+            view.setModel(model)
+            view.setItemDelegate(delegate)
             # Override base set by configure_list_view if needed, but we already set it to False
             view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            view.setIconSize(QSize(UIConstants.get_card_width(self._card_size), UIConstants.get_card_height(self._show_labels, reserve_progress_space=False, card_size=self._card_size)))
 
-        delegate = FeedCardDelegate(view, self.image_manager, show_labels=self._show_labels)
-        view.setModel(model)
-        view.setItemDelegate(delegate)
         view._section_id = section.section_id
         self._section_views.append(view)
 
