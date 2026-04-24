@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QSizePolicy, QFrame, QSpacerItem, QListView,
     QButtonGroup
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect, QModelIndex, QPoint, QTimer, QItemSelectionModel
+from PyQt6.QtCore import Qt, QSize, pyqtSlot, pyqtSignal, QRect, QModelIndex, QPoint, QTimer, QItemSelectionModel, QEvent
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QBrush, QPen, QImage, QPixmapCache, QKeyEvent, QStandardItemModel, QStandardItem
 
 from comiccatcher.config import ConfigManager, CONFIG_DIR
@@ -216,6 +216,7 @@ class LibrarySection(CollapsibleSection):
             self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
             self.list_widget.clicked.connect(self.on_item_clicked)
 
+        self.list_widget.installEventFilter(self)
         self.set_content_widget(self.list_widget)
         self.setObjectName("series_section")
             
@@ -263,9 +264,19 @@ class LibrarySection(CollapsibleSection):
             else:
                 self.list_widget.update_ribbon_height()
 
+    @property
+    def on_context_menu(self):
+        return self.header.on_context_menu
+
+    @on_context_menu.setter
+    def on_context_menu(self, callback: Optional[Callable]):
+        self.header.on_context_menu = callback
+
     def set_expanded(self, expanded: bool):
-        logger.debug(f"LibrarySection '{self.header_label.text()}' set_expanded: {expanded}")
+        logger.debug(f"LibrarySection '{self.header.header_label.text()}' set_expanded: {expanded}")
         self.set_collapsed(not expanded)
+
+
 
     def set_show_labels(self, enabled: bool):
         """Update label visibility and force layout/height recalculation."""
@@ -510,7 +521,7 @@ class LocalLibraryView(BaseBrowserView):
         self.path_layout.addWidget(self.path_label, 1)
         
         self.btn_select = self.create_header_button("select", "Select Mode", checkable=True)
-        self.btn_select.clicked.connect(self.toggle_selection_mode)
+        self.btn_select.clicked.connect(self.toggle_bulk_selection)
         
         # Populate Left
         self.left_layout.insertWidget(0, self.btn_up)
@@ -659,28 +670,33 @@ class LocalLibraryView(BaseBrowserView):
 
         # Selection Action Bar Configuration (using base class layout)
         
-        self.btn_sel_mark_read = self.create_selection_button("Mark Read", "action_read", self._on_bulk_mark_read)
+        self.btn_sel_mark_read = self.create_bulk_selection_button("Mark Read", "action_read", self._on_bulk_mark_read)
         self.btn_sel_mark_read.setEnabled(False)
 
-        self.btn_sel_mark_unread = self.create_selection_button("Mark Unread", "action_unread", self._on_bulk_mark_unread)
+        self.btn_sel_mark_unread = self.create_bulk_selection_button("Mark Unread", "action_unread", self._on_bulk_mark_unread)
         self.btn_sel_mark_unread.setEnabled(False)
 
-        self.btn_sel_delete = self.create_selection_button("Delete Selected", "action_delete", self._on_bulk_delete)
+        self.btn_sel_delete = self.create_bulk_selection_button("Delete Selected", "action_delete", self._on_bulk_delete)
         self.btn_sel_delete.setEnabled(False)
         
         self.selection_layout.addWidget(self.btn_sel_mark_read)
         self.selection_layout.addWidget(self.btn_sel_mark_unread)
         self.selection_layout.addWidget(self.btn_sel_delete)
-        
+
         self.add_content_widget(self.stack)
-        
+
+        self.list_widget.installEventFilter(self)
+        self.alpha_list.installEventFilter(self)
+
         self._is_dirty = True # Flag for initial load in showEvent
 
-    def toggle_selection_mode(self, enabled: Optional[bool] = None):
+        self.refresh_keyboard_navigation()
+
+    def toggle_bulk_selection(self, enabled: Optional[bool] = None):
         if enabled is None:
-            enabled = not self._selection_mode
+            enabled = not self._bulk_selection_mode
             
-        super().toggle_selection_mode(enabled)
+        super().toggle_bulk_selection(enabled)
         
         mode = QAbstractItemView.SelectionMode.MultiSelection if enabled else QAbstractItemView.SelectionMode.NoSelection
         self.list_widget.setSelectionMode(mode)
@@ -698,6 +714,7 @@ class LocalLibraryView(BaseBrowserView):
             self.list_widget.clearSelection()
             self.alpha_list.clearSelection()
             self._update_selection_ui()
+        self.refresh_keyboard_navigation()
 
     def _get_all_selected_items(self):
         selected_items = []
@@ -728,7 +745,7 @@ class LocalLibraryView(BaseBrowserView):
         return selected_items
 
     def _update_selection_ui(self):
-        if not self._selection_mode: return
+        if not self._bulk_selection_mode: return
         
         selected_items = self._get_all_selected_items()
         
@@ -751,9 +768,13 @@ class LocalLibraryView(BaseBrowserView):
 
         # Refresh icon colors for visual feedback
         for btn in [self.btn_sel_delete, self.btn_sel_mark_read, self.btn_sel_mark_unread]:
-            icon_name = self._selection_buttons.get(btn)
+            icon_name = self._bulk_selection_buttons.get(btn)
             if icon_name:
                 btn.setIcon(ThemeManager.get_icon(icon_name, "accent" if count > 0 else "text_dim"))
+
+    def keyboard_trigger_bulk_action(self):
+        """Perform bulk delete for selection mode."""
+        self._on_bulk_delete()
 
     def _on_bulk_delete(self):
         from PyQt6.QtWidgets import QMessageBox
@@ -779,7 +800,7 @@ class LocalLibraryView(BaseBrowserView):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            self.toggle_selection_mode(False)
+            self.toggle_bulk_selection(False)
             import os
             deleted_count = 0
             for p in paths_to_delete:
@@ -811,7 +832,7 @@ class LocalLibraryView(BaseBrowserView):
         for p in paths:
             if p: self.db.mark_as_read(p)
             
-        self.toggle_selection_mode(False)
+        self.toggle_bulk_selection(False)
         self._reload_current_view()
 
     def _on_bulk_mark_unread(self):
@@ -831,7 +852,7 @@ class LocalLibraryView(BaseBrowserView):
         for p in paths:
             if p: self.db.mark_as_unread(p)
             
-        self.toggle_selection_mode(False)
+        self.toggle_bulk_selection(False)
         self._reload_current_view()
 
     def _save_cover_to_cache(self, path: Path, cover_bytes: bytes) -> None:
@@ -840,6 +861,37 @@ class LocalLibraryView(BaseBrowserView):
         cache_path = self.image_manager._get_cache_path(url)
         if not cache_path.exists():
             _save_thumbnail(cover_bytes, cache_path)
+
+    def cycle_display_mode(self):
+        """Cycle through display modes: Folders -> Grouped -> Grid."""
+        modes = ["file", "grouped", "grid"]
+        current_mode = self.config_manager.get_library_display_mode()
+        try:
+            curr_idx = modes.index(current_mode)
+            next_mode = modes[(curr_idx + 1) % len(modes)]
+            self._on_display_mode_changed(next_mode)
+        except ValueError:
+            self._on_display_mode_changed("file")
+
+    def get_help_popover_title(self):
+        return "Library Controls"
+
+    def get_help_popover_sections(self):
+        sections = super().get_help_popover_sections()
+        
+        # Customize descriptions for Library
+        for title, rows in sections:
+            if title == "VIEW CONTROLS":
+                # Update P description for library modes
+                for i, (key, desc) in enumerate(rows):
+                    if key == "P":
+                        rows[i] = ("P", "Cycle layout (Folders, Grouped, Grid)")
+                
+                # Add grouping shortcut
+                rows.append(("G", "Cycle grouping mode (Series, Year, etc.)"))
+                break
+                
+        return sections
 
     def toggle_labels(self, enabled: bool):
         """Toggle label visibility for cards."""
@@ -1055,8 +1107,8 @@ class LocalLibraryView(BaseBrowserView):
 
         # 9. Selection mode
         if hasattr(self, "btn_select"):
-            self.btn_select.setChecked(self._selection_mode)
-            self.btn_select.setIcon(ThemeManager.get_icon("select", "accent" if self._selection_mode else "text_dim"))
+            self.btn_select.setChecked(self._bulk_selection_mode)
+            self.btn_select.setIcon(ThemeManager.get_icon("select", "accent" if self._bulk_selection_mode else "text_dim"))
 
     def _on_label_focus_changed(self, focus: str):
         if self.config_manager.get_library_label_focus() == focus: return
@@ -1085,6 +1137,17 @@ class LocalLibraryView(BaseBrowserView):
         self.config_manager.set_library_group_by(group_by)
         self._refresh_toolbar_states()
         self._reload_current_view()
+
+    def cycle_group_by(self):
+        """Cycle through group-by options: Series -> Publisher -> Writer -> Artist."""
+        modes = ["series", "publisher", "writer", "artist"]
+        current = self.config_manager.get_library_group_by()
+        try:
+            idx = modes.index(current)
+            next_mode = modes[(idx + 1) % len(modes)]
+            self._on_group_by_changed(next_mode)
+        except ValueError:
+            self._on_group_by_changed("series")
         
     def _on_misc_group_changed(self, checked: bool):
         if self.config_manager.get_library_group_misc() == checked: return
@@ -1107,6 +1170,7 @@ class LocalLibraryView(BaseBrowserView):
     @pyqtSlot()
     def _reload_current_view(self):
         mode = self.config_manager.get_library_display_mode()
+        self.clear_keyboard_cursor()
         
         self.setUpdatesEnabled(False)
         try:
@@ -1122,6 +1186,8 @@ class LocalLibraryView(BaseBrowserView):
                 asyncio.create_task(self._load_grid())
         finally:
             self.setUpdatesEnabled(True)
+            self.refresh_keyboard_navigation()
+            self.setFocus()
 
 
     def refresh_and_scan(self):
@@ -1171,7 +1237,7 @@ class LocalLibraryView(BaseBrowserView):
             self.refresh_and_scan()
 
     def refresh(self):
-        self.toggle_selection_mode(False)
+        self.toggle_bulk_selection(False)
         old_root = getattr(self, "root_dir", None)
         self.root_dir = self.config_manager.get_library_dir()
         
@@ -1256,6 +1322,7 @@ class LocalLibraryView(BaseBrowserView):
 
         finally:
             self.list_widget.setUpdatesEnabled(True)
+            self.refresh_keyboard_navigation()
 
     async def _load_grouped(self):
         group_by = self.config_manager.get_library_group_by()
@@ -1271,7 +1338,7 @@ class LocalLibraryView(BaseBrowserView):
             item = self.grouped_layout.itemAt(i)
             if item and item.widget() and isinstance(item.widget(), LibrarySection):
                 s = item.widget()
-                expansion_states[s.header_label.text()] = s.list_widget.isVisible()
+                expansion_states[s.header.header_label.text()] = s.list_widget.isVisible()
 
         # 1. Fetch data from DB FIRST
         grouped = await asyncio.to_thread(self.db.get_comics_grouped, group_by, sort_order, sort_dir)
@@ -1326,7 +1393,7 @@ class LocalLibraryView(BaseBrowserView):
                 else:
                     section.list_widget.selectionModel().selectionChanged.connect(self._update_selection_ui)
 
-                if self._selection_mode:
+                if self._bulk_selection_mode:
                     section.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
 
                 section.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -1358,7 +1425,7 @@ class LocalLibraryView(BaseBrowserView):
                 else:
                     section.list_widget.selectionModel().selectionChanged.connect(self._update_selection_ui)
 
-                if self._selection_mode:
+                if self._bulk_selection_mode:
                     section.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
 
                 section.list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -1369,6 +1436,7 @@ class LocalLibraryView(BaseBrowserView):
 
         finally:
             self.setUpdatesEnabled(True)
+            self.refresh_keyboard_navigation()
 
     async def _load_grid(self):
         self.path_label.setText("> Grid")
@@ -1403,9 +1471,10 @@ class LocalLibraryView(BaseBrowserView):
                         pass
         finally:
             self.alpha_list.setUpdatesEnabled(True)
+            self.refresh_keyboard_navigation()
 
     def _on_folder_item_clicked(self, item):
-        if self._selection_mode:
+        if self._bulk_selection_mode:
             return
 
         # Handle both QListWidgetItem (Folders) and QModelIndex (List View)
@@ -1436,7 +1505,7 @@ class LocalLibraryView(BaseBrowserView):
             self.on_open_comic(path, context)
 
     def _on_db_item_clicked(self, item):
-        if self._selection_mode:
+        if self._bulk_selection_mode:
             return
 
         # Handle both QListWidgetItem (Grid) and QModelIndex (Ribbon)
@@ -1488,8 +1557,66 @@ class LocalLibraryView(BaseBrowserView):
     def _go_up(self):
         self.go_up()
 
-    def _on_item_context_menu(self, pos, list_widget):
-        if self._selection_mode: return
+    def get_keyboard_nav_views(self):
+        if not hasattr(self, "stack"):
+            return []
+        current = self.stack.currentIndex()
+        if current == 0:
+            return [self.list_widget]
+        if current == 2:
+            return [self.alpha_list]
+        if current == 1:
+            views = []
+            for i in range(self.grouped_layout.count()):
+                item = self.grouped_layout.itemAt(i)
+                if item and item.widget() and isinstance(item.widget(), LibrarySection):
+                    section = item.widget()
+                    # Always include the list_widget so the Navigator can install filters,
+                    # even if it's currently hidden (it will be visible soon).
+                    views.append(section.list_widget)
+            return views
+        return []
+
+    def get_keyboard_nav_focus_objects(self):
+        objs = []
+        if hasattr(self, "stack"):
+            objs.append(self.stack)
+        if hasattr(self, "grouped_scroll"):
+            objs.extend([
+                self.grouped_scroll,
+                self.grouped_scroll.viewport(),
+                self.grouped_container,
+            ])
+        return objs
+
+    def get_keyboard_nav_scrollbar(self):
+        current = self.stack.currentIndex() if hasattr(self, "stack") else 0
+        if current == 1:
+            return self.grouped_scroll.verticalScrollBar()
+        if current == 2:
+            return self.alpha_list.verticalScrollBar()
+        return self.list_widget.verticalScrollBar()
+
+    def keyboard_activate_index(self, view, index):
+        if isinstance(view, QListWidget):
+            item = view.item(index.row())
+            if item:
+                if view is self.list_widget:
+                    self._on_folder_item_clicked(item)
+                else:
+                    self._on_db_item_clicked(item)
+        else:
+            self._on_db_item_clicked(index)
+
+    def keyboard_context_menu_for_index(self, view, index):
+        rect = view.visualRect(index)
+        if not rect.isValid():
+            return
+        self._on_item_context_menu(rect.center(), view, allow_in_selection=True)
+
+    def _on_item_context_menu(self, pos, list_widget, allow_in_selection: bool = False):
+        if self._bulk_selection_mode and not allow_in_selection:
+            return
         
         logger.info(f"--- Entering _on_item_context_menu ---")
         logger.info(f"  Pos: {pos}, Widget: {list_widget.objectName()}")
@@ -1561,10 +1688,10 @@ class LocalLibraryView(BaseBrowserView):
             
             # This logic should mimic single item selection in current view
             # If not in selection mode, enter it and select this one
-            if not self._selection_mode:
-                self.toggle_selection_mode(True)
+            if not self._bulk_selection_mode:
+                self.toggle_bulk_selection(True)
             
-            # Selection might need to be explicit if toggle_selection_mode clears it
+            # Selection might need to be explicit if toggle_bulk_selection clears it
             if isinstance(list_widget, QListWidget):
                 item.setSelected(True)
             else:

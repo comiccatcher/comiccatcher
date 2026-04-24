@@ -289,7 +289,7 @@ class HelpPopover(QFrame):
         add_row("Home / End", "First / Last Page")
         add_row("[ / ]", "Previous / Next Book (Flow sensitive)")
         add_row("F / F11", "Toggle Fullscreen")
-        add_row("Esc", "Exit Reader / Fullscreen")
+        add_row("Esc", "Exit Reader")
         
         add_section("ZOOM & PAN")
         add_row("Ctrl + Wheel", "Dynamic Zoom")
@@ -1100,12 +1100,11 @@ class BaseReaderView(QWidget):
             else:
                 self._bump_activity(show_cursor=False) # Only show overlays, not cursor
         elif key in (Qt.Key.Key_F11, Qt.Key.Key_F):
-            self._toggle_fullscreen()
+            # Let this bubble to MainWindow for global handling
+            event.ignore()
+            return
         elif key == Qt.Key.Key_Escape:
-            if self.window().isFullScreen():
-                self._toggle_fullscreen()
-            else:
-                self._do_exit()
+            self._do_exit()
             event.accept()
             return
         elif key == Qt.Key.Key_C:
@@ -1140,8 +1139,6 @@ class BaseReaderView(QWidget):
 
     def _do_exit(self):
         self._is_closing = True
-        if self.window().isFullScreen():
-            self.window().showNormal()
         self.on_exit()
 
     def closeEvent(self, event: QCloseEvent):

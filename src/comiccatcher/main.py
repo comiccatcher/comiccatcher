@@ -103,8 +103,9 @@ async def async_main(args):
     log = logger.get_logger("main")
     log.info(f"Starting ComicCatcher PyQt6... (Debug Level: {args.debug})")
 
+    debug_spec = args.debug or os.getenv("DEBUG") or ""
     config_manager = ConfigManager()
-    window = MainWindow(config_manager)
+    window = MainWindow(config_manager, debug_spec=debug_spec)
     window.show()
     asyncio.create_task(asyncio.to_thread(_warmup_comicbox_sync))
     
@@ -141,18 +142,17 @@ async def async_main(args):
 
 def main():
     parser = argparse.ArgumentParser(description="ComicCatcher OPDS Reader (PyQt6)")
-    parser.add_argument('--debug', nargs='?', const=1, type=int, default=0, help='Enable debug logging.')
+    parser.add_argument('--debug', type=str, default="", help='Enable debug logging. Use "all" or comma-separated categories: nav, net, opds, lib, reader, ui.')
     parser.add_argument('--auto-open-local', type=str, default="", help='Debug: auto-open a local CBZ.')
     parser.add_argument('--timeout', type=int, default=0, help='Exit after N seconds (useful for CI/testing).')
     parser.add_argument('--e2e-driver', type=str, default="", help='Path to a python script to drive the app (async def drive(window)).')
     args = parser.parse_args()
     
-    is_debug = args.debug > 0 or os.getenv("DEBUG") == "1"
-    if is_debug:
-        os.environ["DEBUG"] = "1"
-        os.environ["DEBUG_LEVEL"] = str(args.debug)
+    debug_spec = args.debug or os.getenv("DEBUG") or ""
+    if debug_spec:
+        os.environ["DEBUG"] = debug_spec
         
-    logger.setup_logging(debug=is_debug)
+    logger.setup_logging(debug_spec=debug_spec)
 
     app = QApplication(sys.argv)
     app.setApplicationName("ComicCatcher")

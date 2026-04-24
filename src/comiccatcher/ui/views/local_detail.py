@@ -18,8 +18,9 @@ from comiccatcher.api.image_manager import ImageManager
 from comiccatcher.api.local_db import LocalLibraryDB
 from comiccatcher.ui.local_archive import read_archive_first_image
 from comiccatcher.ui.local_comicbox import flatten_comicbox, read_comicbox_dict, read_comicbox_cover, generate_comic_labels
-from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
+from comiccatcher.ui.theme_manager import ThemeManager, UIConstants, Keys
 from comiccatcher.ui.views.base_detail import BaseDetailView
+from comiccatcher.ui.view_helpers import HelpPopoverMixin
 from comiccatcher.ui.utils import format_artist_credits, format_publication_date, format_file_size
 
 logger = get_logger("ui.local_detail")
@@ -28,13 +29,14 @@ def _read_comicbox_meta(path: Path) -> Dict[str, Any]:
     raw = read_comicbox_dict(path)
     return flatten_comicbox(raw)
 
-class LocalDetailView(BaseDetailView):
+class LocalDetailView(BaseDetailView, HelpPopoverMixin):
     def __init__(self, config_manager: ConfigManager, on_back, image_manager: ImageManager, on_read_local=None, local_db: Optional[LocalLibraryDB] = None):
         super().__init__(on_back, image_manager)
         self.config_manager = config_manager
         self.on_read_local = on_read_local
         self.db = local_db
         self._path: Optional[Path] = None
+        self.init_help_popover()
 
     def reapply_theme(self):
         super().reapply_theme()
@@ -295,3 +297,24 @@ class LocalDetailView(BaseDetailView):
     def _on_read_clicked(self):
         if self.on_read_local and self._path:
             self.on_read_local(self._path, self._context_paths)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Keys.READ, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self.btn_read and self.btn_read.isEnabled():
+                self.btn_read.click()
+                return
+        elif event.key() == Qt.Key.Key_H:
+            self.toggle_help_popover()
+            return
+        super().keyPressEvent(event)
+
+    def get_help_popover_title(self):
+        return "Library Details Controls"
+
+    def get_help_popover_sections(self):
+        sections = self.get_common_help_sections()
+        sections.insert(0, ("DETAIL CONTROLS", [
+            ("R / Enter", "Read this comic"),
+            ("Arrows", "Scroll details"),
+        ]))
+        return sections

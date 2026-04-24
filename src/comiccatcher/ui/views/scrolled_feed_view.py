@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Set
 
 from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal, QSize
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QAbstractScrollArea, QFrame, QListView, QWidget,
+    QAbstractItemView, QAbstractScrollArea, QFrame, QListView, QWidget, QPushButton
 )
 
 from comiccatcher.api.feed_reconciler import FeedReconciler
@@ -228,6 +228,13 @@ class ScrolledFeedView(BaseFeedSubView):
 
         self._update_status()
         
+        # Ensure navigator tracks the new widgets
+        browser = self.parent()
+        while browser and not hasattr(browser, 'refresh_keyboard_navigation'):
+            browser = browser.parent()
+        if browser:
+            browser.refresh_keyboard_navigation()
+
         # Calibrate actual grid heights and trigger initial pre-fetch check
         QTimer.singleShot(50, self._calibrate_grid_heights)
 
@@ -324,6 +331,65 @@ class ScrolledFeedView(BaseFeedSubView):
         self._update_scrollbar()
         self._update_layout()
 
+    def toggle_all_sections(self):
+        """Toggles all based on current state of the first section."""
+        if not self._descs: return
+        sid0 = self._descs[0].section.section_id
+        is_collapsed = sid0 in self._collapsed_sections
+        if is_collapsed: self.expand_all()
+        else: self.collapse_all()
+
+    def toggle_active_section(self, active_view: QWidget):
+        """Identifies which virtual section the active_view belongs to and toggles it."""
+        if not active_view: return
+        
+        target_sid = None
+        # Grids
+        for sid, view in self._grids.items():
+            if active_view is view or active_view is view.viewport():
+                target_sid = sid
+                break
+        
+        # Ribbons
+        if not target_sid:
+            for sid, view in self._ribbons.items():
+                if active_view is view or active_view is view.viewport():
+                    target_sid = sid
+                    break
+                    
+        if target_sid:
+            is_collapsed = target_sid in self._collapsed_sections
+            self._on_header_toggled(target_sid, not is_collapsed)
+            # Update header widget visual state
+            hdr = self._headers.get(target_sid)
+            if hdr:
+                hdr.blockSignals(True)
+                hdr.set_collapsed(not is_collapsed)
+                hdr.blockSignals(False)
+
+    def follow_active_section_link(self, active_view: QWidget):
+        """Identifies which virtual section the active_view belongs to and clicks its link."""
+        if not active_view: return
+
+        target_sid = None
+        # Grids
+        for sid, view in self._grids.items():
+            if active_view is view or active_view is view.viewport():
+                target_sid = sid
+                break
+
+        # Ribbons
+        if not target_sid:
+            for sid, view in self._ribbons.items():
+                if active_view is view or active_view is view.viewport():
+                    target_sid = sid
+                    break
+
+        if target_sid:
+            hdr = self._headers.get(target_sid)
+            if hdr and hasattr(hdr, "action_widget") and isinstance(hdr.action_widget, QPushButton):
+                if hdr.action_widget.isEnabled():
+                    hdr.action_widget.click()
     # ---------------------------------------------------------- layout / scroll
 
     def resizeEvent(self, event):
@@ -604,7 +670,7 @@ class ScrolledFeedView(BaseFeedSubView):
         return ribbon
 
     def _on_custom_context_menu(self, pos, view, model):
-        if self._selection_mode: return
+        if self._bulk_selection_mode: return
 
         index = view.indexAt(pos)
         if not index.isValid(): return

@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap
-from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
+from comiccatcher.ui.theme_manager import ThemeManager, UIConstants, Keys
 
 from comiccatcher.logger import get_logger
 from comiccatcher.api.image_manager import ImageManager
@@ -23,11 +23,11 @@ from comiccatcher.models.opds import Publication, Metadata
 from comiccatcher.api.feed_reconciler import FeedReconciler
 from comiccatcher.ui.flow_layout import FlowLayout
 from comiccatcher.ui.views.base_detail import BaseDetailView
+from comiccatcher.ui.view_helpers import ViewportHelper, HelpPopoverMixin
 from comiccatcher.ui.utils import format_artist_credits, format_publication_date, format_file_size, parse_opds_date
 from comiccatcher.ui.components.base_ribbon import BaseCardRibbon, FeedCardRibbon
 from comiccatcher.ui.components.mini_detail_popover import MiniDetailPopover, format_opds_publication
 from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
-from comiccatcher.ui.view_helpers import ViewportHelper
 
 logger = get_logger("ui.feed_detail")
 
@@ -75,7 +75,7 @@ class Badge(QFrame):
         if self.on_click:
             self.on_click()
         super().mousePressEvent(event)
-class FeedDetailView(BaseDetailView):
+class FeedDetailView(BaseDetailView, HelpPopoverMixin):
     def __init__(self, config_manager, on_back, on_read, on_navigate, on_start_download, on_open_detail, image_manager: ImageManager, local_db=None):
         super().__init__(on_back, image_manager)
         self.config_manager = config_manager
@@ -84,16 +84,17 @@ class FeedDetailView(BaseDetailView):
         self.on_start_download = on_start_download
         self.on_open_detail = on_open_detail
         self.db = local_db
-        
+
         self.api_client = None
         self.opds_client = None
         self.progression_sync = None
-        
+
         self._current_pub = None
         self._current_base_url = None
         self._active_load_id = None
         self._pending_covers: Dict[str, asyncio.Task] = {} # url -> Task
-        
+
+        self.init_help_popover()
         self.detail_popover = MiniDetailPopover(self)
 
         # Monitor scrolling to trigger cover fetches for carousels
@@ -249,25 +250,23 @@ class FeedDetailView(BaseDetailView):
                     elif not full_pub.metadata and pub.metadata:
                         full_pub.metadata = pub.metadata
                     fetched_pub = full_pub
+                    actual_base_url = full_url
             except OPDSClientError as e:
                 logger.error(f"OPDS Error upgrading metadata from {full_url}: {e}")
             except Exception as e:
                 logger.error(f"Unexpected error upgrading metadata: {e}")
         
-        if load_id == self._active_load_id:
-            # If we fetched a full manifest, subsequent links (like progression) 
-            # should be resolved relative to that manifest URL.
-            actual_base_url = full_url if manifest_url and 'full_url' in locals() else base_url
-            
-            self._current_pub = fetched_pub
-            self._current_base_url = actual_base_url
-            self.setUpdatesEnabled(False)
-            try:
-                self._render_details(fetched_pub, actual_base_url)
-            finally:
-                self.setUpdatesEnabled(True)
-            self.progress.setVisible(False)
-            asyncio.create_task(self._fetch_progression(fetched_pub, actual_base_url, load_id))
+        actual_base_url = actual_base_url if 'actual_base_url' in locals() else base_url
+        self._current_pub = fetched_pub
+        self._current_base_url = actual_base_url
+        self.setUpdatesEnabled(False)
+        try:
+            self._render_details(fetched_pub, actual_base_url)
+        finally:
+            self.setUpdatesEnabled(True)
+        
+        self.progress.setVisible(False)
+        asyncio.create_task(self._fetch_progression(fetched_pub, actual_base_url, load_id))
 
     async def _fetch_progression(self, pub: Publication, base_url: str, load_id: str):
         prog_url = None
@@ -474,12 +473,12 @@ class FeedDetailView(BaseDetailView):
             )
             self.btn_read.setEnabled(is_streamable)
             
-            btn_down = self.create_action_button(
+            self.btn_download = self.create_action_button(
                 "Download",
                 lambda: self.on_start_download(pub, download_url),
                 icon_name="download"
             )
-            btn_down.setEnabled(download_url is not None)
+            self.btn_download.setEnabled(download_url is not None)
             
             if not hasattr(self, 'actions_layout'):
                 self.actions_layout = QHBoxLayout()
@@ -489,7 +488,7 @@ class FeedDetailView(BaseDetailView):
                 self.info_layout.addLayout(self.actions_layout)
 
             self.actions_layout.addWidget(self.btn_read)
-            self.actions_layout.addWidget(btn_down)
+            self.actions_layout.addWidget(self.btn_download)
 
             # Support Status Labels
             theme = ThemeManager.get_current_theme_colors()
@@ -829,3 +828,29 @@ class FeedDetailView(BaseDetailView):
             logger.error(f"OPDS Carousel error for {url}: {e}")
         except Exception as e:
             logger.error(f"Unexpected carousel error: {e}")
+
+    def keyPressEvent(self, event):
+        if event.key() in (Keys.READ, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if hasattr(self, 'btn_read') and self.btn_read and self.btn_read.isEnabled():
+                self.btn_read.click()
+                return
+        elif event.key() == Keys.DOWNLOAD:
+            if hasattr(self, 'btn_download') and self.btn_download and self.btn_download.isEnabled():
+                self.btn_download.click()
+                return
+        elif event.key() == Qt.Key.Key_H:
+            self.toggle_help_popover()
+            return
+        super().keyPressEvent(event)
+
+    def get_help_popover_title(self):
+        return "Comic Details Controls"
+
+    def get_help_popover_sections(self):
+        sections = self.get_common_help_sections()
+        sections.insert(0, ("DETAIL CONTROLS", [
+            ("R / Enter", "Read this comic"),
+            ("D", "Download this comic"),
+            ("Arrows", "Scroll details"),
+        ]))
+        return sections

@@ -136,6 +136,13 @@ class PagedFeedView(BaseFeedSubView):
         self._do_recalculate_heights()
         self.scroll_area.verticalScrollBar().setValue(0)
 
+        # Ensure navigator tracks the new QListView widgets
+        browser = self.parent()
+        while browser and not hasattr(browser, 'refresh_keyboard_navigation'):
+            browser = browser.parent()
+        if browser:
+            browser.refresh_keyboard_navigation()
+
     def _add_section(self, section: FeedSection, layout: SectionLayout):
         if layout == SectionLayout.RIBBON:
             view = FeedCardRibbon(self, self.image_manager, show_labels=self._show_labels, reserve_progress_space=False, card_size=self._card_size)
@@ -204,7 +211,7 @@ class PagedFeedView(BaseFeedSubView):
         view.customContextMenuRequested.connect(lambda pos, v=view, m=model: self._on_custom_context_menu(pos, v, m))
 
     def _on_custom_context_menu(self, pos, view, model):
-        if self._selection_mode: return
+        if self._bulk_selection_mode: return
 
         index = view.indexAt(pos)
         if not index.isValid(): return

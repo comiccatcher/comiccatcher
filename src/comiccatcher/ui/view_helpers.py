@@ -2,10 +2,111 @@
 # AI-typical patterns. Not recommended as ML training data.
 
 import asyncio
-from typing import Set, Tuple, Optional, Callable
-from PyQt6.QtCore import QPoint
-from PyQt6.QtWidgets import QListView
+from typing import Set, Tuple, Optional, Callable, List
+from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtWidgets import QListView, QWidget, QPushButton, QApplication
 from comiccatcher.models.feed_page import FeedItem
+from comiccatcher.ui.components.help_popover import BrowserHelpPopover
+
+class HelpPopoverMixin:
+    """
+    Standardized help popover logic for all views.
+    Provides methods to build and toggle the 'H' help screen.
+    """
+    def init_help_popover(self):
+        self.help_popover = BrowserHelpPopover(self)
+
+    def toggle_help_popover(self):
+        if not hasattr(self, 'help_popover'):
+            self.init_help_popover()
+
+        if self.help_popover.isVisible():
+            self.help_popover.hide()
+            return
+        
+        self.help_popover.rebuild(
+            self.get_help_popover_title(),
+            self.get_help_popover_sections(),
+        )
+        
+        # Center relative to the main window's global coordinates
+        win = self.window()
+        target_rect = win.frameGeometry() if win else self.rect()
+        self.help_popover.show_at_center(target_rect)
+
+    def get_help_popover_title(self) -> str:
+        return "Controls"
+
+    def get_help_popover_sections(self) -> List[Tuple[str, List[Tuple[str, str]]]]:
+        return self.get_common_help_sections()
+
+    def get_common_help_sections(self) -> List[Tuple[str, List[Tuple[str, str]]]]:
+        """Returns shortcuts that are applicable globally across most views."""
+        sections = [
+            ("GLOBAL NAVIGATION", [
+                ("Ctrl + F", "Jump to Feeds list"),
+                ("Ctrl + L", "Jump to Library"),
+                ("Ctrl + +/-", "Adjust UI scaling"),
+                ("Ctrl + 0", "Reset UI scaling"),
+                ("F11 / F", "Toggle fullscreen"),
+                ("Esc", "Go back"),
+                ("F5", "Refresh current view"),
+                ("Ctrl + Q", "Quit application"),
+            ]),
+            ("HELP", [
+                ("H / Ctrl + H", "Toggle this help popover"),
+            ])
+        ]
+        return sections
+
+    def get_keyboard_nav_focus_objects(self):
+        return []
+
+class SectionControlMixin:
+    """
+    Standardized keyboard controls for sections.
+    Provides logic for toggle-all, toggle-active, and follow-link.
+    """
+    def toggle_all_sections(self):
+        """Toggles the collapsed state of all sections based on the state of the first one."""
+        from comiccatcher.ui.components.collapsible_section import CollapsibleSection
+        # Only find sections that are currently visible to the user
+        sections = [s for s in self.findChildren(CollapsibleSection) if s.isVisible()]
+        if not sections: return
+        
+        # Decide next state based on the first visible section
+        next_state = not sections[0]._is_collapsed
+        for section in sections:
+            section.set_collapsed(next_state)
+
+    def toggle_active_section(self, active_view: QWidget):
+        """Finds the section (CollapsibleSection or SectionHeader) owning the active_view and toggles it."""
+        if not active_view: return
+        from comiccatcher.ui.components.collapsible_section import CollapsibleSection
+        from comiccatcher.ui.components.section_header import SectionHeader
+        
+        # Walk up from the view to find its section container
+        parent = active_view.parent()
+        while parent:
+            if isinstance(parent, (CollapsibleSection, SectionHeader)):
+                parent.toggle()
+                return
+            parent = parent.parent()
+
+    def follow_active_section_link(self, active_view: QWidget):
+        """Finds the section owning the active_view and clicks its action button (e.g., See All)."""
+        if not active_view: return
+        from comiccatcher.ui.components.collapsible_section import CollapsibleSection
+        from comiccatcher.ui.components.section_header import SectionHeader
+        
+        parent = active_view.parent()
+        while parent:
+            if isinstance(parent, (CollapsibleSection, SectionHeader)):
+                if hasattr(parent, "action_widget") and isinstance(parent.action_widget, QPushButton):
+                    if parent.action_widget.isEnabled():
+                        parent.action_widget.click()
+                return
+            parent = parent.parent()
 
 class ViewportHelper:
     """

@@ -80,7 +80,7 @@ class FeedCardDelegate(BaseCardDelegate):
                 reserve_progress_space=self.reserve_progress_space,
                 card_size=self.card_size
             )
-            self.paint_card(painter, option, theme, config)
+            self.paint_card(painter, option, index, theme, config)
 
         # Debug outlines for delegate-painted pseudo-items
         if UIConstants.DEBUG_OUTLINES and ctype in _DBG_COLORS:

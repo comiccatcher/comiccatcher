@@ -4,12 +4,15 @@
 from typing import Optional, Callable
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QProgressBar, QSizePolicy, QFrame
+    QProgressBar, QSizePolicy, QFrame, QListWidget, QListView
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer, QItemSelectionModel
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
+from comiccatcher.ui.view_helpers import SectionControlMixin, HelpPopoverMixin
+from comiccatcher.ui.components.keyboard_nav import KeyboardBrowserNavigator
 
-class BaseBrowserView(QWidget):
+
+class BaseBrowserView(QWidget, SectionControlMixin, HelpPopoverMixin):
     """
     Base class for browser-style views (Library and Feed Browser).
     Provides a standardized header, status bar, and selection bar.
@@ -24,13 +27,15 @@ class BaseBrowserView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._header_buttons = {} # {btn: icon_name}
-        self._selection_buttons = {} # {btn: icon_name}
-        self._selection_mode = False
+        self._bulk_selection_buttons = {} # {btn: icon_name}
+        self._bulk_selection_mode = False
+        self.init_help_popover()
         
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
         self.layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         # 1. Top Header Bar
         self.header_widget = QWidget()
@@ -40,6 +45,26 @@ class BaseBrowserView(QWidget):
         self.header_layout = QHBoxLayout(self.header_widget)
         self.header_layout.setContentsMargins(UIConstants.LAYOUT_MARGIN_DEFAULT, 0, UIConstants.LAYOUT_MARGIN_DEFAULT, 0)
         self.layout.addWidget(self.header_widget)
+
+        # 4. Selection Action Bar (Top - just below header)
+        self.selection_bar = QWidget()
+        self.selection_bar.setObjectName("selection_bar")
+        self.selection_bar.setFixedHeight(UIConstants.HEADER_HEIGHT)
+        self.selection_bar.setVisible(False)
+        self.selection_layout = QHBoxLayout(self.selection_bar)
+        self.selection_layout.setContentsMargins(UIConstants.LAYOUT_MARGIN_DEFAULT, 0, UIConstants.LAYOUT_MARGIN_DEFAULT, 0)
+        self.selection_layout.setSpacing(UIConstants.LAYOUT_MARGIN_DEFAULT)
+        
+        self.btn_sel_cancel = self.create_bulk_selection_button("Cancel", "close", lambda: self.toggle_bulk_selection(False))
+        
+        self.label_sel_count = QLabel("0 items selected")
+        self.label_sel_count.setObjectName("status_label")
+        
+        self.selection_layout.addWidget(self.btn_sel_cancel)
+        self.selection_layout.addWidget(self.label_sel_count)
+        self.selection_layout.addStretch()
+        
+        self.layout.addWidget(self.selection_bar)
 
         # 1.1 Left Group (Status)
         self.left_group = QWidget()
@@ -93,26 +118,6 @@ class BaseBrowserView(QWidget):
         self.content_layout.setSpacing(0)
         self.layout.addWidget(self.content_container, 1)
 
-        # 4. Selection Action Bar (Bottom)
-        self.selection_bar = QWidget()
-        self.selection_bar.setObjectName("selection_bar")
-        self.selection_bar.setFixedHeight(UIConstants.HEADER_HEIGHT)
-        self.selection_bar.setVisible(False)
-        self.selection_layout = QHBoxLayout(self.selection_bar)
-        self.selection_layout.setContentsMargins(UIConstants.LAYOUT_MARGIN_DEFAULT, UIConstants.SECTION_HEADER_MARGIN_TOP, UIConstants.LAYOUT_MARGIN_DEFAULT, UIConstants.SECTION_HEADER_MARGIN_TOP)
-        self.selection_layout.setSpacing(UIConstants.LAYOUT_MARGIN_DEFAULT)
-        
-        self.btn_sel_cancel = self.create_selection_button("Cancel", "close", lambda: self.toggle_selection_mode(False))
-        
-        self.label_sel_count = QLabel("0 items selected")
-        self.label_sel_count.setObjectName("status_label")
-        
-        self.selection_layout.addWidget(self.btn_sel_cancel)
-        self.selection_layout.addWidget(self.label_sel_count)
-        self.selection_layout.addStretch()
-        
-        self.layout.addWidget(self.selection_bar)
-
         # 5. Bottom Status Bar (VS Code style)
         self.bottom_status_bar = QFrame()
         self.bottom_status_bar.setObjectName("bottom_status_bar")
@@ -128,11 +133,22 @@ class BaseBrowserView(QWidget):
         
         # Initial theme application
         QTimer.singleShot(0, self.reapply_theme)
+        self._keyboard_nav = KeyboardBrowserNavigator(self)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.status_area.setGeometry(0, UIConstants.HEADER_HEIGHT, self.width(), UIConstants.STATUS_HEIGHT)
+        self._update_status_area_geometry()
+
+    def _update_status_area_geometry(self):
+        y = UIConstants.HEADER_HEIGHT
+        if self.selection_bar.isVisible():
+            y += self.selection_bar.height()
+        self.status_area.setGeometry(0, y, self.width(), UIConstants.STATUS_HEIGHT)
         self.status_area.raise_()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.setFocus()
 
     def reapply_theme(self):
         """Refreshes all theme-dependent styles and icons."""
@@ -195,7 +211,7 @@ class BaseBrowserView(QWidget):
                 btn.setIcon(ThemeManager.get_icon(icon_name))
                 btn.setStyleSheet(btn_style)
 
-            for btn, icon_name in self._selection_buttons.items():
+            for btn, icon_name in self._bulk_selection_buttons.items():
                 if icon_name:
                     # In selection bar, use text_dim for inactive state visual if needed, 
                     # but for buttons with text #secondary_button styles it correctly.
@@ -228,7 +244,7 @@ class BaseBrowserView(QWidget):
             btn.clicked.connect(callback)
         return btn
 
-    def create_selection_button(self, text: str, icon_name: str, callback: Optional[Callable] = None) -> QPushButton:
+    def create_bulk_selection_button(self, text: str, icon_name: str, callback: Optional[Callable] = None) -> QPushButton:
         """Creates a standardized, themed selection bar button."""
         btn = QPushButton(text)
         btn.setObjectName("secondary_button") # Unify all selection buttons to secondary
@@ -236,7 +252,7 @@ class BaseBrowserView(QWidget):
         if callback:
             btn.clicked.connect(callback)
         
-        self._selection_buttons[btn] = icon_name
+        self._bulk_selection_buttons[btn] = icon_name
         
         btn.setIcon(ThemeManager.get_icon(icon_name, "accent"))
         return btn
@@ -259,20 +275,79 @@ class BaseBrowserView(QWidget):
         
         return btn
 
-    def toggle_selection_mode(self, enabled: bool):
-        """Standardized selection mode toggle UI."""
-        self._selection_mode = enabled
+    def toggle_bulk_selection(self, enabled: bool):
+        """Standardized bulk selection mode toggle UI."""
+        self._bulk_selection_mode = enabled
         self.selection_bar.setVisible(enabled)
+        self._update_status_area_geometry()
         if hasattr(self, 'btn_select'):
             self.btn_select.setChecked(enabled)
+        
+        # If disabling, ensure any derived selection UI state is cleared
+        if not enabled:
+            self._update_selection_ui()
+
+    def cycle_card_size(self):
+        """Standard implementation for card size cycling across browser views."""
+        sizes = ["small", "medium", "large"]
+        current_size = getattr(self, "_card_size", "medium")
+        try:
+            current_idx = sizes.index(current_size)
+            next_size = sizes[(current_idx + 1) % len(sizes)]
+            if hasattr(self, "_on_card_size_changed"):
+                self._on_card_size_changed(next_size)
+        except ValueError:
+            if hasattr(self, "_on_card_size_changed"):
+                self._on_card_size_changed("medium")
+
+    def cycle_display_mode(self):
+        """Cycle display modes (paging). Overridden by subclasses."""
+        pass
+
+    def cycle_group_by(self):
+        """Cycle grouping modes. Overridden by subclasses."""
+        pass
 
     def keyPressEvent(self, event):
-        """Handle Escape key to exit selection mode."""
-        if event.key() == Qt.Key.Key_Escape and self._selection_mode:
-            self.toggle_selection_mode(False)
+        """Handle Escape key to exit selection mode and D for bulk actions."""
+        if self.help_popover.isVisible():
+            self.help_popover.hide()
+            event.accept()
+        elif event.key() == Qt.Key.Key_Escape and self._bulk_selection_mode:
+            self.toggle_bulk_selection(False)
+            event.accept()
+        elif event.key() == Qt.Key.Key_D and self._bulk_selection_mode:
+            self.keyboard_trigger_bulk_action()
             event.accept()
         else:
             super().keyPressEvent(event)
+
+    def keyboard_trigger_bulk_action(self):
+        """Trigger the primary bulk action for the current view. Overridden by subclasses."""
+        pass
+
+    def _toggle_labels(self):
+        """Standard implementation for label toggling across browser views."""
+        if hasattr(self, "toggle_labels"):
+            # If the subclass has a toggle_labels method, use it
+            self.toggle_labels(not getattr(self, "_show_labels", True))
+        elif hasattr(self, "config_manager"):
+            # Fallback to direct config manipulation if applicable
+            current = self._show_labels
+            self.toggle_labels(not current)
+
+    def _cycle_card_size(self):
+        """Standard implementation for card size cycling across browser views."""
+        sizes = ["small", "medium", "large"]
+        current_size = getattr(self, "_card_size", "medium")
+        try:
+            current_idx = sizes.index(current_size)
+            next_size = sizes[(current_idx + 1) % len(sizes)]
+            if hasattr(self, "_on_card_size_changed"):
+                self._on_card_size_changed(next_size)
+        except ValueError:
+            if hasattr(self, "_on_card_size_changed"):
+                self._on_card_size_changed("medium")
 
     def set_all_sections_collapsed(self, collapsed: bool):
         """Universal helper to expand/collapse all CollapsibleSection children."""
@@ -301,6 +376,88 @@ class BaseBrowserView(QWidget):
                 btn.setProperty("segment", "right")
             else:
                 btn.setProperty("segment", "mid")
-                
+
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+
+    def refresh_keyboard_navigation(self):
+        self._keyboard_nav.sync()
+
+    def clear_keyboard_cursor(self):
+        self._keyboard_nav.clear_cursor()
+
+    def get_keyboard_nav_views(self):
+        return []
+
+    def get_keyboard_nav_focus_objects(self):
+        return []
+
+    def get_help_popover_title(self):
+        return "Browser Controls"
+
+    def get_help_popover_sections(self):
+        # We start with common global navigation keys
+        sections = self.get_common_help_sections()
+        
+        # Add Browser-specific sections (Cursor and View)
+        sections.insert(0, ("KEYBOARD CURSOR", [
+            ("Ctrl + Arrows", "Enter cursor mode and move across visible cards"),
+            ("Enter", "Open focused card"),
+            ("Menu / Shift+F10", "Open focused card menu"),
+            ("Space", "Toggle bulk-selection on focused card"),
+            ("Esc / Mouse / Other key", "Exit cursor mode"),
+        ]))
+
+        sections.append(("VIEW CONTROLS", [
+            ("P", "Cycle layout / paging mode"),
+            ("T", "Toggle item labels"),
+            ("Z", "Cycle card size (S, M, L)"),
+            ("S", "Toggle bulk-selection mode"),
+            ("D", "Perform bulk action (Delete / Download)"),
+            ("\\", "Toggle all sections (expand/collapse)"),
+            ("[", "Toggle active section"),
+            ("]", "Follow section link (e.g. See All)"),
+        ]))
+
+        # Only show feed-specific shortcuts if we have an active feed session
+        win = self.window()
+        if win and hasattr(win, "api_client") and win.api_client:
+            sections.append(("FEED CONTROLS", [
+                ("Ctrl + B", "Switch to Browse tab"),
+                ("/", "Switch to Search tab"),
+            ]))
+            
+        return sections
+
+    def get_keyboard_nav_scrollbar(self):
+        return None
+
+    def keyboard_activate_index(self, view, index):
+        pass
+
+    def keyboard_context_menu_for_index(self, view, index):
+        pass
+
+    def keyboard_toggle_bulk_item(self, view, index):
+        """Uses the keyboard to toggle an item for bulk operations."""
+        if not index.isValid():
+            return
+        if not self._bulk_selection_mode:
+            self.toggle_bulk_selection(True)
+
+        if isinstance(view, QListWidget):
+            item = view.item(index.row())
+            if item:
+                item.setSelected(not item.isSelected())
+        else:
+            selection_model = view.selectionModel()
+            if selection_model:
+                # Bulk selection uses the standard Qt selection model for persistence
+                flags = QItemSelectionModel.SelectionFlag.Toggle
+                selection_model.select(index, flags)
+            
+        self._update_selection_ui()
+
+    def _update_selection_ui(self):
+        """Standard implementation for updating selection toolbar state. Override in subclasses."""
+        pass
