@@ -270,3 +270,16 @@ class SettingsView(BaseBrowserView):
             self.local_db.clear_all()
             self.library_reset.emit()
             QMessageBox.information(self, "Library Reset", "Local library database has been cleared.")
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_H:
+            self.toggle_help_popover()
+            return
+        super().keyPressEvent(event)
+
+    def get_help_popover_title(self):
+        return "Settings"
+
+    def get_help_popover_sections(self):
+        # Only global navigation is applicable here
+        return self.get_common_help_sections()

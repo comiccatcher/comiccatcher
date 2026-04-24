@@ -459,63 +459,68 @@ cd /home/tony/cc/comiccatcher
 
 ## 10. Full Application E2E Testing (The Driver Pattern)
 
-This is the preferred method for validating complex features (like scrolling, navigation, or network-dependent UI) in a "true" application environment with real user settings.
+This is the **gold standard** for replicating user-reported bugs and validating complex features (like scrolling, navigation, or network-dependent UI) in a "true" application environment.
+
+### Why it is powerful
+- **Internal State Access:** Drivers can inspect live runtime properties (like `visualRect`, `stride`, or layout coordinates) that aren't visible in logs.
+- **Environment Preservation:** It uses the user's real `feeds.json` and credentials, removing the need to mock complex OPDS structures.
+- **Headless & Fast:** Using `QT_QPA_PLATFORM=offscreen` allows it to run in CI or agent environments without a real display or Xvfb.
 
 ### How it works
 The `main.py` entry point supports an `--e2e-driver <path.py>` argument. When provided, the app starts normally and then dynamically loads the script, executing an `async def drive(window)` function.
 
-### Example Driver Script (`scripts/my_driver.py`)
+### Example Driver Script (`repro_bug.py`)
 
 ```python
 import asyncio
-from PyQt6.QtCore import Qt, QEvent
+import os
+from PyQt6.QtCore import Qt, QEvent, QRect
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
 async def drive(window):
-    print("🚗 E2E Driver Started!")
-    await asyncio.sleep(2) # Wait for window to settle
+    print("🚀 Bug Replication Driver Started!")
+    
+    # 1. Select a specific feed by name
+    feed = next((f for f in window.config_manager.feeds if "codex" in f.name.lower()), None)
+    if feed:
+        window.on_feed_selected(feed)
+    
+    # 2. Wait for async load to finish
+    browser = window.feed_browser
+    while browser.stack.currentWidget() == browser.loading_view:
+        await asyncio.sleep(0.5)
 
-    # 1. Navigate
-    window.nav_list.setCurrentRow(1) # Library
-    await asyncio.sleep(1)
+    # 3. Inspect internal layout logic
+    view = browser.stack.currentWidget()
+    # Check what the navigator thinks is visible
+    nav = browser._keyboard_nav
+    candidates = nav._visible_candidates_for_view(view.get_keyboard_nav_views()[0])
+    print(f"Navigator sees {len(candidates)} items.")
 
-    # 2. Interact with real widgets
-    lib_view = window.local_library_view
-    sb = lib_view.list_widget.verticalScrollBar()
-    print(f"Current Scroll: {sb.value()}/{sb.maximum()}")
+    # 4. Debug coordinate clipping (Standard Navigation Fix Pattern)
+    idx = view.model().index(4, 0)
+    rect = view.visualRect(idx)
+    item_tl = view.viewport().mapTo(window, rect.topLeft())
+    print(f"Item 5 Screen Pos: {item_tl} | Window Size: {window.size()}")
 
-    # 3. Capture Evidence
-    window.grab().save("/tmp/e2e_result.png")
-
-    # 4. Exit
+    # 5. Exit cleanly
     QApplication.instance().quit()
 ```
 
-### Lessons Learned: Event Propagation
-When writing E2E drivers, **avoid calling `eventFilter()` or event handlers directly** (e.g., `view.eventFilter(target, event)`). This "short-circuits" the standard Qt event propagation chain and can hide bugs where a widget's internal logic (like `QListView`'s default arrow key navigation) consumes the event before your filter ever sees it.
-
-**Correct Approach:** Use `QApplication.postEvent()` to send the event to the widget itself. This ensures the event follows the natural path through the OS and Qt event stack, accurately reflecting the user experience.
-
-```python
-from PyQt6.QtCore import QCoreApplication
-event = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
-QCoreApplication.postEvent(target_widget, event)
-```
-
-### Running the E2E Test
+### Running the E2E Test (Headless)
 
 ```bash
-export PYTHONPATH="/home/tony/cc/comiccatcher/src:$PYTHONPATH"
-DISPLAY=:99 /home/tony/cc/test/venv/bin/python \
+export QT_QPA_PLATFORM=offscreen
+/home/tony/cc/test/venv/bin/python \
     /home/tony/cc/comiccatcher/src/comiccatcher/main.py \
-    --e2e-driver /home/tony/cc/comiccatcher/scripts/my_driver.py \
-    --timeout 60
+    --e2e-driver repro_bug.py \
+    --debug nav
 ```
 
 ---
 
-## 11. Keyboard Scrolling Validation
+## 11. Keyboard Scrolling & Navigation Validation
 
 Keyboard scrolling logic is centralized in `comiccatcher.ui.view_helpers.ScrollHelper`. It uses physical UI card heights to ensure "clean" increments (rows aren't cut off).
 

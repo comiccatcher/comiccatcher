@@ -12,16 +12,16 @@ from urllib.parse import urljoin
 from typing import List, Dict, Optional, Set, Any, Union, Tuple
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QGridLayout,
-    QListWidget, QListWidgetItem, QStackedWidget, QLabel, QPushButton, QFrame,
+    QListWidget, QListWidgetItem, QStackedWidget, QLabel, QPushButton, QToolButton, QFrame,
     QDialog, QTextEdit, QMessageBox, QStyle, QApplication, QLineEdit, QScrollArea,
-    QLayout, QSizePolicy
+    QLayout, QSizePolicy, QGraphicsDropShadowEffect
 )
-from PyQt6.QtCore import Qt, QSize, QTimer, QRect, QPoint
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtCore import Qt, QSize, QTimer, QRect, QPoint, QObject, QEvent
+from PyQt6.QtGui import QIcon, QPixmap, QCursor, QKeyEvent, QAction, QColor
 
 from comiccatcher.config import ConfigManager, CONFIG_DIR
 from comiccatcher.ui.flow_layout import FlowLayout
-from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
+from comiccatcher.ui.theme_manager import ThemeManager, UIConstants, Keys
 from comiccatcher.ui.views.feed_list import FeedListView
 from comiccatcher.ui.views.local_library import LocalLibraryView
 from comiccatcher.ui.views.local_detail import LocalDetailView
@@ -42,6 +42,20 @@ from comiccatcher.api.image_manager import ImageManager
 from comiccatcher.logger import get_logger
 logger = get_logger("ui.app_layout")
 
+
+class GlobalFocusFilter(QObject):
+    """
+    Application-level filter that prevents specific widgets from taking keyboard focus.
+    This ensures that native Qt 'Tab' or 'Arrow' navigation doesn't steal focus
+    away from our custom BrowserNavigator.
+    """
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        # Polish event occurs right after a widget is constructed and styled
+        if event.type() == QEvent.Type.Polish:
+            if isinstance(obj, (QPushButton, QToolButton)):
+                obj.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        return False
+
 class ViewIndex(enum.IntEnum):
     FEED_LIST = 0
     LIBRARY = 1
@@ -52,6 +66,11 @@ class ViewIndex(enum.IntEnum):
     READER_ONLINE = 6
     SEARCH_ROOT = 7
     FEED_BROWSER = 8
+
+class SidebarIndex(enum.IntEnum):
+    FEEDS = 0
+    LIBRARY = 1
+    SETTINGS = 2
 
 class DownloadPopover(QFrame):
     def __init__(self, parent, download_manager: DownloadManager):
@@ -69,6 +88,11 @@ class DownloadPopover(QFrame):
         self.downloads_view = DownloadsView(self.dm)
         layout.addWidget(self.downloads_view)
 
+    def keyPressEvent(self, event):
+        """Swallow keys and close the popover."""
+        self.hide()
+        event.accept()
+
     def show_at(self, pos: QPoint):
         # Position it so the top right of the popover is near the click pos
         # but with some padding
@@ -77,10 +101,116 @@ class DownloadPopover(QFrame):
         self.move(adjusted_pos)
         self.show()
 
+class FullscreenExitBar(QFrame):
+    """
+    A small floating bar that appears at the top edge of the screen 
+    in fullscreen mode, providing a mouse-friendly way to exit.
+    """
+    SHOW_THRESHOLD = 15
+    HIDE_THRESHOLD = 150
+
+    def __init__(self, parent, on_exit):
+        super().__init__(parent)
+        self.on_exit = on_exit
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setObjectName("fullscreen_exit_bar")
+        
+        s = UIConstants.scale
+        self.setFixedHeight(s(55)) # Slightly taller for better grab
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(s(30), s(5), s(30), 0)
+        
+        self.btn_exit = QPushButton("  Exit Fullscreen")
+        self.btn_exit.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_exit.clicked.connect(self.on_exit)
+        
+        layout.addStretch()
+        layout.addWidget(self.btn_exit)
+        layout.addStretch()
+        
+        # Add shadow for visibility on light/busy content
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(s(25))
+        shadow.setColor(QColor(0, 0, 0, 220))
+        shadow.setOffset(0, s(3))
+        self.setGraphicsEffect(shadow)
+
+        self.reapply_theme()
+        self.hide()
+
+    def reapply_theme(self):
+        s = UIConstants.scale
+        theme = ThemeManager.get_current_theme_colors()
+        
+        # Button styling only (Background is handled in paintEvent)
+        self.btn_exit.setStyleSheet(f"""
+            QPushButton {{
+                color: {theme['text_main']};
+                font-weight: bold;
+                font-size: {s(15)}px;
+                background: transparent;
+                border: none;
+                padding: {s(8)}px;
+            }}
+            QPushButton:hover {{
+                color: {theme['accent']};
+            }}
+        """)
+        self.btn_exit.setIcon(ThemeManager.get_icon("minimize", "text_main"))
+        self.update()
+
+    def paintEvent(self, event):
+        from PyQt6.QtGui import QPainter, QPen
+        from PyQt6.QtCore import QRectF
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
+        
+        # 1. Background (Solid and Opaque)
+        bg_color = QColor(theme['bg_header'])
+        bg_color.setAlpha(255)
+        
+        # 2. Draw Pill Shape
+        pw = max(2, int(s(2)))
+        pen = QPen(QColor(theme['accent']))
+        pen.setWidth(pw)
+        painter.setPen(pen)
+        painter.setBrush(bg_color)
+        
+        # Inset slightly so the border doesn't clip
+        margin = pw / 2.0
+        rect = QRectF(self.rect()).adjusted(margin, margin, -margin, -margin)
+        painter.drawRoundedRect(rect, s(20), s(20))
+
+    def show_at_top(self):
+        win = self.parent().window()
+        s = UIConstants.scale
+        bar_w = s(220)
+        self.setFixedWidth(bar_w)
+        
+        # Position at top center, but with a small floating offset
+        geo = win.geometry()
+        x = geo.x() + (geo.width() // 2) - (bar_w // 2)
+        y = geo.y() + s(10) # 10px floating offset
+        self.move(x, y)
+        self.show()
+        self.raise_()
+
 class MainWindow(QMainWindow):
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(self, config_manager: ConfigManager, debug_spec: str = ""):
         super().__init__()
         self.config_manager = config_manager
+        self.debug_spec = debug_spec
+        
+        # Install global focus filter to prevent buttons from stealing nav focus
+        self._focus_filter = GlobalFocusFilter()
+        QApplication.instance().installEventFilter(self._focus_filter)
+
+        QApplication.instance().installEventFilter(self)
         
         # Restore manual scaling before UI construction
         UIConstants.init_scale(manual_factor=self.config_manager.get_ui_scale())
@@ -126,6 +256,7 @@ class MainWindow(QMainWindow):
 
         self.nav_list = QListWidget()
         self.nav_list.setObjectName("nav_list") # For specific styling
+        self.nav_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.nav_list.setViewMode(QListWidget.ViewMode.IconMode)
         self.nav_list.setFlow(QListWidget.Flow.TopToBottom)
         self.nav_list.setMovement(QListWidget.Movement.Static)
@@ -145,6 +276,7 @@ class MainWindow(QMainWindow):
         add_nav_item("Settings", "settings")
         
         self.nav_list.currentRowChanged.connect(self._on_sidebar_changed)
+        self.nav_list.installEventFilter(self)
         self.sidebar_layout.addWidget(self.nav_list)
         
         self.layout.addWidget(self.sidebar)
@@ -160,19 +292,21 @@ class MainWindow(QMainWindow):
         # Debug Bar (at the very top)
         self.debug_bar = QFrame()
         self.debug_bar.setObjectName("debug_bar")
+        self.debug_bar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         s = UIConstants.scale
         self.debug_bar.setFixedHeight(s(30))
         self.debug_layout = QHBoxLayout(self.debug_bar)
         self.debug_layout.setContentsMargins(s(10), 0, s(10), 0)
         self.debug_layout.setSpacing(s(10))
-        
+
         self.history_counter = QLabel("[0/0]")
+        self.history_counter.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.history_counter.setStyleSheet(f"font-size: {s(10)}px; font-weight: bold;")
-        
+
         self.debug_url_text = QLineEdit("")
         self.debug_url_text.setReadOnly(True)
+        self.debug_url_text.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.debug_url_text.setStyleSheet(f"font-size: {s(10)}px; background: transparent; border: none;")
-        
         theme = ThemeManager.get_current_theme_colors()
         debug_btn_qss = f"""
             QPushButton {{
@@ -205,7 +339,8 @@ class MainWindow(QMainWindow):
         self.debug_layout.addWidget(self.btn_logs)
         
         self.main_layout.addWidget(self.debug_bar)
-        self.debug_bar.setVisible(os.getenv("DEBUG") == "1")
+        is_debug_on = bool(os.getenv("DEBUG") == "1" or self.debug_spec)
+        self.debug_bar.setVisible(is_debug_on)
 
         # Top Header (Feed Info + Tabs + Breadcrumbs + Downloads)
         self.top_header = QFrame()
@@ -284,6 +419,7 @@ class MainWindow(QMainWindow):
         
         self.btn_downloads = QPushButton()
         self.btn_downloads.setObjectName("icon_button")
+        self.btn_downloads.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_downloads.setIcon(ThemeManager.get_icon("download"))
         self.btn_downloads.setFixedSize(UIConstants.HEADER_BUTTON_SIZE, UIConstants.HEADER_BUTTON_SIZE)
         self.btn_downloads.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -321,6 +457,7 @@ class MainWindow(QMainWindow):
         
         self.btn_refresh = QPushButton()
         self.btn_refresh.setObjectName("icon_button")
+        self.btn_refresh.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_refresh.setIcon(ThemeManager.get_icon("refresh"))
         self.btn_refresh.setFixedSize(UIConstants.HEADER_BUTTON_SIZE, UIConstants.HEADER_BUTTON_SIZE)
         self.btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -403,6 +540,9 @@ class MainWindow(QMainWindow):
 
         self.feed_list_view.icon_loaded.connect(self._on_feed_icon_loaded)
         self.settings_view.feed_management.icon_loaded.connect(self._on_feed_icon_loaded)
+
+        # Fullscreen helper
+        self.exit_fullscreen_bar = FullscreenExitBar(self, self._toggle_fullscreen)
 
         # Apply initial theme
         self._apply_theme()
@@ -511,6 +651,9 @@ class MainWindow(QMainWindow):
         self.server_name_label.setStyleSheet(f"font-weight: bold; font-size: {font_size}px; color: {theme['text_main']}; background: transparent; border: none;")
         
         # 6. Notify all active views
+        if hasattr(self, 'exit_fullscreen_bar'):
+            self.exit_fullscreen_bar.reapply_theme()
+
         for i in range(self.content_stack.count()):
             widget = self.content_stack.widget(i)
             if hasattr(widget, 'reapply_theme'):
@@ -519,12 +662,12 @@ class MainWindow(QMainWindow):
     def _restore_last_state(self):
         vtype = self.config_manager.get_last_view_type()
         if vtype == "library":
-            self.nav_list.setCurrentRow(1)
+            self.nav_list.setCurrentRow(SidebarIndex.LIBRARY)
             # setCurrentRow triggers _on_sidebar_changed, but we call it explicitly to be sure
-            self._on_sidebar_changed(1)
+            self._on_sidebar_changed(SidebarIndex.LIBRARY)
         elif vtype == "settings":
-            self.nav_list.setCurrentRow(2)
-            self._on_sidebar_changed(2)
+            self.nav_list.setCurrentRow(SidebarIndex.SETTINGS)
+            self._on_sidebar_changed(SidebarIndex.SETTINGS)
         elif vtype == "feed":
             feed_id = self.config_manager.get_last_feed_id()
             feed = None
@@ -534,11 +677,11 @@ class MainWindow(QMainWindow):
             if feed:
                 self.on_feed_selected(feed)
             else:
-                self.nav_list.setCurrentRow(0)
-                self._on_sidebar_changed(0)
+                self.nav_list.setCurrentRow(SidebarIndex.FEEDS)
+                self._on_sidebar_changed(SidebarIndex.FEEDS)
         else:
-            self.nav_list.setCurrentRow(0)
-            self._on_sidebar_changed(0)
+            self.nav_list.setCurrentRow(SidebarIndex.FEEDS)
+            self._on_sidebar_changed(SidebarIndex.FEEDS)
 
     def _on_downloads_updated(self):
         # Update badge
@@ -587,37 +730,143 @@ class MainWindow(QMainWindow):
             setattr(self.api_client.profile, "_cached_icon", pixmap)
             self.update_header()
 
-    def keyPressEvent(self, event):
-        modifiers = event.modifiers()
-        key = event.key()
-        
-        # 1. Scaling Shortcuts (Ctrl + Plus/Minus/Zero)
-        if modifiers == Qt.KeyboardModifier.ControlModifier:
-            if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
-                self._change_scale(0.1)
-                return
-            elif key == Qt.Key.Key_Minus:
-                self._change_scale(-0.1)
-                return
-            elif key == Qt.Key.Key_0:
-                self._reset_scale()
-                return
+    def _toggle_fullscreen(self):
+        if self.isFullScreen():
+            self.showNormal()
+            if hasattr(self, 'exit_fullscreen_bar'):
+                self.exit_fullscreen_bar.hide()
+        else:
+            self.showFullScreen()
 
-        # 2. Debug Outlines (Ctrl + Shift + D)
-        if (key == Qt.Key.Key_D
-                and modifiers == (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)):
-            self._toggle_debug_outlines()
-            return
-            
-        # 3. Back Navigation (Escape)
-        if key == Qt.Key.Key_Escape:
-            # Only trigger back button for non-reader views
-            # (Readers handle their own Escape logic)
-            idx = self.content_stack.currentIndex()
-            if idx not in (ViewIndex.LOCAL_READER, ViewIndex.READER_ONLINE):
-                self._on_header_back_clicked()
-                return
+    def keyPressEvent(self, event):
+        # We now handle global keys in eventFilter for better interception
         super().keyPressEvent(event)
+
+    def eventFilter(self, obj, event):
+        if event.type() == event.Type.MouseMove:
+            # 1. Fullscreen Hover Detection (Non-Reader views)
+            if self.isFullScreen():
+                idx = self.content_stack.currentIndex()
+                if idx not in (ViewIndex.LOCAL_READER, ViewIndex.READER_ONLINE):
+                    # Local mouse pos relative to main window
+                    pos = self.mapFromGlobal(QCursor.pos())
+                    s = UIConstants.scale
+                    
+                    # Show if in top threshold
+                    if pos.y() < s(FullscreenExitBar.SHOW_THRESHOLD):
+                        self.exit_fullscreen_bar.show_at_top()
+                    # Hide only if mouse moves significantly away
+                    elif pos.y() > s(FullscreenExitBar.HIDE_THRESHOLD) and self.exit_fullscreen_bar.isVisible():
+                        self.exit_fullscreen_bar.hide()
+
+        if event.type() == event.Type.KeyPress:
+            modifiers = event.modifiers()
+            key = event.key()
+
+            # 1. Safe Zone Detection (Modals, Dialogs, Settings, Input Boxes)
+            if QApplication.activeModalWidget():
+                return False
+
+            idx = self.content_stack.currentIndex()
+            current_view = self.content_stack.currentWidget()
+
+            # Input boxes handle their own keys (arrows, backspace, etc)
+            from PyQt6.QtWidgets import QLineEdit, QTextEdit, QComboBox
+            focus_widget = QApplication.focusWidget()
+            is_input_focused = isinstance(obj, (QLineEdit, QTextEdit, QComboBox)) or \
+                               isinstance(focus_widget, (QLineEdit, QTextEdit, QComboBox))
+
+            # 2. Feed View Tab Switching (Contextual - Priority over Global)
+            if self.api_client: 
+                # Browse tab requires Ctrl+B
+                if key == Qt.Key.Key_B and modifiers == Qt.KeyboardModifier.ControlModifier:
+                    self._on_tab_clicked("feed")
+                    return True
+                # Search tab remains unadorned /
+                elif key == Qt.Key.Key_Slash and modifiers == Qt.KeyboardModifier.NoModifier:
+                    self._on_tab_clicked("search")
+                    return True
+
+            # 3. Global Shortcuts (Ctrl + L/F/...)
+            if modifiers == Qt.KeyboardModifier.ControlModifier:
+                if key == Keys.FEEDS:
+                    self._switch_sidebar_tab(SidebarIndex.FEEDS)
+                    return True
+                elif key == Keys.LIBRARY:
+                    self._switch_sidebar_tab(SidebarIndex.LIBRARY)
+                    return True
+                elif key == Qt.Key.Key_Q:
+                    self.close()
+                    return True
+                
+                # Scaling Shortcuts
+                elif key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+                    self._change_scale(0.1)
+                    return True
+                elif key == Qt.Key.Key_Minus:
+                    self._change_scale(-0.1)
+                    return True
+                elif key == Qt.Key.Key_0:
+                    self._reset_scale()
+                    return True
+                elif key == Qt.Key.Key_H:
+                    if hasattr(current_view, "toggle_help_popover"):
+                        current_view.toggle_help_popover()
+                        return True
+
+            # 4. View-Specific Global Shortcuts (F11/Back/Refresh/Help)
+            if modifiers == Qt.KeyboardModifier.NoModifier:
+                # F11 is always global
+                if key == Qt.Key.Key_F11:
+                    self._toggle_fullscreen()
+                    return True
+                
+                # F is global EXCEPT when typing in an input box
+                if key == Qt.Key.Key_F and not is_input_focused:
+                    self._toggle_fullscreen()
+                    return True
+
+                # H is global EXCEPT when typing in an input box
+                if key == Qt.Key.Key_H and not is_input_focused:
+                    if hasattr(current_view, "toggle_help_popover"):
+                        current_view.toggle_help_popover()
+                        return True
+                
+                if key == Qt.Key.Key_F5:
+                    self.on_manual_refresh()
+                    return True
+
+                if key == Keys.BACK:
+                    # Priority 1: Check for Popovers
+                    for child in self.findChildren(QFrame):
+                        if "Popover" in child.__class__.__name__ and child.isVisible():
+                            # Return False to let the event bubble to the popover's own keyPressEvent
+                            return False
+
+                    # Priority 2: Keyboard Cursor (handled by Browser views)
+                    # If the navigator is active, let it handle Escape first
+                    if hasattr(current_view, "_keyboard_nav") and current_view._keyboard_nav and current_view._keyboard_nav.cursor_active:
+                        return False
+
+                    # Priority 3: Bulk Selection Mode in Browser Views
+                    if hasattr(current_view, "_bulk_selection_mode") and current_view._bulk_selection_mode:
+                        if hasattr(current_view, "toggle_bulk_selection"):
+                            current_view.toggle_bulk_selection(False)
+                            return True
+
+                    # Priority 4: Readers handle their own Escape
+                    if idx in (ViewIndex.LOCAL_READER, ViewIndex.READER_ONLINE):
+                        return False
+
+                    # Priority 5: Feed Selection is root level, do nothing
+                    if idx == ViewIndex.FEED_LIST:
+                        return True
+
+                    self._on_header_back_clicked()
+                    event.accept()
+                    return True
+
+        return super().eventFilter(obj, event)
 
     def _change_scale(self, delta: float):
         from comiccatcher.ui.theme_manager import UIConstants
@@ -740,13 +989,16 @@ class MainWindow(QMainWindow):
             self.feed_histories[fid] = history
             self.feed_indices[fid] = index
 
+    def _switch_sidebar_tab(self, index: int):
+        """Switches the sidebar selection and triggers the corresponding view change."""
+        if index < self.nav_list.count():
+            self.nav_list.setCurrentRow(index)
+            # setCurrentRow triggers _on_sidebar_changed automatically
+
     def _on_sidebar_changed(self, index):
-        # Sidebar mapping:
-        # 0: Feeds
-        # 1: Library
-        # 2: Settings
+        # Sidebar mapping defined in SidebarIndex enum
         
-        if index == 0:
+        if index == SidebarIndex.FEEDS:
             self.config_manager.set_last_view_type("feed")
             hist, idx = self.get_current_history()
             if idx < 0:
@@ -756,11 +1008,11 @@ class MainWindow(QMainWindow):
             self.update_header()
             return
             
-        if index == 1:
+        if index == SidebarIndex.LIBRARY:
             self.config_manager.set_last_view_type("library")
             target_idx = getattr(self, "last_library_view", ViewIndex.LIBRARY)
             self.content_stack.setCurrentIndex(target_idx)
-        elif index == 2:
+        elif index == SidebarIndex.SETTINGS:
             self.config_manager.set_last_view_type("settings")
             self.content_stack.setCurrentIndex(ViewIndex.SETTINGS)
             
@@ -801,17 +1053,22 @@ class MainWindow(QMainWindow):
                 self.feed_detail_view.load_publication(entry["pub"], entry["url"], self.api_client, self.opds_client, self.image_manager)
                 self.content_stack.setCurrentIndex(ViewIndex.DETAIL)
         else:
-            self.content_stack.setCurrentIndex(ViewIndex.FEED_LIST)
+            # If we have an active feed session, 'else' should probably go to home
+            if self.api_client:
+                # This case shouldn't happen often if history is properly initialized, 
+                # but it's a safe fallback within a session.
+                self.content_stack.setCurrentIndex(ViewIndex.FEED_BROWSER)
+            else:
+                self.content_stack.setCurrentIndex(ViewIndex.FEED_LIST)
                 
         self.update_header()
 
     def update_header(self):
-        is_debug_on = os.getenv("DEBUG") == "1"
+        is_debug_on = bool(os.getenv("DEBUG") == "1" or self.debug_spec)
         current_view_idx = self.content_stack.currentIndex()
         is_reader = current_view_idx in (ViewIndex.LOCAL_READER, ViewIndex.READER_ONLINE)
-        
+
         self.debug_bar.setVisible(is_debug_on and not is_reader)
-        
         hist, idx = self.get_current_history()
         if is_debug_on:
             self.history_counter.setText(f"[{idx + 1}/{len(hist)}]")
@@ -1316,7 +1573,7 @@ class MainWindow(QMainWindow):
             if hist[i]["type"] == "browser" or hist[i]["type"] == "search_root":
                 self.on_jump_to_history(i)
                 return
-        self.nav_list.setCurrentRow(0)
+        self.nav_list.setCurrentRow(SidebarIndex.FEEDS)
         self.content_stack.setCurrentIndex(ViewIndex.FEED_LIST)
 
     def on_read_local_comic(self, path, context_paths=None):

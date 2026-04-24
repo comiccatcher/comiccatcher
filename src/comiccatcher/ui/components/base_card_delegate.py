@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from typing import Optional
 from PyQt6.QtWidgets import QStyledItemDelegate, QStyle, QStyleOptionViewItem, QToolTip
-from PyQt6.QtCore import Qt, QRect, QSize, QRectF, QByteArray, QEvent
+from PyQt6.QtCore import Qt, QRect, QSize, QRectF, QByteArray, QEvent, QPoint, QModelIndex
 from PyQt6.QtGui import QPainter, QColor, QPixmap, QPen
 from PyQt6.QtSvg import QSvgRenderer
 from comiccatcher.ui.theme_manager import UIConstants, ThemeManager, ICON_DIR
@@ -87,7 +87,7 @@ class BaseCardDelegate(QStyledItemDelegate):
                 return True
         return super().helpEvent(event, view, option, index)
 
-    def paint_card(self, painter: QPainter, option: QStyleOptionViewItem, theme: dict, config: CardConfig):
+    def paint_card(self, painter: QPainter, option: QStyleOptionViewItem, index, theme: dict, config: CardConfig):
         """
         Centralized orchestration method for painting a standardized card.
         Handles the layout and order of all possible card elements.
@@ -104,7 +104,12 @@ class BaseCardDelegate(QStyledItemDelegate):
             
             # 1. Background
             content_rect = self.draw_card_background(painter, rect, option, theme)
+            
+            # Selection Badge: Visible even when keyboard cursor is active
+            view = option.widget or self.parent()
             is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
+            
+            is_keyboard_focused = self._is_keyboard_focused(index=index)
             
             # 2. Cover Area Calculation
             # The cover always starts at CARD_PADDING from the top of the rounded box (content_rect)
@@ -166,15 +171,18 @@ class BaseCardDelegate(QStyledItemDelegate):
                                   UIConstants.CARD_LABEL_HEIGHT)
                 
                 forced_color = None
-                if is_selected:
-                    forced_color = QColor(theme.get('text_selected', theme['white']))
-                    
+
                 self.draw_label(painter, text_rect, config.primary_text, theme, config.secondary_text, forced_text_color=forced_color)
             else:
                 # Internal label as a backup when covers are missing
                 # (Folders handle their own internal label inside draw_folder_stack)
                 if not config.is_folder and (not config.cover_pixmap or config.cover_pixmap.isNull()):
                     self.draw_internal_label(painter, cover_area_rect, config.primary_text, theme)
+
+            if is_selected:
+                self.draw_selection_badge(painter, content_rect, theme)
+            if is_keyboard_focused:
+                self.draw_keyboard_focus_ring(painter, content_rect, theme)
                     
             painter.restore()
         finally:
@@ -194,14 +202,13 @@ class BaseCardDelegate(QStyledItemDelegate):
         """Draws the standard rounded card background and border, using a pixmap cache."""
         p = UIConstants.CARD_PADDING
         s = UIConstants.scale
-        is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
         theme_name = ThemeManager._current_theme
         
         target_w = UIConstants.get_card_width(self.card_size)
         target_h = self.card_height # Full delegate cell height
         
         # 1. Check/Build Pixmap Cache for the "Shell"
-        cache_key = (self.card_size, theme_name, is_selected)
+        cache_key = (self.card_size, theme_name)
         if cache_key not in self._skeleton_cache:
             from PyQt6.QtGui import QPixmap
             # Create a transparent pixmap exactly the size of a standard card
@@ -215,12 +222,8 @@ class BaseCardDelegate(QStyledItemDelegate):
             card_rect = QRect(0, 0, target_w, target_h)
             content_rect = card_rect.adjusted(p, p + UIConstants.CARD_MARGIN_TOP, -p, -p)
             
-            if is_selected:
-                pm_painter.setBrush(QColor(theme['bg_item_selected']))
-                pm_painter.setPen(QPen(QColor(theme['accent']), UIConstants.CARD_BORDER_WIDTH_SELECTED))
-            else:
-                pm_painter.setBrush(QColor(theme['card_bg']))
-                pm_painter.setPen(QPen(QColor(theme['card_border']), UIConstants.CARD_BORDER_WIDTH))
+            pm_painter.setBrush(QColor(theme['card_bg']))
+            pm_painter.setPen(QPen(QColor(theme['card_border']), UIConstants.CARD_BORDER_WIDTH))
                 
             pm_painter.drawRoundedRect(content_rect, UIConstants.CARD_ROUNDING, UIConstants.CARD_ROUNDING)
             pm_painter.end()
@@ -241,6 +244,58 @@ class BaseCardDelegate(QStyledItemDelegate):
             return QRect(rect.left() + offset_x + p, rect.top() + p + UIConstants.CARD_MARGIN_TOP, target_w - (p*2), target_h - (p*2) - UIConstants.CARD_MARGIN_TOP)
         else:
             return QRect(rect.left() + p, rect.top() + p + UIConstants.CARD_MARGIN_TOP, target_w - (p*2), target_h - (p*2) - UIConstants.CARD_MARGIN_TOP)
+
+    def _is_keyboard_focused(self, index) -> bool:
+        parent = self.parent()
+        if not parent or not getattr(parent, "property", None):
+            return False
+        if not parent.property("keyboard_cursor_active"):
+            return False
+        if index is None or not index.isValid():
+            return False
+        
+        # Use our custom persistent cursor property instead of currentIndex()
+        current = parent.property("keyboard_cursor_index")
+        return bool(current and isinstance(current, QModelIndex) and current == index)
+
+    def draw_keyboard_focus_ring(self, painter: QPainter, content_rect: QRect, theme: dict):
+        painter.save()
+        # Thicker border for keyboard focus
+        pen = QPen(QColor(theme["accent"]), UIConstants.CARD_BORDER_WIDTH_SELECTED + 2)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(pen)
+        ring_rect = content_rect.adjusted(-1, -1, 1, 1)
+        painter.drawRoundedRect(ring_rect, UIConstants.CARD_ROUNDING, UIConstants.CARD_ROUNDING)
+        painter.restore()
+
+    def draw_selection_badge(self, painter: QPainter, content_rect: QRect, theme: dict):
+        painter.save()
+        s = UIConstants.scale
+        badge_size = s(20)
+        badge_rect = QRect(
+            content_rect.right() - badge_size - s(6),
+            content_rect.top() + s(6),
+            badge_size,
+            badge_size,
+        )
+        
+        # Use theme keys for everything
+        on_accent = QColor(theme.get("text_on_accent", "#ffffff"))
+        accent = QColor(theme["accent"])
+        
+        # Draw an outline around the badge to pop it off the blue focus ring if they overlap
+        painter.setPen(QPen(on_accent, s(2)))
+        painter.setBrush(accent)
+        painter.drawEllipse(badge_rect)
+        
+        # Draw the checkmark
+        painter.setPen(QPen(on_accent, max(1, s(2))))
+        p1 = QPoint(int(badge_rect.left() + badge_size * 0.28), int(badge_rect.top() + badge_size * 0.55))
+        p2 = QPoint(int(badge_rect.left() + badge_size * 0.46), int(badge_rect.top() + badge_size * 0.72))
+        p3 = QPoint(int(badge_rect.left() + badge_size * 0.76), int(badge_rect.top() + badge_size * 0.34))
+        painter.drawLine(p1, p2)
+        painter.drawLine(p2, p3)
+        painter.restore()
 
     def draw_cover_pixmap(self, painter: QPainter, rect: QRect, pixmap: QPixmap, opacity: float = 1.0):
         """Scales and draws a cover pixmap centered in the target rect."""

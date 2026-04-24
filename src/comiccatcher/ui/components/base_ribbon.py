@@ -36,6 +36,7 @@ class BaseCardRibbon(QListView):
         self.setFlow(QListView.Flow.LeftToRight)
         self.setWrapping(False)
         self.setResizeMode(QListView.ResizeMode.Adjust)
+        self.setProperty("is_ribbon", True)
         
         # Eliminate all internal padding that could cause vertical overflow
         self.setContentsMargins(0, 0, 0, 0)
@@ -258,6 +259,13 @@ class BaseCardRibbon(QListView):
         # If it's a QStandardItemModel or similar, this works.
         # But FeedBrowserModel might not have it.
         return None
+
+    def focus_index(self, index):
+        """Keyboard-focused navigation helper that pans the ribbon as needed."""
+        if not index or not index.isValid():
+            return
+        self.setCurrentIndex(index)
+        self.scrollTo(index, QAbstractItemView.ScrollHint.PositionAtCenter)
 
 class FeedCardRibbon(BaseCardRibbon):
     """

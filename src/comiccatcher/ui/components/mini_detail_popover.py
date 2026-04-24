@@ -158,7 +158,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         self._margin = s(20)
         self.setFixedWidth(s(460) + self._margin * 2)
         self.setFixedHeight(s(340) + self._margin * 2)
-        
+
         self.arrow_side: Optional[str] = None # "left", "right", "top", "bottom"
         self.arrow_pos: float = 0.5 # 0.0 to 1.0 along the side
         
@@ -193,6 +193,31 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         self.info_layout.setContentsMargins(0, 0, 0, 0)
         self.info_layout.setSpacing(s(4))
         
+        self.section_title = QLabel()
+        self.section_title.setObjectName("section_title")
+        self.section_title.setWordWrap(True)
+        self.info_layout.addWidget(self.section_title)
+        
+        self.section_subtitle = QLabel()
+        self.section_subtitle.setObjectName("section_subtitle")
+        self.section_subtitle.setWordWrap(True)
+        self.info_layout.addWidget(self.section_subtitle)
+
+        self.meta_label = QLabel()
+        self.meta_label.setObjectName("meta_label")
+        self.meta_label.setWordWrap(True)
+        self.info_layout.addWidget(self.meta_label)
+        
+        self.info_layout.addSpacing(s(4))
+        
+        self.desc_scroll = QScrollArea()
+        self.desc_scroll.setWidgetResizable(True)
+        self.desc_label = QLabel()
+        self.desc_label.setWordWrap(True)
+        self.desc_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.desc_scroll.setWidget(self.desc_label)
+        self.info_layout.addWidget(self.desc_scroll, 1)
+
         self.content_layout.addWidget(self.info_area, 1)
         
         # Bottom: Actions (Optional)
@@ -209,6 +234,11 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         self.spinner = LoadingSpinner(self.container, size=s(24))
         
         self.reapply_theme()
+
+    def keyPressEvent(self, event):
+        """Swallow keys and close the popover."""
+        self.hide()
+        event.accept()
 
     def set_loading(self, loading: bool):
         """Toggles the loading spinner."""

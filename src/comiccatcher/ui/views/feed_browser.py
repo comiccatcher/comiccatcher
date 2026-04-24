@@ -185,13 +185,13 @@ class FeedBrowser(BaseBrowserView):
 
         # 4. Selection Action Bar Configuration
 
-        self.btn_sel_download = self.create_selection_button("Download", "download", self._on_bulk_download)
+        self.btn_sel_download = self.create_bulk_selection_button("Download", "download", self._on_bulk_download)
         self.btn_sel_download.setEnabled(False)
-
         self.selection_layout.addWidget(self.btn_sel_download)
+        self.refresh_keyboard_navigation()
 
     def _on_item_clicked(self, item, context):
-        if self._selection_mode:
+        if self._bulk_selection_mode:
             return
         self.item_clicked.emit(item, context)
 
@@ -205,9 +205,14 @@ class FeedBrowser(BaseBrowserView):
         self.btn_sel_download.setEnabled(count > 0)
 
         # Refresh icon color for visual feedback
-        icon_name = self._selection_buttons.get(self.btn_sel_download)
+        icon_name = self._bulk_selection_buttons.get(self.btn_sel_download)
         if icon_name:
+
             self.btn_sel_download.setIcon(ThemeManager.get_icon(icon_name, "accent" if count > 0 else "text_dim"))
+
+    def keyboard_trigger_bulk_action(self):
+        """Perform bulk download for selection mode."""
+        self._on_bulk_download()
 
     def _on_bulk_download(self):
         """Triggers downloads for all selected items that have download links."""
@@ -234,7 +239,7 @@ class FeedBrowser(BaseBrowserView):
                 self.download_requested.emit(item.raw_pub, item.download_url)
             
             logger.info(f"Bulk download triggered for {count} items.")
-            self.toggle_selection_mode(False)
+            self.toggle_bulk_selection(False)
 
     def _on_scrolled_status_updated(self, status: str):
         self._last_scrolled_status = status
@@ -354,7 +359,7 @@ class FeedBrowser(BaseBrowserView):
         self.btn_labels.clicked.connect(self.toggle_labels)
         
         self.btn_select = self.create_header_button("select", "Select Mode", checkable=True)
-        self.btn_select.clicked.connect(self.toggle_selection_mode)
+        self.btn_select.clicked.connect(self.toggle_bulk_selection)
 
         self.btn_facets = self.create_header_button("filter", "Filters")
         self.facet_menu = QMenu(self)
@@ -385,12 +390,13 @@ class FeedBrowser(BaseBrowserView):
         self.right_layout.addWidget(self.btn_select)
         self.right_layout.addWidget(self.btn_facets)
 
-    def toggle_selection_mode(self, enabled: bool):
-        super().toggle_selection_mode(enabled)
+    def toggle_bulk_selection(self, enabled: bool):
+        super().toggle_bulk_selection(enabled)
         if self._paging_mode == "scrolled":
-            self.scrolled_view.toggle_selection_mode(enabled)
+            self.scrolled_view.toggle_bulk_selection(enabled)
         else:
-            self.paged_view.toggle_selection_mode(enabled)
+            self.paged_view.toggle_bulk_selection(enabled)
+        self.refresh_keyboard_navigation()
 
     async def load_url(self, url: str, force_refresh: bool = False, is_paging: bool = False):
         # Prevent redundant reloads if we are already showing this URL in this feed context.
@@ -488,6 +494,7 @@ class FeedBrowser(BaseBrowserView):
                 self._update_busy_state("initial_load", False)
 
     def _render_page(self, page: FeedPage, raw_feed, target_offset: Optional[int] = None, target_item_index: Optional[int] = None):
+        self.clear_keyboard_cursor()
         self._update_paging_toolbar(page)
         self._update_facets(page)
         
@@ -522,6 +529,8 @@ class FeedBrowser(BaseBrowserView):
             self.scrolled_view.render(page, page.pagination_template, page.is_offset_based, self._current_context_id, target_offset=target_offset, target_item_index=target_item_index)
             
         self._update_status()
+        self.refresh_keyboard_navigation()
+        self.setFocus()
         self.page_loaded.emit()
 
     def _prefetch_adjacent_pages(self):
@@ -863,11 +872,71 @@ class FeedBrowser(BaseBrowserView):
             self.btn_labels.setIcon(ThemeManager.get_icon("label", "accent" if self._show_labels else "text_dim"))
 
         if hasattr(self, 'btn_select'):
-            self.btn_select.setChecked(self._selection_mode)
-            self.btn_select.setIcon(ThemeManager.get_icon("select", "accent" if self._selection_mode else "text_dim"))
+            self.btn_select.setChecked(self._bulk_selection_mode)
+            self.btn_select.setIcon(ThemeManager.get_icon("select", "accent" if self._bulk_selection_mode else "text_dim"))
 
         if hasattr(self, 'btn_facets'):
             self.btn_facets.setIcon(ThemeManager.get_icon("filter", "text_dim"))
+
+    @property
+    def active_subview(self):
+        """Returns the currently active sub-view (Paged or Scrolled)."""
+        if not hasattr(self, "_paging_mode"): return None
+        return self.scrolled_view if self._paging_mode == "scrolled" else self.paged_view
+
+    def get_keyboard_nav_views(self):
+        subview = self.active_subview
+        if subview and hasattr(subview, "get_keyboard_nav_views"):
+            return subview.get_keyboard_nav_views()
+        return []
+
+    def get_keyboard_nav_focus_objects(self):
+        """Returns all list views and search bars that should participate in keyboard navigation."""
+        subview = self.active_subview
+        if not subview: return []
+            
+        if self._paging_mode == "scrolled":
+            return subview._get_all_subviews()
+        else:
+            return subview._section_views
+
+    def get_keyboard_nav_scrollbar(self):
+        subview = self.active_subview
+        if subview and hasattr(subview, "get_keyboard_nav_scrollbar"):
+            return subview.get_keyboard_nav_scrollbar()
+        return None
+
+    def keyboard_activate_index(self, view, index):
+        model = view.model()
+        item = model.get_item(index.row()) if model and hasattr(model, "get_item") else None
+        if item:
+            self._on_item_clicked(item, self.active_subview.gather_context_pubs(model))
+
+    def keyboard_context_menu_for_index(self, view, index):
+        model = view.model()
+        item = model.get_item(index.row()) if model and hasattr(model, "get_item") else None
+        if item:
+            self._show_mini_detail(item, index, view, model)
+
+    def cycle_display_mode(self):
+        """Cycle between scrolled and paged paging modes."""
+        new_mode = "scrolled" if self._paging_mode == "paged" else "paged"
+        self._on_paging_mode_changed(new_mode)
+
+    def toggle_all_sections(self):
+        """Delegate toggle all sections to the active sub-view."""
+        if self.active_subview:
+            self.active_subview.toggle_all_sections()
+
+    def toggle_active_section(self, active_view: QWidget):
+        """Delegate toggle active section to the active sub-view."""
+        if self.active_subview:
+            self.active_subview.toggle_active_section(active_view)
+
+    def follow_active_section_link(self, active_view: QWidget):
+        """Delegate follow active section link to the active sub-view."""
+        if self.active_subview:
+            self.active_subview.follow_active_section_link(active_view)
 
     def toggle_labels(self, enabled: bool):
         if self._show_labels == enabled: return
@@ -929,10 +998,10 @@ class FeedBrowser(BaseBrowserView):
                         break
 
             if target_view and target_idx:
-                if not self._selection_mode:
-                    self.toggle_selection_mode(True)
+                if not self._bulk_selection_mode:
+                    self.toggle_bulk_selection(True)
 
-                # Selection might need to be explicit if toggle_selection_mode clears it
+                # Selection might need to be explicit if toggle_bulk_selection clears it
                 from PyQt6.QtCore import QItemSelectionModel
                 target_view.selectionModel().select(target_idx, QItemSelectionModel.SelectionFlag.Select)
                 self._update_selection_ui()
@@ -968,4 +1037,3 @@ class FeedBrowser(BaseBrowserView):
             self.download_requested.emit(pub, url)
         else:
             logger.warning(f"No download URL found for {item.title}")
-

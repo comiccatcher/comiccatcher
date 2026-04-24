@@ -68,4 +68,4 @@ class LibraryCardDelegate(BaseCardDelegate):
             card_size=self.card_size
         )
         
-        self.paint_card(painter, option, theme, config)
+        self.paint_card(painter, option, index, theme, config)

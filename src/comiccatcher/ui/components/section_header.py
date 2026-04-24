@@ -8,8 +8,8 @@ from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
 
 class SectionHeader(QWidget):
     """
-    A lightweight header-only version of CollapsibleSection.
-    Ideal for virtualized lists where the content is in separate rows.
+    Standardized header for sections. Used by CollapsibleSection (layout-based) 
+    and ScrolledFeedView (virtual-based).
     """
     toggled = pyqtSignal(bool)
 
@@ -17,6 +17,8 @@ class SectionHeader(QWidget):
                  is_collapsed: bool = False, on_context_menu: Optional[Callable] = None, parent=None):
         super().__init__(parent)
         self._is_collapsed = is_collapsed
+        self.action_widget = action_widget
+        self._on_context_menu = None
 
         self.setObjectName("section_header_container")
         self.setFixedHeight(UIConstants.SECTION_HEADER_HEIGHT)
@@ -25,7 +27,7 @@ class SectionHeader(QWidget):
         self.layout.setContentsMargins(0, UIConstants.SECTION_HEADER_MARGIN_TOP, 0, 0)
         self.layout.setSpacing(UIConstants.SECTION_HEADER_SPACING)
 
-        # 1. Initialize Children FIRST
+        # 1. Toggle Button
         s = UIConstants.scale
         self.btn_toggle = QPushButton()
         self.btn_toggle.setObjectName("icon_button")
@@ -36,9 +38,8 @@ class SectionHeader(QWidget):
         self.btn_toggle.clicked.connect(self.toggle)
         self.layout.addWidget(self.btn_toggle)
 
+        # 2. Title Label
         self.header_label = QLabel(title)
-        theme = ThemeManager.get_current_theme_colors()
-        self.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
         self.header_label.setCursor(Qt.CursorShape.PointingHandCursor)
         
         def label_press(e):
@@ -52,31 +53,47 @@ class SectionHeader(QWidget):
 
         self.layout.addStretch()
         
+        # 3. Action Widget (e.g., 'See All')
         if action_widget:
             self.layout.addWidget(action_widget)
 
-        # 2. Context Menu Setup (requires children to exist)
+        # 4. Context Menu Setup
         if on_context_menu:
-            self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            self.customContextMenuRequested.connect(on_context_menu)
-            
-            # Ensure children also propagate the context menu request
-            self.btn_toggle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            self.btn_toggle.customContextMenuRequested.connect(on_context_menu)
-            self.header_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            self.header_label.customContextMenuRequested.connect(on_context_menu)
+            self.on_context_menu = on_context_menu
 
-        self._update_ui_state()
+        self.reapply_theme()
+
+    @property
+    def on_context_menu(self):
+        return self._on_context_menu
+
+    @on_context_menu.setter
+    def on_context_menu(self, callback: Optional[Callable]):
+        """Sets or updates the context menu callback for the header and its children."""
+        if self._on_context_menu:
+            try:
+                self.customContextMenuRequested.disconnect(self._on_context_menu)
+                for w in [self.btn_toggle, self.header_label]:
+                    w.customContextMenuRequested.disconnect(self._on_context_menu)
+            except (TypeError, RuntimeError):
+                pass
+        
+        self._on_context_menu = callback
+        if callback:
+            self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.customContextMenuRequested.connect(callback)
+            for w in [self.btn_toggle, self.header_label]:
+                w.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                w.customContextMenuRequested.connect(callback)
+        else:
+            self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+            for w in [self.btn_toggle, self.header_label]:
+                w.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
 
     def set_right_margin(self, margin: int):
-        """Adjusts the right margin, typically to account for a vertical scrollbar."""
+        """Adjusts the right margin to account for vertical scrollbars."""
         m = self.layout.contentsMargins()
         self.layout.setContentsMargins(m.left(), m.top(), margin, m.bottom())
-
-    def reapply_theme(self):
-        theme = ThemeManager.get_current_theme_colors()
-        self.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
-        self._update_ui_state()
 
     def toggle(self):
         self._is_collapsed = not self._is_collapsed
@@ -90,3 +107,8 @@ class SectionHeader(QWidget):
     def _update_ui_state(self):
         icon_name = "chevron_right" if self._is_collapsed else "chevron_down"
         self.btn_toggle.setIcon(ThemeManager.get_icon(icon_name, "accent"))
+
+    def reapply_theme(self):
+        theme = ThemeManager.get_current_theme_colors()
+        self.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
+        self._update_ui_state()

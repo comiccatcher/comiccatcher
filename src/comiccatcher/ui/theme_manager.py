@@ -2,6 +2,7 @@
 # AI-typical patterns. Not recommended as ML training data.
 
 from pathlib import Path
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QColor, QPalette, QIcon
 
@@ -26,6 +27,7 @@ THEMES = {
         "white": "#ffffff",
         "danger": "#dc3545",
         "success": "#28a745",
+        "star": "#facc15",
         "bg_reader": "#ffffff",
         "text_reader": "#1a1d21"
     },
@@ -47,6 +49,7 @@ THEMES = {
         "white": "#ffffff",
         "danger": "#f44336",
         "success": "#4caf50",
+        "star": "#ffca28",
         "bg_reader": "#2d2d2d",
         "text_reader": "#e1e1e1"
     },
@@ -68,6 +71,7 @@ THEMES = {
         "white": "#ffffff",
         "danger": "#f44336",
         "success": "#4caf50",
+        "star": "#ffca28",
         "bg_reader": "#000000",
         "text_reader": "#ffffff"
     },
@@ -89,6 +93,7 @@ THEMES = {
         "white": "#ffffff",
         "danger": "#ef4444",
         "success": "#10b981",
+        "star": "#f59e0b",
         "bg_reader": "#1e293b",
         "text_reader": "#f1f5f9"
     },
@@ -110,6 +115,7 @@ THEMES = {
         "white": "#ffffff",
         "danger": "#dc3545",
         "success": "#16a34a",
+        "star": "#ca8a04",
         "bg_reader": "#ffffff",
         "text_reader": "#1e3a8a"
     }
@@ -217,6 +223,7 @@ class UIConstants:
     
     _BASE_POPOVER_OFFSET = 10
     _BASE_POPOVER_ROUNDING = 8
+    _BASE_SCROLL_EDGE_MARGIN = 50
 
     # --- 2. Live Attributes (Auto-initialized to base values) ---
     HEADER_HEIGHT = _BASE_HEADER_HEIGHT
@@ -295,6 +302,7 @@ class UIConstants:
     DETAIL_MAX_WIDTH = _BASE_DETAIL_MAX_WIDTH
     POPOVER_OFFSET = _BASE_POPOVER_OFFSET
     POPOVER_ROUNDING = _BASE_POPOVER_ROUNDING
+    SCROLL_EDGE_MARGIN = _BASE_SCROLL_EDGE_MARGIN
 
     # Non-scaled logic constants
     ELIDED_TEXT_WIDTH_FACTOR = 1.7
@@ -477,6 +485,7 @@ class UIConstants:
         
         cls.POPOVER_OFFSET = cls.scale(cls._BASE_POPOVER_OFFSET)
         cls.POPOVER_ROUNDING = cls.scale(cls._BASE_POPOVER_ROUNDING)
+        cls.SCROLL_EDGE_MARGIN = cls.scale(cls._BASE_SCROLL_EDGE_MARGIN)
 
         # Dynamic scrollbar calculation
         if app:
@@ -484,6 +493,21 @@ class UIConstants:
             cls.SCROLLBAR_SIZE = app.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
         else:
             cls.SCROLLBAR_SIZE = cls.scale(12)
+
+class Keys:
+    """Centralized keyboard shortcut constants."""
+    # Global Shortcuts
+    LIBRARY = Qt.Key.Key_L
+    FEEDS = Qt.Key.Key_F
+    SETTINGS = Qt.Key.Key_S
+    
+    # Detail View Shortcuts
+    READ = Qt.Key.Key_R
+    DOWNLOAD = Qt.Key.Key_D
+    
+    # Generic
+    BACK = Qt.Key.Key_Escape
+
 
 class ThemeManager:
     _current_theme: str = "dark"
@@ -923,7 +947,7 @@ class ThemeManager:
 
             QWidget#selection_bar {{
                 background-color: {theme['bg_header']};
-                border-top: {max(1, s(1))}px solid {theme['border']};
+                border-bottom: {max(1, s(1))}px solid {theme['border']};
             }}
 
             QWidget#section_header {{

@@ -5,12 +5,13 @@ from typing import Set, List
 from PyQt6.QtWidgets import QWidget, QListView, QFrame, QAbstractItemView
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
 from comiccatcher.ui.theme_manager import UIConstants
+from comiccatcher.ui.view_helpers import SectionControlMixin
 from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
 from comiccatcher.ui.components.feed_card_delegate import FeedCardDelegate
 
 from comiccatcher.models.feed_page import FeedPage, FeedSection, FeedItem
 
-class BaseFeedSubView(QWidget):
+class BaseFeedSubView(QWidget, SectionControlMixin):
     """
     Common base class for Feed sub-views (Paged and Scrolled).
     Centralizes shared UI configuration, signals, and context gathering logic.
@@ -24,10 +25,11 @@ class BaseFeedSubView(QWidget):
 
     def __init__(self, image_manager, collapsed_sections: Set[str], parent=None):
         super().__init__(parent)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.image_manager = image_manager
         self._collapsed_sections = collapsed_sections
         self._show_labels = True
-        self._selection_mode = False
+        self._bulk_selection_mode = False
         self._card_size = "medium"
 
     def set_show_labels(self, show: bool):
@@ -50,6 +52,10 @@ class BaseFeedSubView(QWidget):
         view.setMouseTracking(True)
         view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         view.viewport().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        
+        # Cursor tracking property for KeyboardBrowserNavigator
+        view.setProperty("keyboard_cursor_active", False)
+
         # Register for unified event handling
         view.viewport().installEventFilter(self)
 
@@ -70,14 +76,12 @@ class BaseFeedSubView(QWidget):
         if event.type() == QEvent.Type.MouseMove:
             view = source.parent()
             if isinstance(view, QListView) and not hasattr(view, 'mouseMoveEvent_overridden'):
-                # Only do this if the view isn't a BaseCardRibbon (which handles its own)
-                # or if we really need centralized control.
-                # For now, let's just make sure we aren't looping.
                 index = view.indexAt(event.pos())
                 view.setCursor(
                     Qt.CursorShape.PointingHandCursor if index.isValid()
                     else Qt.CursorShape.ArrowCursor)
 
+        # IMPORTANT: Do NOT swallow KeyPress events; let them bubble to KeyboardBrowserNavigator
         return super().eventFilter(source, event)
 
     def _get_target_scrollbar(self):
@@ -147,9 +151,9 @@ class BaseFeedSubView(QWidget):
                     context_pubs.append(itm.raw_pub)
         return context_pubs
 
-    def toggle_selection_mode(self, enabled: bool):
+    def toggle_bulk_selection(self, enabled: bool):
         """Standardized selection mode toggle for sub-views."""
-        self._selection_mode = enabled
+        self._bulk_selection_mode = enabled
         mode = QAbstractItemView.SelectionMode.MultiSelection if enabled else QAbstractItemView.SelectionMode.NoSelection
         
         # Collect all active views (grids, ribbons, or paged sections)
@@ -201,3 +205,11 @@ class BaseFeedSubView(QWidget):
                 if isinstance(item, FeedItem):
                     selected.append(item)
         return selected
+
+    def get_keyboard_nav_views(self) -> List[QListView]:
+        """Returns all visible list views that should participate in keyboard navigation."""
+        return [v for v in self._get_all_subviews() if v and v.isVisible()]
+
+    def get_keyboard_nav_scrollbar(self):
+        """Returns the primary vertical scrollbar for the subview."""
+        return self._get_target_scrollbar()
