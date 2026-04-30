@@ -11,8 +11,12 @@ def format_artist_credits(roles: Dict[str, str]) -> List[str]:
     if they share the same contributors.
     """
     final_creds = []
-    if "Writer" in roles: final_creds.append(f"Writer: {roles['Writer']}")
-    if "Author" in roles: final_creds.append(f"Writer: {roles['Author']}")
+    if "Writer" in roles: 
+        final_creds.append(f"Writer: {roles['Writer']}")
+    elif "Author" in roles: 
+        # For OPDS 1.2 feeds, we prefer 'Author' as a generic catch-all
+        # if a specific 'Writer' role isn't provided.
+        final_creds.append(f"Author: {roles['Author']}")
     
     # Combine Artist roles if they match
     # OPDS often uses 'Artist', local often uses 'Penciller'

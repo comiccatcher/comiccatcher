@@ -100,6 +100,26 @@ class ImageManager:
 
     async def _fetch_image_b64(self, url: str, api_client: Optional[APIClient] = None, max_dim: Optional[int] = None, timeout: Optional[float] = None) -> Optional[str]:
         """Internal fetch logic."""
+        # 0. Handle Data URIs (Base64 embedded images)
+        if url.startswith("data:"):
+            try:
+                # Format: data:image/png;base64,iVBOR...
+                if ";base64," in url:
+                    header, b64 = url.split(";base64,", 1)
+                    self._memory_cache[url] = b64
+                    
+                    # Optionally cache to disk so it persists across sessions
+                    cache_path = self._get_cache_path(url)
+                    if not cache_path.exists():
+                        import base64
+                        data = base64.b64decode(b64)
+                        with open(cache_path, "wb") as f:
+                            f.write(data)
+                    return b64
+            except Exception as e:
+                logger.error(f"Error parsing data URI: {e}")
+            return None
+
         # 1. Check Disk Cache
         cache_path = self._get_cache_path(url)
         if cache_path.exists():

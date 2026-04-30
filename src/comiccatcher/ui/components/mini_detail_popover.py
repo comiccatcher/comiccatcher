@@ -79,8 +79,13 @@ def format_opds_publication(pub: Any) -> Dict[str, Any]:
 
     # 1. Credits (Terse version)
     creds = []
+    
+    # Use 'Author' as the primary label for OPDS 1.2
+    is_opds12 = meta.conformsTo and ("opds1_2" in meta.conformsTo or meta.conformsTo == "opds1_2")
+    primary_author_label = "Author" if is_opds12 else "Writer"
+
     roles = [
-        ("author", "Writer"), ("writer", "Writer"), ("penciler", "Penciller"),
+        ("author", primary_author_label), ("writer", "Writer"), ("penciler", "Penciller"),
         ("artist", "Artist"), ("inker", "Inker"), ("colorist", "Colorist"),
         ("letterer", "Letterer")
     ]
@@ -509,6 +514,8 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         summary_text = data.get("summary")
         if summary_text:
             summary_label = QLabel(summary_text)
+            summary_label.setTextFormat(Qt.TextFormat.RichText)
+            summary_label.setOpenExternalLinks(True)
             summary_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; line-height: 1.4;")
             summary_label.setWordWrap(True)
             summary_label.setAlignment(Qt.AlignmentFlag.AlignTop)

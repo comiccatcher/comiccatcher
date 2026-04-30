@@ -319,7 +319,7 @@ class SearchRootView(BaseBrowserView):
             key = event.key()
             
             # 1. Intercept H and / everywhere in this view
-            if key == Qt.Key.Key_H:
+            if key == Qt.Key.Key_H and obj != self.search_input:
                 self.toggle_help_popover()
                 return True
             if key == Qt.Key.Key_Slash and obj != self.search_input:
@@ -385,7 +385,7 @@ class SearchRootView(BaseBrowserView):
     def keyPressEvent(self, event):
         # Most keys are handled by eventFilter or super, 
         # but we catch base cases here if focus is somehow lost.
-        if event.key() == Qt.Key.Key_H:
+        if event.key() == Qt.Key.Key_H and not self.search_input.hasFocus():
             self.toggle_help_popover()
             return
         elif event.key() == Qt.Key.Key_Slash:

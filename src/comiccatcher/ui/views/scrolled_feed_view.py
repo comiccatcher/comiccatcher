@@ -171,16 +171,17 @@ class ScrolledFeedView(BaseFeedSubView):
         
         has_root_content = any(s.source_element in ("root:publications", "root:navigation") for s in page.sections)
 
-        if main and main.total_items is None and self._next_url:
+        if main and main.total_items is not None and self._pagination_template:
+            logger.debug("ScrolledFeedView: 'Virtualized Grid' Mode enabled.")
+        elif main and self._next_url:
             self._is_infinite_grid = True
+            # Reorder main section to the end for infinite scrolling
             page.sections = [s for s in page.sections if s != main] + [main]
             logger.debug("ScrolledFeedView: 'Infinite Grid' Mode enabled. Reordered main section to end.")
         elif not main and self._next_url and not has_root_content:
             # ONLY enter infinite sections if the feed lacks root-level lists.
             self._is_infinite_sections = True
             logger.debug("ScrolledFeedView: 'Infinite Sections' Mode enabled.")
-        elif main and main.total_items is not None:
-            logger.debug("ScrolledFeedView: 'Virtualized Grid' Mode enabled.")
         else:
             logger.debug("ScrolledFeedView: Static Mode enabled (no pagination).")
 

@@ -724,7 +724,35 @@ class MainWindow(QMainWindow):
                 if l.rel == "self" or (isinstance(l.rel, list) and "self" in l.rel):
                     self_url = urllib.parse.urljoin(self.feed_browser._last_loaded_url, l.href)
                     break
-            self.on_open_detail(item.raw_pub, self_url, context_pubs=context_pubs)
+            
+            # Check if we should skip the detail view and jump directly to the reader
+            skip_detail_view = False 
+            if self.api_client and self.api_client.profile:
+                skip_detail_view = self.api_client.profile.skip_detail_view
+
+            if skip_detail_view:
+                if not item.raw_pub.is_divina:
+                    # Non-streamable book. We don't jump to reader if it's not divina.
+                    return
+
+                # Push a virtual detail entry to history so Next/Prev and Title work correctly
+                hist, idx = self.get_current_history()
+                if idx < len(hist) - 1:
+                    hist = hist[:idx + 1]
+                hist.append({
+                    "type": "detail",
+                    "title": item.raw_pub.metadata.title,
+                    "url": self_url,
+                    "pub": item.raw_pub,
+                    "context_pubs": context_pubs,
+                    "skip_detail": True
+                })
+                self.set_current_history(hist, len(hist) - 1)
+                # Pass None for manifest_url so it uses the synthesized readingOrder (for OPDS 1.2)
+                # or the one already in the pub object.
+                self.on_read_book(item.raw_pub, None, context_pubs=context_pubs)
+            else:
+                self.on_open_detail(item.raw_pub, self_url, context_pubs=context_pubs)
     def _on_feed_icon_loaded(self, feed_id, pixmap):
         if self.api_client and self.api_client.profile.id == feed_id:
             setattr(self.api_client.profile, "_cached_icon", pixmap)
@@ -1256,8 +1284,7 @@ class MainWindow(QMainWindow):
         # Update tab UI (buttons/icons) without triggering navigation yet
         self._on_tab_clicked(self.active_tab, navigate=False)
 
-        base_url = feed.url
-        start_url = base_url if "opds" in base_url.lower() else urljoin(base_url, "/codex/opds/v2.0/")
+        start_url = feed.url
         
         # Check if we have history for this feed; if not, initialize
         if feed.id not in self.feed_histories:
@@ -1593,6 +1620,7 @@ class MainWindow(QMainWindow):
             
             if entry["type"] == "detail" and "pub" in entry:
                 pubs = entry.get("context_pubs", [])
+                logger.debug(f"Reader boundary: entry_url={entry.get('url')}, context_pubs_len={len(pubs)}")
                 if not pubs: return None
                 
                 # Find current pub index
@@ -1607,26 +1635,28 @@ class MainWindow(QMainWindow):
                         p_idx = i
                         break
                 
+                logger.debug(f"Reader boundary: current_pub='{cur_pub.metadata.title}', p_idx={p_idx}")
                 if p_idx == -1: return None
                 
                 target_idx = p_idx + direction
                 if 0 <= target_idx < len(pubs):
                     target_pub = pubs[target_idx]
+                    logger.debug(f"Reader boundary: found target='{target_pub.metadata.title}' at {target_idx}")
                     
                     # Get cover from cache
                     pixmap = QPixmap()
                     if target_pub.images:
                         img_url = target_pub.images[0].href
                         # Use last loaded url as base
-                        full_img_url = urllib.parse.urljoin(entry["url"], img_url)
+                        full_img_url = urllib.parse.urljoin(entry["url"] or "", img_url)
                         cache_path = self.image_manager._get_cache_path(full_img_url)
                         if cache_path.exists():
                             pixmap.load(str(cache_path))
                     
                     # Get self_url
-                    self_url = next((urllib.parse.urljoin(entry["url"], l.href) for l in target_pub.links if l.rel == "self"), None)
+                    self_url = next((urllib.parse.urljoin(entry["url"] or "", l.href) for l in target_pub.links if l.rel == "self"), None)
                     if not self_url and target_pub.links:
-                        self_url = urllib.parse.urljoin(entry["url"], target_pub.links[0].href)
+                        self_url = urllib.parse.urljoin(entry["url"] or "", target_pub.links[0].href)
                     
                     return target_pub.metadata.title, pixmap, (target_pub, self_url)
 
@@ -1678,20 +1708,23 @@ class MainWindow(QMainWindow):
     def on_reader_transition_online(self, book_ref):
         pub, self_url = book_ref
         hist, idx = self.get_current_history()
-        
+
         # Update current history step (the detail step)
         if idx >= 0:
             entry = hist[idx]
             entry["pub"] = pub
             entry["url"] = self_url
             entry["title"] = pub.metadata.title
-            
-        # Update detail view in background
-        self.feed_detail_view.load_publication(pub, self_url, self.api_client, self.opds_client, self.image_manager, context_pubs=entry.get("context_pubs"))
-        
-        # Reload reader
-        self.on_read_book(pub, self_url, context_pubs=entry.get("context_pubs"))
 
+            manifest_url = self_url
+            if entry.get("skip_detail"):
+                manifest_url = None
+
+            # Update detail view in background
+            self.feed_detail_view.load_publication(pub, self_url, self.api_client, self.opds_client, self.image_manager, context_pubs=entry.get("context_pubs"))
+
+            # Reload reader
+            self.on_read_book(pub, manifest_url, context_pubs=entry.get("context_pubs"))
     def on_reader_transition_local(self, path):
         # Local reader transition: update local detail and local reader
         # Capture context first before clearing/reloading
@@ -1708,7 +1741,21 @@ class MainWindow(QMainWindow):
             self.local_detail_view.refresh_progress()
             self.local_library_view.set_dirty() # Refresh library to show updated progress on cards
         else:
-            self.content_stack.setCurrentIndex(ViewIndex.DETAIL)
+            hist, idx = self.get_current_history()
+            if idx >= 0:
+                entry = hist[idx]
+                if entry.get("type") == "detail" and entry.get("skip_detail"):
+                    # We skipped the detail view, so we should go back to the browser
+                    self.on_back_to_browser()
+                    return
+
+                if entry["type"] in ("browser", "search_root"):
+                    if self.active_tab == "search":
+                        self.content_stack.setCurrentIndex(ViewIndex.SEARCH_ROOT)
+                    else:
+                        self.content_stack.setCurrentIndex(ViewIndex.FEED_BROWSER)
+                else:
+                    self.content_stack.setCurrentIndex(ViewIndex.DETAIL)
             self.on_manual_refresh()
         self.update_header()
 

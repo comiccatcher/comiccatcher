@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 class OPDSCrawler:
-    def __init__(self, base_url, name, max_depth=3, auth=None, user=None, password=None, concurrency=10):
+    def __init__(self, base_url, name, max_depth=3, auth=None, user=None, password=None, key=None, concurrency=10):
         self.base_url = base_url
         self.name = name
         self.max_depth = max_depth
@@ -32,6 +32,9 @@ class OPDSCrawler:
                 self.client.auth = (u, p)
             else:
                 self.client.headers["Authorization"] = f"Bearer {auth}"
+        
+        if key:
+            self.client.headers["X-API-Key"] = key
 
     def _get_filename(self, url):
         h = hashlib.sha256(url.encode()).hexdigest()[:16]
@@ -181,6 +184,7 @@ if __name__ == "__main__":
     parser.add_argument("--user", help="Basic auth username")
     parser.add_argument("--password", help="Basic auth password")
     parser.add_argument("--auth", help="Auth info (combined user:pass or bearer_token)")
+    parser.add_argument("--key", help="API key (X-API-Key header)")
     
     args = parser.parse_args()
     
@@ -189,5 +193,6 @@ if __name__ == "__main__":
                          auth=args.auth, 
                          user=args.user, 
                          password=args.password,
+                         key=args.key,
                          concurrency=args.concurrency)
     asyncio.run(crawler.crawl())

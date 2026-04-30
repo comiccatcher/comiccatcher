@@ -97,6 +97,7 @@ class FeedReconciler:
                 nav_items.append(FeedItem(
                     type=ItemType.FOLDER,
                     title=link.title or "Untitled",
+                    cover_url=link.properties.get("thumbnail") if link.properties else None,
                     raw_link=link,
                     identifier=link.href
                 ))
@@ -134,6 +135,7 @@ class FeedReconciler:
                         group_items.append(FeedItem(
                             type=ItemType.FOLDER,
                             title=link.title or "Untitled",
+                            cover_url=link.properties.get("thumbnail") if link.properties else None,
                             raw_link=link,
                             identifier=link.href
                         ))
@@ -254,10 +256,12 @@ class FeedReconciler:
                 if curr_page == 1 and int(p_val) == 1:
                     pagination_base_number = 0
             else:
-                match = re.search(r'(?P<key>page|offset|start)=(?P<val>\d+)', next_link)
+                # Support common keys like page, pageNumber, offset, start, startIndex, etc.
+                match = re.search(r'(?P<key>page|pageNumber|page-number|offset|start|startIndex|index)=(?P<val>\d+)', next_link, re.IGNORECASE)
                 if match:
                     key, val = match.groups()
-                    is_offset_based = (key == 'offset' or key == 'start')
+                    key_lower = key.lower()
+                    is_offset_based = (key_lower in ('offset', 'start', 'startindex', 'index'))
                     pagination_template = next_link.replace(f"{key}={val}", f"{key}={{page}}")
                     # If it's a page-based key and next is 1, then base is 0
                     if not is_offset_based and curr_page == 1 and int(val) == 1:
@@ -473,7 +477,9 @@ class FeedReconciler:
             ] for r in rel_list)
             
             l_type = (l.type or "").lower().strip()
-            priority = MIME_PRIORITIES.get(l_type, 0)
+            # Strip parameters from MIME type (e.g. '; version=4')
+            l_type_base = l_type.split(';')[0].strip()
+            priority = MIME_PRIORITIES.get(l_type_base, 0)
             
             # Button only activates if we have a direct acquisition relationship 
             # AND a format we actually support for reading.
@@ -543,12 +549,13 @@ class FeedReconciler:
             
             if is_direct_acq:
                 # Track what we found
-                if "epub" in l_type: all_acq_formats.add("EPUB")
-                elif "pdf" in l_type: supported_acq_formats.add("PDF")
-                elif "cbz" in l_type: supported_acq_formats.add("CBZ")
-                elif "cbr" in l_type: supported_acq_formats.add("CBR")
-                elif "cb7" in l_type: supported_acq_formats.add("CB7")
-                elif "cbt" in l_type: supported_acq_formats.add("CBT")
+                l_type_base = l_type.split(';')[0].strip()
+                if "epub" in l_type_base: all_acq_formats.add("EPUB")
+                elif "pdf" in l_type_base: supported_acq_formats.add("PDF")
+                elif "cbz" in l_type_base or "zip" in l_type_base: supported_acq_formats.add("CBZ")
+                elif "cbr" in l_type_base or "rar" in l_type_base: supported_acq_formats.add("CBR")
+                elif "cb7" in l_type_base or "7z" in l_type_base: supported_acq_formats.add("CB7")
+                elif "cbt" in l_type_base or "tar" in l_type_base: supported_acq_formats.add("CBT")
 
         # 2. Check actions
         if hasattr(pub, "actions") and pub.actions:

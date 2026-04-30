@@ -6,6 +6,7 @@ import os
 import sys
 import argparse
 import asyncio
+import multiprocessing
 from pathlib import Path
 
 from typing import Optional, Tuple
@@ -16,6 +17,14 @@ from qasync import QEventLoop
 from comiccatcher.config import ConfigManager
 from comiccatcher.ui.app_layout import MainWindow
 from comiccatcher import logger
+
+# PyInstaller Windowed Mode Guard:
+# Redirect stdout/stderr to devnull if they are None (typical for --windowed mode).
+# This prevents crashes in 3rd party libs that try to print or write to these streams.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, 'w')
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, 'w')
 
 def _ensure_desktop_entry():
     """
@@ -141,8 +150,11 @@ async def async_main(args):
     log.info("Application exit event received.")
 
 def main():
-    parser = argparse.ArgumentParser(description="ComicCatcher OPDS Reader (PyQt6)")
-    parser.add_argument('--debug', type=str, default="", help='Enable debug logging. Use "all" or comma-separated categories: nav, net, opds, lib, reader, ui.')
+    # Required for PyInstaller + multiprocessing (comicbox uses it)
+    multiprocessing.freeze_support()
+
+    parser = argparse.ArgumentParser(description="ComicCatcher OPDS Reader")
+    parser.add_argument('-d', '--debug', type=str, nargs='?', const='all', default="", help='Enable debug logging. Use "all" or comma-separated categories: nav, net, opds, lib, reader, ui.')
     parser.add_argument('--auto-open-local', type=str, default="", help='Debug: auto-open a local CBZ.')
     parser.add_argument('--timeout', type=int, default=0, help='Exit after N seconds (useful for CI/testing).')
     parser.add_argument('--e2e-driver', type=str, default="", help='Path to a python script to drive the app (async def drive(window)).')

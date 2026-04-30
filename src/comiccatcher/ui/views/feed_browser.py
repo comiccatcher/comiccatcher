@@ -466,8 +466,24 @@ class FeedBrowser(BaseBrowserView):
             
             from comiccatcher.api.feed_reconciler import FeedReconciler
             page = FeedReconciler.reconcile(feed, url)
-            
-            # Persistent search template logic: 
+
+            # Heuristic for missing OPDS pagination metadata (e.g. Codex v1.2):
+            # If the server omitted currentPage but we navigated via a pager link,
+            # our history title contains the expected page number.
+            has_explicit_page = False
+            if feed.metadata and getattr(feed.metadata, 'currentPage', None) is not None:
+                has_explicit_page = True
+
+            if page.current_page == 1 and not has_explicit_page:
+                import re
+                title_match = re.search(r" \(Page (\d+)\)$", self.get_current_title())
+                if title_match:
+                    inferred_page = int(title_match.group(1))
+                    page.current_page = inferred_page
+                    if page.main_section:
+                        page.main_section.current_page = inferred_page
+
+            # Persistent search template logic:
             # If the current page has a template, remember it for this feed profile.
             if page.search_template and self.current_profile:
                 self._sticky_search_templates[self.current_profile.id] = page.search_template
@@ -964,7 +980,27 @@ class FeedBrowser(BaseBrowserView):
         # A. Details Action (Emits item_clicked with context)
         subview = self.scrolled_view if self._paging_mode == "scrolled" else self.paged_view
         context_pubs = subview.gather_context_pubs(model) if model else []
-        self.detail_popover.add_action("eye", "Details", lambda: self._on_item_clicked(item, context_pubs))
+        
+        is_opds12 = False
+        if item.raw_pub.metadata and item.raw_pub.metadata.conformsTo:
+            cf = item.raw_pub.metadata.conformsTo
+            if isinstance(cf, str) and cf == "opds1_2": is_opds12 = True
+            elif isinstance(cf, list) and "opds1_2" in cf: is_opds12 = True
+        
+        # The eye button goes to the detail view (or reader if bypass is on)
+        btn_eye = self.detail_popover.add_action("eye", "Details", lambda: self._on_item_clicked(item, context_pubs))
+        
+        # Check if we are bypassing the detail view (sync with app_layout.py)
+        skip_detail_view = False
+        if self.opds_client and self.opds_client.api and self.opds_client.api.profile:
+            skip_detail_view = self.opds_client.api.profile.skip_detail_view
+        
+        if is_opds12 and skip_detail_view and not item.raw_pub.is_divina:
+            # If we are bypassing details and it's not streamable, the eye button is useless
+            btn_eye.setEnabled(False)
+        else:
+            # Otherwise it's always useful (either opens details or reader)
+            btn_eye.setEnabled(True)
 
         # B. Select Action
         def do_select():

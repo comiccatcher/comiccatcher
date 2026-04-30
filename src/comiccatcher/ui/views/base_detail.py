@@ -313,10 +313,14 @@ class BaseDetailView(QWidget):
         
         label = QLabel()
         label.setWordWrap(True)
+        label.setTextFormat(Qt.TextFormat.RichText)
+        label.setOpenExternalLinks(True)
         label.setAlignment(Qt.AlignmentFlag.AlignJustify)
         
         TRUNC_LIMIT = 400
-        is_long = len(text) > TRUNC_LIMIT
+        # Only truncate if it doesn't look like HTML to avoid breaking tags
+        is_html = "<" in text and ">" in text
+        is_long = len(text) > TRUNC_LIMIT and not is_html
         btn_more = None
         
         if is_long:

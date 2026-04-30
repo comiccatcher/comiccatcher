@@ -125,7 +125,8 @@ class BaseCardDelegate(QStyledItemDelegate):
                     image_manager=config.image_manager, 
                     label=config.primary_text,
                     icon_name=config.folder_icon_name,
-                    badge_icon_name=config.badge_icon_name
+                    badge_icon_name=config.badge_icon_name,
+                    pixmap=config.cover_pixmap
                 )
             elif config.cover_pixmap and not config.cover_pixmap.isNull():
                 opacity = 0.5 if config.dim_cover else 1.0
@@ -327,77 +328,101 @@ class BaseCardDelegate(QStyledItemDelegate):
             
         return paint_rect
 
-    def draw_folder_stack(self, painter: QPainter, rect: QRect, theme: dict, image_manager=None, label: str = None, icon_name: str = "folder", badge_icon_name: str = None):
-        """Draws the SVG folder stack icon, with optional server logo badge and internal label."""
+    def draw_folder_stack(self, painter: QPainter, rect: QRect, theme: dict, image_manager=None, label: str = None, icon_name: str = "folder", badge_icon_name: str = None, pixmap: QPixmap = None):
+        """Draws the SVG folder stack icon or a custom thumbnail, with appropriate type indicators."""
         # 1. Inner Background
         painter.setBrush(QColor(theme['bg_sidebar']))
         painter.setPen(QColor(theme['border']))
         painter.drawRoundedRect(rect, UIConstants.CARD_ROUNDING, UIConstants.CARD_ROUNDING)
-        
-        # 2. SVG Icon
-        s = UIConstants.scale
-        margin = UIConstants.FOLDER_ICON_MARGIN
-        if label and not self.show_labels:
-            # Shrink icon slightly more to make room for 2 rows of text
-            margin += s(15)
-            
-        folder_size = min(rect.width(), rect.height()) - margin
-        color = theme.get("text_dim", "#a0a0a0")
-        svg_path = ICON_DIR / f"{icon_name}.svg"
-        
-        x = rect.left() + (rect.width() - folder_size) // 2
-        y = rect.top() + (rect.height() - folder_size) // 2
-        
-        # Shift icon up slightly if we are showing an internal label
-        if label and not self.show_labels:
-            y -= s(12)
-        
-        if svg_path.exists():
-            svg_bytes = svg_path.read_bytes()
-            svg_bytes = svg_bytes.replace(b'stroke="white"', f'stroke="{color}"'.encode())
-            svg_bytes = svg_bytes.replace(b'fill="white"', f'fill="{color}"'.encode())
-            
-            renderer = QSvgRenderer(QByteArray(svg_bytes))
-            folder_rect = QRectF(x, y, folder_size, folder_size)
-            
-            painter.setOpacity(0.8)
-            renderer.render(painter, folder_rect)
-            painter.setOpacity(1.0)
 
-        # 3. Server Logo Badge or Custom Badge
-        badge_size = UIConstants.FOLDER_BADGE_SIZE
-        badge_x = x + (folder_size - badge_size) / 2
-        badge_y = y + (folder_size - badge_size) / 2 + UIConstants.FOLDER_BADGE_OFFSET_Y
+        # 2. Main Visual
+        if pixmap and not pixmap.isNull():
+            # CASE A: Rich Thumbnail available
+            self.draw_cover_pixmap(painter, rect, pixmap)
 
-        if badge_icon_name:
-            badge_svg_path = ICON_DIR / f"{badge_icon_name}.svg"
-            if badge_svg_path.exists():
-                svg_bytes = badge_svg_path.read_bytes()
+            # Draw small folder type indicator in top-left
+            s = UIConstants.scale
+            badge_size = s(28)
+            padding = s(4)
+            badge_rect = QRect(rect.left() + padding, rect.top() + padding, badge_size, badge_size)
+
+            bg_color = QColor(theme['bg_main'])
+            bg_color.setAlpha(180)
+            painter.setBrush(bg_color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(badge_rect)
+            
+            icon = ThemeManager.get_icon("folder", "text_main")
+            icon_padding = s(6)
+            icon.paint(painter, badge_rect.adjusted(icon_padding, icon_padding, -icon_padding, -icon_padding))
+
+            # Skip large icon and server badge logic
+        else:
+            # CASE B: No thumbnail (Standard Folder)
+            s = UIConstants.scale
+            margin = UIConstants.FOLDER_ICON_MARGIN
+            if label and not self.show_labels:
+                margin += s(15)
+
+            folder_size = min(rect.width(), rect.height()) - margin
+            color = theme.get("text_dim", theme.get("text_main", "#888888"))
+            svg_path = ICON_DIR / f"{icon_name}.svg"            
+
+            x = rect.left() + (rect.width() - folder_size) // 2
+            y = rect.top() + (rect.height() - folder_size) // 2
+
+            if label and not self.show_labels:
+                y -= s(12)
+
+            if svg_path.exists():
+                from PyQt6.QtCore import QByteArray
+                from PyQt6.QtSvg import QSvgRenderer
+                svg_bytes = svg_path.read_bytes()
                 svg_bytes = svg_bytes.replace(b'stroke="white"', f'stroke="{color}"'.encode())
                 svg_bytes = svg_bytes.replace(b'fill="white"', f'fill="{color}"'.encode())
-                
+
                 renderer = QSvgRenderer(QByteArray(svg_bytes))
-                badge_rect = QRectF(badge_x, badge_y, badge_size, badge_size)
-                
-                painter.setOpacity(0.6)
-                renderer.render(painter, badge_rect)
+                f_rect = QRectF(x, y, folder_size, folder_size)
+
+                painter.setOpacity(0.8)
+                renderer.render(painter, f_rect)
                 painter.setOpacity(1.0)
-        elif image_manager and getattr(image_manager, 'api_client', None):
-            profile = getattr(image_manager.api_client, 'profile', None)
-            cached_icon = getattr(profile, '_cached_icon', None) if profile else None
-            
-            if cached_icon and not cached_icon.isNull():
-                # Center and scale keeping aspect ratio
-                pw, ph = cached_icon.width(), cached_icon.height()
-                scale = min(badge_size / pw, badge_size / ph)
-                dw, dh = int(pw * scale), int(ph * scale)
-                dx = int(badge_x + (badge_size - dw) / 2)
-                dy = int(badge_y + (badge_size - dh) / 2)
-                painter.drawPixmap(dx, dy, dw, dh, cached_icon)
-            else:
-                # Fallback to generic feeds icon if no server logo
-                default_icon = ThemeManager.get_icon("feeds", "text_dim")
-                default_icon.paint(painter, int(badge_x), int(badge_y), int(badge_size), int(badge_size))
+
+            # 3. Server Logo Badge (Only for Standard Folders)
+            badge_size = UIConstants.FOLDER_BADGE_SIZE
+            badge_x = rect.left() + (rect.width() - badge_size) / 2
+            badge_y = rect.top() + (rect.height() - badge_size) / 2 + UIConstants.FOLDER_BADGE_OFFSET_Y
+
+            if badge_icon_name:
+                badge_svg_path = ICON_DIR / f"{badge_icon_name}.svg"
+                if badge_svg_path.exists():
+                    from PyQt6.QtCore import QByteArray
+                    from PyQt6.QtSvg import QSvgRenderer
+                    svg_bytes = badge_svg_path.read_bytes()
+                    color = theme.get("text_dim", theme.get("text_main", "#888888"))
+                    svg_bytes = svg_bytes.replace(b'stroke="white"', f'stroke="{color}"'.encode())
+                    svg_bytes = svg_bytes.replace(b'fill="white"', f'fill="{color}"'.encode())
+
+                    renderer = QSvgRenderer(QByteArray(svg_bytes))
+                    b_rect = QRectF(badge_x, badge_y, badge_size, badge_size)
+
+                    painter.setOpacity(0.6)
+                    renderer.render(painter, b_rect)
+                    painter.setOpacity(1.0)
+            elif image_manager and getattr(image_manager, 'api_client', None):
+                profile = getattr(image_manager.api_client, 'profile', None)
+                cached_icon = getattr(profile, '_cached_icon', None) if profile else None
+
+                if cached_icon and not cached_icon.isNull():
+                    pw, ph = cached_icon.width(), cached_icon.height()
+                    scale = min(badge_size / pw, badge_size / ph)
+                    dw, dh = int(pw * scale), int(ph * scale)
+                    dx = int(badge_x + (badge_size - dw) / 2)
+                    dy = int(badge_y + (badge_size - dh) / 2)
+                    painter.drawPixmap(dx, dy, dw, dh, cached_icon)
+                else:
+                    default_icon = ThemeManager.get_icon("feeds", "text_dim")
+                    default_icon.paint(painter, int(badge_x), int(badge_y), int(badge_size), int(badge_size))
 
         # 4. Internal Label (only used when global labels are off)
         if label and not self.show_labels:

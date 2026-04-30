@@ -277,6 +277,20 @@ class ViewportHelper:
         from comiccatcher.ui.components.mini_detail_popover import format_opds_publication
         data = format_opds_publication(item.raw_pub)
 
+        # Identify if this is a non-streamable OPDS 1.2 item
+        is_opds12 = False
+        if item.raw_pub.metadata and item.raw_pub.metadata.conformsTo:
+            cf = item.raw_pub.metadata.conformsTo
+            if isinstance(cf, str) and cf == "opds1_2": is_opds12 = True
+            elif isinstance(cf, list) and "opds1_2" in cf: is_opds12 = True
+            
+        if is_opds12 and not item.raw_pub.is_divina:
+            note = "\n\n(Note: Page streaming not available for this item.)"
+            if data.get("summary"):
+                data["summary"] += note
+            else:
+                data["summary"] = note
+
         # Standards: No thumbnail in mini-details, use title/subtitle from formatted data
         popover.set_show_cover(False)
         popover.populate(
