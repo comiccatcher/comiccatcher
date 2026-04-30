@@ -39,6 +39,10 @@ class APIClient:
             # Fallback if locale detection fails
             pass
 
+        # 3. Apply custom headers from profile (highest priority)
+        if self.profile.custom_headers:
+            self.client.headers.update(self.profile.custom_headers)
+
     def _setup_auth(self):
         # Determine authentication method based on provided credentials
         mode = self.profile.auth_type

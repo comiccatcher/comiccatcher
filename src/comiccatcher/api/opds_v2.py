@@ -64,7 +64,27 @@ class OPDS2Client:
                 msg = f"{msg}: {server_msg}"
             raise OPDSClientError(msg, status_code=status, server_message=server_msg) from e
 
-        data = resp.json()
+        content_type = resp.headers.get("content-type", "").lower()
+        is_xml = "xml" in content_type or "atom" in content_type
+        
+        if is_xml:
+            from comiccatcher.api.opds12_parser import parse_opds12
+            try:
+                return await parse_opds12(resp.text, self.api, url)
+            except Exception as e:
+                logger.error(f"OPDS 1.2 parsing error for feed at {url}: {e}")
+                raise OPDSClientError(f"Failed to parse OPDS 1.2 XML: {e}") from e
+
+        try:
+            data = resp.json()
+        except Exception as e:
+            # Fallback if json fails and not explicitly xml
+            from comiccatcher.api.opds12_parser import parse_opds12
+            try:
+                return await parse_opds12(resp.text, self.api, url)
+            except Exception as xml_e:
+                raise OPDSClientError("Invalid feed format. Failed as JSON and XML.") from e
+
         try:
             return OPDSFeed(**data)
         except ValidationError as e:

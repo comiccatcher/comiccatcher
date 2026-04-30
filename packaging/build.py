@@ -4,6 +4,7 @@ import sys
 import shutil
 import subprocess
 import platform
+import argparse
 from pathlib import Path
 
 # Configuration
@@ -28,13 +29,23 @@ def clean_build():
             else: p.unlink()
 
 def run_pyinstaller(icon_path):
-    # Core boilerplate using --onefile for a clean distribution
-    run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--windowed", "--onefile",
-         "--name", APP_NAME, "--icon", str(icon_path),
-         "--collect-submodules", "comiccatcher",
-         "--collect-data", "comicbox",
-         "--add-data", f"src/comiccatcher/resources{os.pathsep}comiccatcher/resources",
-         "src/comiccatcher/main.py"])
+    # Core boilerplate using --onefile for a clean distribution.
+    # We use --collect-all for comicbox and --additional-hooks-dir for custom hooks 
+    # to ensure standalone builds work correctly with internal comicbox dependencies.
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--noconfirm",
+        "--windowed",
+        "--onefile",
+        "--name", APP_NAME,
+        "--icon", str(icon_path),
+        "--additional-hooks-dir", str(PACKAGING_DIR),
+        "--collect-submodules", "comiccatcher",
+        "--collect-all", "comicbox",
+        "--add-data", f"src/comiccatcher/resources{os.pathsep}comiccatcher/resources",
+        "src/comiccatcher/main.py"
+    ]
+    run(cmd)
 
 def build_linux():
     log("Building Linux AppImage (via PyInstaller)...")
@@ -90,12 +101,7 @@ def build_windows():
     img = Image.open(PROJECT_ROOT / "src/comiccatcher/resources/app_256.png")
     img.save(icon_ico, format='ICO', sizes=[(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)])
     
-    run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--windowed", "--onefile",
-         "--name", APP_NAME, "--icon", str(icon_ico),
-         "--collect-submodules", "comiccatcher",
-         "--collect-data", "comicbox",
-         "--add-data", f"src/comiccatcher/resources{os.pathsep}comiccatcher/resources",
-         "src/comiccatcher/main.py"])
+    run_pyinstaller(icon_ico)
     log(f"Windows build complete: {DIST_DIR}/{APP_NAME}.exe")
 
 def build_macos():
@@ -104,17 +110,12 @@ def build_macos():
     
     icon_icns = PROJECT_ROOT / "src/comiccatcher/resources/app_256.icns"
     if not icon_icns.exists():
-        log("No .icns found, falling back to default or png if possible, though PyInstaller recommends .icns")
-        icon_arg = str(PROJECT_ROOT / "src/comiccatcher/resources/app_256.png")
+        log("No .icns found, falling back to png for icon...")
+        icon_arg = PROJECT_ROOT / "src/comiccatcher/resources/app_256.png"
     else:
-        icon_arg = str(icon_icns)
+        icon_arg = icon_icns
 
-    run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--windowed",
-         "--name", APP_NAME, "--icon", icon_arg,
-         "--collect-submodules", "comiccatcher",
-         "--collect-data", "comicbox",
-         "--add-data", f"src/comiccatcher/resources{os.pathsep}comiccatcher/resources",
-         "src/comiccatcher/main.py"])
+    run_pyinstaller(icon_arg)
     
     # Pack into dmg using hdiutil
     app_path = DIST_DIR / f"{APP_NAME}.app"
@@ -125,10 +126,16 @@ def build_macos():
     log(f"macOS build complete: {dmg_path}")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--linux", action="store_true")
+    parser.add_argument("--windows", action="store_true")
+    parser.add_argument("--macos", action="store_true")
+    args = parser.parse_args()
+
     OS = platform.system().lower()
-    if "--linux" in sys.argv or OS == "linux":
+    if args.linux or (not args.windows and not args.macos and OS == "linux"):
         build_linux()
-    elif "--windows" in sys.argv or OS == "windows":
+    elif args.windows or (not args.linux and not args.macos and OS == "windows"):
         build_windows()
-    elif "--macos" in sys.argv or OS == "darwin":
+    elif args.macos or (not args.linux and not args.windows and OS == "darwin"):
         build_macos()

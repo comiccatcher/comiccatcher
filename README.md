@@ -7,20 +7,20 @@
 [![PyPI version](https://img.shields.io/pypi/v/comiccatcher.svg)](https://pypi.org/project/comiccatcher/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**ComicCatcher** is a desktop OPDS 2.0 browser and comic reader. It's been mostly tested with self-hosted comic servers like [**Codex**](https://github.com/ajslater/codex), [**Komga**](https://komga.org), and [**Stump**](https://stumpapp.dev), but should work with any server that supports similar features. Comics can be streamed page-by-page, or downloaded and read offline.  Written in Python and runs on Linux, Windows, and macOS (not yet tested 🤞).
+**ComicCatcher** is a desktop OPDS (v2.0 and v1.2) browser and comic reader. It's been mostly tested with self-hosted comic servers like [**Codex**](https://github.com/ajslater/codex), [**Komga**](https://komga.org), [**Stump**](https://stumpapp.dev), [**Kavita**](https://www.kavitareader.com/), and [**Ubooquity**](https://vaemendis.net/ubooquity/), but should work with any server that supports similar features. Comics can be streamed page-by-page, or downloaded and read offline.  Written in Python and runs on Linux, Windows, and macOS (not yet tested 🤞).
 
 
-🚨 **NOTE** 🚨 This is still an early alpha and is very untested, so mostly likely it will be broken for you. 🙈 
+🚨 **NOTE** 🚨 This is still an early phase and the app is very untested, so mostly likely it will be broken for you. 🙈 
 
 
 ---
 
 ## ✨ Features
 
-### 📚 Full OPDS 2.0 Browsing, Optimized for Comics
+### 📚 Full OPDS v2.0 and v1.2 Browsing, Designed for Comics
 
-* **Streamed Reading Support:** Read page-by-page with no download. (_Depends on server support of OPDS 2.0 Digital Visual Narratives Profile (DiViNa)_)
-* **Server-side Progression Support:** Server keeps track of reading progress of each streamed comic. (_Depends on sever support for OPDS 2.0 Progression (proposal)_)
+* **Streamed Reading Support:** Read page-by-page with no download. (_Depends on server support of OPDS v2.0 Digital Visual Narratives Profile (DiViNa) or OPDS-PSE (v1.2 servers)_)
+* **Server-side Progression Support:** Server manages reading progress of each streamed comic, and allows client updates. (_Depends on sever support for OPDS v2.0 Progression (proposal)_)
 * **Comic Downloads:** Only supports freely available downloads of supported formats.  No purchases or borrows.
 * **Server Catalog Search** 
 * **Support for Mutiple Feeds**
@@ -31,6 +31,9 @@
 *  **Format Support:** Read CBZ, CBR, CBT, CB7, and PDF files.
 *  **Metadata:** Uses in-file metadata for display and organization.
 *  **Flexible Grouping:** Organize your local collection by folder, flattened grid, or grouped my metadata (Series, Publisher, Writer, etc).
+
+### 🛸 Other
+* **Advanced Keyboard Support** Highly controllable with keyboard only.
 
 ---
 
@@ -67,6 +70,14 @@
 3.  **Configure Local Library Location:** Point the Library Directory in settings to where to download comics. (Defaults to `~/ComicCatcher`)
 4.  **Browse:** Browse the feed to find a comic.
 5.  **Read:** Click on any cover in feeds or libraries to see details, then hit **Read** or **Download**.  Downloaded comics will appear in the Library tab.
+
+## 🗺️ Roadmap
+
+Some possible enhancements:
+
+* Local library search/filter
+* Import server metadata locally (maybe embed in books)
+* Make feed browser aware of library contents
 
 ---
 

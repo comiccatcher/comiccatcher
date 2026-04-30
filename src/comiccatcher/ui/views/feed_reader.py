@@ -164,7 +164,13 @@ class FeedReaderView(BaseReaderView):
 
     async def _fetch_and_load(self, token: int):
         try:
-            if self._manifest_url:
+            # Priority 1: Use already synthesized readingOrder (for OPDS 1.2 / PSE)
+            if self._current_pub.readingOrder:
+                self._reading_order = [
+                    item.model_dump() for item in self._current_pub.readingOrder
+                ]
+            # Priority 2: Fetch manifest from URL (for OPDS 2.0)
+            elif self._manifest_url:
                 resp = await self.api_client.get(self._manifest_url)
                 resp.raise_for_status()
                 data = resp.json()
@@ -175,10 +181,6 @@ class FeedReaderView(BaseReaderView):
                 prog = self._discover_progression_url(data.get("links", []))
                 if prog:
                     self.progression_url = prog
-            elif self._current_pub.readingOrder:
-                self._reading_order = [
-                    item.model_dump() for item in self._current_pub.readingOrder
-                ]
 
             if token != self._load_token:
                 return

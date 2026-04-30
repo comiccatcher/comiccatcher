@@ -540,8 +540,13 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
             # Metadata
             roles = {}
             roles_orig = {}
+            
+            # Use 'Author' as the primary label for OPDS 1.2, 'Writer' for others
+            is_opds12 = m.conformsTo and ("opds1_2" in m.conformsTo or m.conformsTo == "opds1_2")
+            primary_author_label = "Author" if is_opds12 else "Writer"
+
             role_map = {
-                "author": "Writer", "artist": "Artist", "penciler": "Penciller", 
+                "author": primary_author_label, "artist": "Artist", "penciler": "Penciller", 
                 "inker": "Inker", "colorist": "Colorist", "letterer": "Letterer", 
                 "editor": "Editor", "publisher": "Publisher", "imprint": "Imprint"
             }

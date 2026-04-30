@@ -4,7 +4,8 @@
 import json
 import os
 import uuid
-from typing import List, Optional
+import time
+from typing import List, Optional, Dict
 from pathlib import Path
 from comiccatcher.models.feed import FeedProfile
 
@@ -291,7 +292,7 @@ class ConfigManager:
         self.settings["ui_scale"] = float(scale)
         self.save_settings()
 
-    def add_feed(self, name: str, url: str, auth_type: str = "none", username: Optional[str] = None, password: Optional[str] = None, token: Optional[str] = None, api_key: Optional[str] = None) -> FeedProfile:
+    def add_feed(self, name: str, url: str, auth_type: str = "none", username: Optional[str] = None, password: Optional[str] = None, token: Optional[str] = None, api_key: Optional[str] = None, custom_headers: Optional[Dict[str, str]] = None) -> FeedProfile:
         feed = FeedProfile(
             id=str(uuid.uuid4()),
             name=name,
@@ -300,7 +301,8 @@ class ConfigManager:
             username=username,
             password=password,
             bearer_token=token,
-            api_key=api_key
+            api_key=api_key,
+            custom_headers=custom_headers or {}
         )
         self.feeds.append(feed)
         self.save_feeds()
