@@ -22,11 +22,13 @@ def read_comicbox_dict(path: Path) -> Dict[str, Any]:
     """
     try:
         from comicbox.box import Comicbox  # type: ignore
+        from comicbox.config import get_config
+        config = get_config({"comicbox": {"compute_page_count": True}}, path=path)
     except ImportError as e:
         return {"_comicbox_status": "missing", "_comicbox_error": str(e)}
 
     try:
-        with Comicbox(str(path)) as cb:
+        with Comicbox(str(path), config=config) as cb:
             d = cb.to_dict() or {}
         if not d:
             return {"_comicbox_status": "empty"}
@@ -47,7 +49,7 @@ def read_comicbox_cover(path: Path) -> Optional[bytes]:
 
     try:
         with Comicbox(str(path)) as cb:
-            return cb.get_cover_page()
+            return cb.get_cover_page(skip_metadata=True)
     except Exception as e:
         logger.debug(f"comicbox cover read failed for {path}: {e}")
         return None
@@ -60,11 +62,13 @@ def read_comicbox_dict_and_cover(path: Path) -> Tuple[Dict[str, Any], Optional[b
     """
     try:
         from comicbox.box import Comicbox  # type: ignore
+        from comicbox.config import get_config
+        config = get_config({"comicbox": {"compute_page_count": True}}, path=path)
     except ImportError as e:
         return {"_comicbox_status": "missing", "_comicbox_error": str(e)}, None
 
     try:
-        with Comicbox(str(path)) as cb:
+        with Comicbox(str(path), config=config) as cb:
             d = cb.to_dict() or {}
             try:
                 cover = cb.get_cover_page()
@@ -135,9 +139,6 @@ def flatten_comicbox(d: Dict[str, Any]) -> Dict[str, Any]:
     flat["month"] = _get(inner, "date", "month")
     flat["publisher"] = _get(inner, "publisher", "name")
     flat["summary"] = _get(inner, "summary")
-    if not flat["summary"]:
-        # PDF fallback: comicbox often maps PDF:Subject to genres
-        flat["summary"] = _get(inner, "genres")
 
     if isinstance(flat["summary"], (list, set)):
         flat["summary"] = ", ".join(str(s) for s in flat["summary"])
@@ -147,7 +148,7 @@ def flatten_comicbox(d: Dict[str, Any]) -> Dict[str, Any]:
     flat["page_count"] = _get(inner, "page_count")
     flat["manga"] = _get(inner, "manga")
     flat["notes"] = _get(inner, "notes")
-    flat["imprint"] = _get(inner, "publisher", "imprint")
+    flat["imprint"] = _get(inner, "imprint", "name") or _get(inner, "imprint")
     
     genres = _get(inner, "genres")
     if isinstance(genres, (list, set)):

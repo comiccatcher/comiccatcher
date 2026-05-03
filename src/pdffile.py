@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import io
+from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import List, Optional
 
@@ -11,6 +13,10 @@ try:
     import fitz  # PyMuPDF
 except ImportError:
     fitz = None
+
+class PageFormat(Enum):
+    IMAGE = "image"
+    PIXMAP = "pixmap"
 
 class PDFFile:
     SUFFIX = ".pdf"
@@ -36,9 +42,18 @@ class PDFFile:
         self.path = path
         self.doc = fitz.open(path)
         self._page_count = self.doc.page_count
-        # Pre-generate namelist for consistency. 
-        # Using .jpg is much faster to encode/decode than .png for comics.
+        
+        # 1. Page images
         self._names = [f"page_{i:03d}.jpg" for i in range(self._page_count)]
+        
+        # 2. Embedded files (attachments)
+        self._emb_map = {}
+        for i in range(self.doc.embfile_count()):
+            info = self.doc.embfile_info(i)
+            name = info.get("name")
+            if name:
+                self._names.append(name)
+                self._emb_map[name] = i
 
     def namelist(self) -> List[str]:
         return self._names
@@ -49,13 +64,31 @@ class PDFFile:
             def __init__(self, name, size):
                 self.filename = name
                 self.file_size = size
-        return [StubInfo(n, 0) for n in self._names]
+        
+        infos = []
+        for name in self._names:
+            size = 0
+            if name in self._emb_map:
+                try:
+                    size = self.doc.embfile_info(self._emb_map[name]).get("size", 0)
+                except Exception:
+                    pass
+            infos.append(StubInfo(name, size))
+        return infos
 
     def read(self, filename: str, fmt: str = "jpg", props: dict | None = None) -> bytes:
         """
-        Renders or extracts a PDF page image.
-        filename: expected to be 'page_NNN.jpg'
+        Renders a PDF page or extracts an embedded file.
+        filename: expected to be 'page_000.jpg' for pages or 'ComicInfo.xml' etc. for attachments
         """
+        # --- Handle Embedded Files first ---
+        if filename in self._emb_map:
+            try:
+                return self.doc.embfile_get(self._emb_map[filename])
+            except Exception:
+                return b""
+
+        # --- Handle Page Images ---
         try:
             # Extract index from filename
             idx = self._names.index(filename)

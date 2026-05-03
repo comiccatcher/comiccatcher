@@ -5,14 +5,14 @@ import asyncio
 import uuid
 from pathlib import Path
 from typing import Optional, Dict
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QLabel, QPushButton, 
     QFrame
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt, QTimer, QUrl
+from PyQt6.QtGui import QPixmap, QDesktopServices
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants, Keys
 
 from comiccatcher.logger import get_logger
@@ -22,6 +22,7 @@ from comiccatcher.api.progression import ProgressionSync
 from comiccatcher.models.opds import Publication, Metadata
 from comiccatcher.api.feed_reconciler import FeedReconciler
 from comiccatcher.ui.flow_layout import FlowLayout
+from comiccatcher.ui.components.badge import Badge
 from comiccatcher.ui.views.base_detail import BaseDetailView
 from comiccatcher.ui.view_helpers import ViewportHelper, HelpPopoverMixin
 from comiccatcher.ui.utils import format_artist_credits, format_publication_date, format_file_size, parse_opds_date
@@ -31,50 +32,6 @@ from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
 
 logger = get_logger("ui.feed_detail")
 
-class Badge(QFrame):
-    def __init__(self, text, on_click=None):
-        super().__init__()
-        self.on_click = on_click
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        obj_name = "badge" if on_click else "badge_static"
-        self.setObjectName(obj_name)
-
-        self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.label = QLabel(text)
-        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.layout.addWidget(self.label)
-
-        if on_click:
-            self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.reapply_theme()
-
-    def reapply_theme(self):
-        theme = ThemeManager.get_current_theme_colors()
-        s = UIConstants.scale
-        is_clickable = self.on_click is not None
-        obj_name = self.objectName()
-
-        bg = theme['bg_sidebar'] if is_clickable else "rgba(128, 128, 128, 20)"
-        border_color = theme['border'] if is_clickable else "rgba(128, 128, 128, 50)"
-
-        self.setStyleSheet(f"""
-            QFrame#{obj_name} {{
-                border-radius: {s(10)}px;
-                padding: {s(1)}px {s(10)}px;
-                border: {max(1, s(1))}px solid {border_color};
-                background-color: {bg};
-            }}
-            QFrame#{obj_name}:hover {{
-                background-color: {theme['bg_item_hover'] if is_clickable else bg};
-                border-color: {theme['accent'] if is_clickable else border_color};
-            }}
-        """)
-        self.label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_BADGE}px; border: none; background: transparent; color: {theme['text_main'] if is_clickable else theme['text_dim']};")
-    def mousePressEvent(self, event):
-        if self.on_click:
-            self.on_click()
-        super().mousePressEvent(event)
 class FeedDetailView(BaseDetailView, HelpPopoverMixin):
     def __init__(self, config_manager, on_back, on_read, on_navigate, on_start_download, on_open_detail, image_manager: ImageManager, local_db=None):
         super().__init__(on_back, image_manager)
@@ -305,7 +262,13 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
                     current_page = int(pct * total_pages) + 1
                 
                 current_page = min(current_page, total_pages)
-                prog_text = f"Page {current_page} of {total_pages} ({int(pct*100)}%)"
+                
+                # Check for unread/started state
+                if current_page > 1 or pct > 0.01:
+                    prog_text = f"Page {current_page} of {total_pages} ({int(pct*100)}%)"
+                else:
+                    prog_text = f"{total_pages} Pages"
+                    
                 if self._file_size_str:
                     prog_text += f"&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;<span style='color: {dim_color};'>{self._file_size_str}</span>"
                 self.progression_label.setText(prog_text)
@@ -455,7 +418,7 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
             manifest_url = next((urljoin(base_url, l.href) for l in (pub.links or []) if l.type in ["application/webpub+json", "application/divina+json", "application/opds-publication+json"]), None)
             
             # Use FeedReconciler to find best download link
-            download_url, _ = FeedReconciler._find_acquisition_link(pub, base_url)
+            download_url, _, download_size = FeedReconciler._find_acquisition_link(pub, base_url)
             
             # Check if links claim this is streamable (before manifest is fully fetched)
             has_divina_link = any(l.type == "application/divina+json" for l in (pub.links or []))
@@ -520,14 +483,15 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
             
             total_pages = m.numberOfPages or (len(pub.readingOrder) if pub.readingOrder else 0)
             
-            # Format remote file size if available
+            # Format remote file size if available (Link property/size priority, then Metadata fallback)
             self._file_size_str = None
-            if m.numberOfBytes:
-                self._file_size_str = format_file_size(m.numberOfBytes)
+            size_val = download_size or (m.numberOfBytes if m else None)
+            if size_val:
+                self._file_size_str = format_file_size(size_val)
                 
             prog_parts = []
             if total_pages:
-                prog_parts.append(f"Pages: {total_pages}")
+                prog_parts.append(f"{total_pages} Pages")
             
             if self._file_size_str:
                 theme = ThemeManager.get_current_theme_colors()
@@ -572,6 +536,45 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
             # Subjects
             if m.subject:
                 self._add_subjects(info_layout, m.subject, base_url)
+            
+            # Web Links row
+            alternate_links = []
+            if pub.links:
+                for link in pub.links:
+                    rels = [link.rel] if isinstance(link.rel, str) else (link.rel or [])
+                    # We look for alternate links or explicitly marked web links
+                    if "alternate" in rels or link.type == "text/html":
+                        alternate_links.append(link)
+            
+            if alternate_links:
+                row = QWidget()
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                s = UIConstants.scale
+                
+                l = QLabel("<b>Links:</b>")
+                l.setFixedWidth(s(100))
+                l.setObjectName("meta_label")
+                row_layout.addWidget(l)
+                
+                flow = FlowLayout(spacing=5)
+                
+                for link in alternate_links:
+                    full_url = urljoin(base_url, link.href)
+                    label_text = link.title
+                    if not label_text:
+                        parsed = urlparse(full_url)
+                        label_text = parsed.netloc or full_url
+                        if label_text.startswith("www."): label_text = label_text[4:]
+                    
+                    btn = Badge(label_text, lambda u=full_url: QDesktopServices.openUrl(QUrl(u)))
+                    flow.addWidget(btn)
+                
+                flow_widget = QWidget()
+                flow_widget.setLayout(flow)
+                row_layout.addWidget(flow_widget, 1)
+                
+                info_layout.addWidget(row)
 
             # Summary (Description)
             if m.description:
@@ -580,7 +583,8 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
             # Cover
             img_url = self._get_image_url(pub)
             if img_url:
-                asyncio.create_task(self._load_cover(urljoin(base_url, img_url)))
+                # Use a larger max_dim for details to ensure high quality
+                asyncio.create_task(self._load_cover(urljoin(base_url, img_url), max_dim=1200))
 
             self.info_layout.addStretch()
 
@@ -592,8 +596,8 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
         finally:
             self.setUpdatesEnabled(True)
 
-    async def _load_cover(self, url: str):
-        await self.image_manager.get_image_b64(url)
+    async def _load_cover(self, url: str, max_dim: Optional[int] = None):
+        await self.image_manager.get_image_b64(url, max_dim=max_dim)
         full_path = self.image_manager._get_cache_path(url)
         if full_path.exists():
             pixmap = QPixmap(str(full_path))
@@ -601,10 +605,26 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
                 self.set_cover_pixmap(pixmap)
 
     def _get_image_url(self, pub: Publication) -> Optional[str]:
-        if pub.images: return pub.images[0].href
+        # Priority 1: First page of reading order (highest quality source)
+        if pub.readingOrder:
+            return pub.readingOrder[0].href
+            
+        # Priority 2: Explicit cover relation
+        if pub.images:
+            for img in pub.images:
+                rel = img.rel or ""
+                if "cover" in rel or "http://opds-spec.org/image" in rel:
+                    return img.href
+            # Fallback to first image
+            return pub.images[0].href
+            
+        # Priority 3: Links with image rel or type
         if pub.links:
             for link in pub.links:
-                if "image" in (link.rel or "") or (link.type and "image/" in link.type):
+                rel = link.rel or ""
+                if "image" in rel or "cover" in rel:
+                    return link.href
+                if link.type and "image/" in link.type:
                     return link.href
         return None
 
@@ -785,8 +805,7 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
                                           lambda: self.on_read(pub))
 
         # Download Action
-        from comiccatcher.api.feed_reconciler import FeedReconciler
-        download_url, _ = FeedReconciler._find_acquisition_link(pub, self._current_base_url)
+        download_url = item.download_url
         if download_url:
             self.detail_popover.add_action("download", "Download", 
                                           lambda u=download_url: self.on_start_download(pub, u))

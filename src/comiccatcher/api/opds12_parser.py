@@ -198,7 +198,11 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
             entry_subjects = []
             entry_language = None
             entry_rights = _get_text(child, "rights")
-            
+            entry_publisher = None
+            entry_issued = None
+            entry_pages = _get_text(child, "numberOfPages") or _get_text(child, "pages")
+            entry_bytes = _get_text(child, "numberOfBytes") or _get_text(child, "size")
+
             # PSE Count element fallback (Ubooquity)
             entry_pse_count = _get_text(child, "count") # In pse namespace
             if not entry_pse_count:
@@ -207,13 +211,6 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
                     if _strip_ns(e_child.tag) == "count" and "vaemendis" in e_child.tag:
                         entry_pse_count = e_child.text
                         break
-
-            entry_authors = []
-            entry_subjects = []
-            entry_language = None
-            entry_rights = _get_text(child, "rights")
-            entry_publisher = None
-            entry_issued = None
 
             for e_child in child:
                 e_tag = _strip_ns(e_child.tag)
@@ -233,6 +230,10 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
                     entry_publisher = e_child.text
                 elif e_tag in ["issued", "date", "issuedDate"]:
                     entry_issued = e_child.text
+                elif e_tag in ["pages", "numberOfPages"]:
+                    entry_pages = e_child.text
+                elif e_tag in ["size", "numberOfBytes"]:
+                    entry_bytes = e_child.text
 
             # Date fallback logic: published -> issued
             entry_date = _get_text(child, "published") or entry_issued
@@ -247,7 +248,9 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
                 subject=entry_subjects if entry_subjects else None,
                 language=entry_language,
                 publisher=entry_publisher,
-                conformsTo=["opds1_2"]
+                conformsTo=["opds1_2"],
+                numberOfPages=int(entry_pages) if entry_pages and str(entry_pages).isdigit() else None,
+                numberOfBytes=int(entry_bytes) if entry_bytes and str(entry_bytes).isdigit() else None
             )
             
             # If rights exist, append to description
@@ -271,6 +274,8 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
                     href = e_child.get("href")
                     type_str = e_child.get("type", "")
                     title = e_child.get("title")
+                    length = e_child.get("length")
+                    link_size = int(length) if length and length.isdigit() else None
                     
                     if href:
                         href = urllib.parse.urljoin(source_url, href)
@@ -287,10 +292,10 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
 
                     if rel == "self":
                         has_self = True
-                        entry_links.append(Link(rel=rel, href=href, type=type_str, title=title, properties=link_props))
+                        entry_links.append(Link(rel=rel, href=href, type=type_str, title=title, properties=link_props, size=link_size))
                     elif rel.startswith("http://opds-spec.org/acquisition") or rel == "http://vaemendis.net/opds-pse/stream":
                         is_acquisition = True
-                        entry_links.append(Link(rel=rel, href=href, type=type_str, title=title, properties=link_props))
+                        entry_links.append(Link(rel=rel, href=href, type=type_str, title=title, properties=link_props, size=link_size))
                         
                         # PSE Page Streaming Extension support
                         # 1. Find the page count (check attribute, then fallback to entry-level tag)
@@ -301,6 +306,11 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
                         
                         pse_count = pse_count_str or entry_pse_count
                         
+                        if pse_count:
+                            try:
+                                entry_metadata.numberOfPages = int(pse_count)
+                            except: pass
+
                         if pse_count and "{pageNumber}" in href:
                             try:
                                 count = int(pse_count)
@@ -318,10 +328,10 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
                                 pass
                                 
                     elif "image" in rel or "thumbnail" in rel:
-                        images.append(Link(rel=rel, href=href, type=type_str))
-                    elif rel in ["start", "subsection", "http://opds-spec.org/sort", "http://opds-spec.org/facet"]:
+                        images.append(Link(rel=rel, href=href, type=type_str, size=link_size))
+                    elif rel in ["start", "subsection", "http://opds-spec.org/sort", "http://opds-spec.org/facet"] or (rel and "/sort/" in str(rel)):
                         is_navigation = True
-                        entry_links.append(Link(rel=rel, href=href, type=type_str, title=title, properties=link_props))
+                        entry_links.append(Link(rel=rel, href=href, type=type_str, title=title, properties=link_props, size=link_size))
                     elif rel == "http://vaemendis.net/opds-ps/shelf" or rel == "collection":
                         # Series backlink (Kavita)
                         series_name = title
@@ -333,7 +343,7 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
                             if not entry_belongs_to.series: entry_belongs_to.series = []
                             entry_belongs_to.series.append(Collection(name=series_name, links=[Link(rel="subsection", href=href, type=type_str)]))
                     else:
-                        entry_links.append(Link(rel=rel, href=href, type=type_str, title=title, properties=link_props))
+                        entry_links.append(Link(rel=rel, href=href, type=type_str, title=title, properties=link_props, size=link_size))
 
             # Ensure we have a self link for stable ID and navigation
             if not has_self:
@@ -359,25 +369,29 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
                     belongsTo=entry_belongs_to
                 )
                 publications.append(pub)
-            elif is_navigation or not entry_links:
+            elif is_navigation or entry_links:
                 nav_href = ""
                 nav_type = ""
                 nav_title = entry_title
                 for l in entry_links:
-                    if l.rel in ["start", "subsection", "http://opds-spec.org/sort"]:
+                    if l.rel in ["start", "subsection", "http://opds-spec.org/sort"] or (l.rel and "/sort/" in str(l.rel)):
                         nav_href = l.href
                         nav_type = l.type
                         # Use count from link if available to enrich title
                         if l.properties and l.properties.get("count"):
                             nav_title = f"{entry_title} ({l.properties['count']})"
                         break
+
                 if not nav_href and entry_links:
-                    nav_href = entry_links[0].href
-                    nav_type = entry_links[0].type
-                
+                    # Fallback to the first link that isn't an image/thumbnail
+                    for l in entry_links:
+                        if l.rel and "image" not in str(l.rel).lower() and "thumbnail" not in str(l.rel).lower():
+                            nav_href = l.href
+                            nav_type = l.type
+                            break
+
                 if nav_href:
-                    # HEURISTIC: Detect "fake" facets in navigation entries (common in Codex and others)
-                    # These are navigation entries that act as sort/filter toggles.
+                    # HEURISTIC: Detect "fake" facets in navigation entries (common in Codex and others)                    # These are navigation entries that act as sort/filter toggles.
                     is_fake_facet = False
                     facet_group = "Options"
                     
@@ -441,10 +455,8 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
     deduped_nav = []
     seen_nav = set()
     for n in navigation:
-        # Use identifier as primary deduplication key if available, fallback to (title, href)
-        k = n.properties.get("identifier") if n.properties else None
-        if not k:
-            k = (n.title, n.href)
+        # Use (title, href) as primary deduplication key to handle multiple entries pointing to the same place
+        k = (n.title, n.href)
             
         if k not in seen_nav:
             seen_nav.add(k)

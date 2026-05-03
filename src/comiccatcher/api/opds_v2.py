@@ -48,6 +48,8 @@ class OPDS2Client:
         logger.debug(f"Fetching feed: {url}")
         try:
             resp = await self.api.get(url)
+            # Log the first 500 chars of the response for debugging
+            logger.debug(f"Feed Response ({url}): {resp.text[:500]}...")
             resp.raise_for_status()
         except Exception as e:
             status = getattr(e.response, "status_code", None) if hasattr(e, "response") else None
@@ -90,9 +92,9 @@ class OPDS2Client:
         except ValidationError as e:
             logger.error(f"Schema validation error for feed at {url}: {e}")
             server_msg = data.get("message") if isinstance(data, dict) else None
-            msg = "Invalid OPDS feed format"
+            msg = f"Invalid OPDS feed format: {e}"
             if server_msg:
-                msg = f"Server Error: {server_msg}"
+                msg = f"Server Error: {server_msg} ({e})"
             raise OPDSClientError(msg, server_message=server_msg) from e
 
     async def get_publication(self, url: str, force_refresh: bool = False) -> Publication:

@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QColor, QPalette, QIcon
 
 ICON_DIR = Path(__file__).parent.parent / "resources" / "icons"
+RESOURCE_DIR = Path(__file__).parent.parent / "resources"
 
 THEMES = {
     "light": {
@@ -219,7 +220,7 @@ class UIConstants:
     
     _BASE_LAYOUT_MARGIN_DEFAULT = 10
     _BASE_LAYOUT_MARGIN_LARGE = 20
-    _BASE_DETAIL_MAX_WIDTH = 750
+    _BASE_DETAIL_MAX_WIDTH = 900
     
     _BASE_POPOVER_OFFSET = 10
     _BASE_POPOVER_ROUNDING = 8
@@ -519,6 +520,16 @@ class ThemeManager:
         return THEMES.get(cls._current_theme, THEMES["dark"])
 
     @classmethod
+    def get_app_icon(cls) -> QIcon:
+        """Returns a QIcon containing the app logo in multiple sizes."""
+        icon = QIcon()
+        for size in [32, 64, 128, 256]:
+            path = RESOURCE_DIR / f"app_{size}.png"
+            if path.exists():
+                icon.addFile(str(path))
+        return icon
+
+    @classmethod
     def get_icon(cls, name: str, color_key: str = "text_main") -> QIcon:
         """
         Returns a state-aware QIcon that handles different colors for 
@@ -619,6 +630,15 @@ class ThemeManager:
             QMainWindow, QDialog {{
                 background-color: {theme['bg_main']};
                 color: {theme['text_main']};
+                border: none;
+                outline: none;
+            }}
+            
+            #central_widget {{
+                background-color: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
             }}
             
             QFormLayout {{

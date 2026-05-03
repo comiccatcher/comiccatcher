@@ -17,6 +17,7 @@ class FeedProfile(BaseModel):
     
     custom_headers: Dict[str, str] = Field(default_factory=dict)
     
+    verify_ssl: bool = True
     search_history: List[str] = Field(default_factory=list)
     pinned_searches: List[str] = Field(default_factory=list)
     paging_mode: str = "scrolled" # "scrolled" or "paged"

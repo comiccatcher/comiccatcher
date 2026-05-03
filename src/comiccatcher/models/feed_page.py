@@ -23,6 +23,7 @@ class FeedItem(BaseModel):
     cover_url: Optional[str] = None
     download_url: Optional[str] = None
     download_format: Optional[str] = None
+    size_bytes: Optional[int] = None
     
     # Original data for actions
     raw_pub: Optional[Publication] = None

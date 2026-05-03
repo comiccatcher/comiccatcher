@@ -4,13 +4,14 @@
 import asyncio
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QScrollArea, QFrame, QSizePolicy, QProgressBar
 )
-from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QPixmap, QFont
+from PyQt6.QtCore import Qt, QSize, QUrl
+from PyQt6.QtGui import QPixmap, QFont, QDesktopServices
 
 from comiccatcher.config import ConfigManager
 from comiccatcher.logger import get_logger
@@ -19,6 +20,8 @@ from comiccatcher.api.local_db import LocalLibraryDB
 from comiccatcher.ui.local_archive import read_archive_first_image
 from comiccatcher.ui.local_comicbox import flatten_comicbox, read_comicbox_dict, read_comicbox_cover, generate_comic_labels
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants, Keys
+from comiccatcher.ui.flow_layout import FlowLayout
+from comiccatcher.ui.components.badge import Badge
 from comiccatcher.ui.views.base_detail import BaseDetailView
 from comiccatcher.ui.view_helpers import HelpPopoverMixin
 from comiccatcher.ui.utils import format_artist_credits, format_publication_date, format_file_size
@@ -92,41 +95,17 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
             if date_str:
                 pub_parts.append(date_str)
                 
-            web_data = meta.get("web")
-            if pub_parts or web_data:
+            if pub_parts:
                 line_layout = QHBoxLayout()
                 line_layout.setContentsMargins(0, 0, 0, 0)
                 line_layout.setSpacing(s(5))
                 line_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
                 
-                if pub_parts:
-                    line_text = " • ".join(pub_parts)
-                    pub_label = QLabel(line_text)
-                    theme = ThemeManager.get_current_theme_colors()
-                    pub_label.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
-                    line_layout.addWidget(pub_label)
-                
-                # Add Web Button if available
-                if web_data:
-                    urls = [u.strip() for u in web_data.split(",") if u.strip()]
-                    if urls:
-                        target_url = urls[0]
-                        if pub_parts:
-                            theme = ThemeManager.get_current_theme_colors()
-                            sep = QLabel(" • ")
-                            sep.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
-                            line_layout.addWidget(sep)
-                        
-                        from PyQt6.QtGui import QDesktopServices
-                        from PyQt6.QtCore import QUrl
-                        btn_web = QPushButton()
-                        btn_web.setObjectName("icon_button")
-                        btn_web.setIcon(ThemeManager.get_icon("globe", "accent"))
-                        btn_web.setToolTip(f"Open in browser: {target_url}")
-                        btn_web.setFixedSize(s(24), s(24))
-                        btn_web.setCursor(Qt.CursorShape.PointingHandCursor)
-                        btn_web.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(target_url)))
-                        line_layout.addWidget(btn_web)
+                line_text = " • ".join(pub_parts)
+                pub_label = QLabel(line_text)
+                theme = ThemeManager.get_current_theme_colors()
+                pub_label.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
+                line_layout.addWidget(pub_label)
                 
                 self.info_layout.addLayout(line_layout)
 
@@ -163,7 +142,7 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
             self._render_meta(meta)
 
             # Summary (Description)
-            summary = meta.get("summary") or meta.get("description")
+            summary = meta.get("summary")
             if summary:
                 self._add_description(summary)
             
@@ -184,18 +163,25 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
         pass
 
     async def _load_cover(self, path: Path):
-        url = f"local-archive://{path.absolute()}/_cover"
+        # Use a high-res cover URL suffix for details
+        url = f"local-archive://{path.absolute()}/_cover_full"
         cache_path = self.image_manager._get_cache_path(url)
         
         if not cache_path.exists():
             try:
+                # Use the standard comicbox cover (which is a high-res page image)
                 data = await asyncio.to_thread(read_comicbox_cover, path)
+                
                 if not data:
+                    # Last resort fallback to first image
                     res = await asyncio.to_thread(read_archive_first_image, path)
                     if res: _, data = res
+                    
                 if data:
+                    # Scale and write to disk
+                    scaled_data = await asyncio.to_thread(self.image_manager._scale_image, data, 1200)
                     with open(cache_path, "wb") as f:
-                        f.write(data)
+                        f.write(scaled_data)
             except Exception:
                 pass
         
@@ -221,7 +207,11 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
                 dim_color = theme['text_dim']
                 
                 if total > 0:
-                    prog_text = f"Page {curr + 1} of {total}"
+                    if curr > 0:
+                        prog_text = f"Page {curr + 1} of {total}"
+                    else:
+                        prog_text = f"{total} Pages"
+                        
                     if self._file_size_str:
                         prog_text += f"&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;<span style='color: {dim_color};'>{self._file_size_str}</span>"
                     self.progression_label.setText(prog_text)
@@ -229,10 +219,15 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
                     self._update_cover_progress(curr, total)
                     
                     if curr >= total - 1:
-                        finished_text = f"Finished: {total} pages read"
-                        if self._file_size_str:
-                            finished_text += f"&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;<span style='color: {dim_color};'>{self._file_size_str}</span>"
-                        self.progression_label.setText(finished_text)
+                        # Special case for 1-page comics or exactly at the end
+                        if total == 1 and curr == 0:
+                             # Still unread-ish or just one page
+                             pass
+                        else:
+                            finished_text = f"Finished: {total} pages read"
+                            if self._file_size_str:
+                                finished_text += f"&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;<span style='color: {dim_color};'>{self._file_size_str}</span>"
+                            self.progression_label.setText(finished_text)
                         self.btn_read.setText("Read Again")
                     elif curr > 0:
                         self.btn_read.setText("Resume")
@@ -276,6 +271,64 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
             if ":" in cred:
                 label, val = cred.split(":", 1)
                 self._add_metadata_row(label.strip(), val.strip())
+
+        # Genre / Subjects row
+        genre_data = meta.get("genre")
+        if genre_data:
+            genres = [g.strip() for g in genre_data.split(",") if g.strip()]
+            if genres:
+                row = QWidget()
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                s = UIConstants.scale
+                
+                l = QLabel("<b>Genre:</b>")
+                l.setFixedWidth(s(100))
+                l.setObjectName("meta_label")
+                row_layout.addWidget(l)
+                
+                flow = FlowLayout(spacing=5)
+                for g in genres:
+                    flow.addWidget(Badge(g))
+                
+                flow_widget = QWidget()
+                flow_widget.setLayout(flow)
+                row_layout.addWidget(flow_widget, 1)
+                
+                self.info_layout.addWidget(row)
+                self._metadata_rows.append((l, flow_widget))
+
+        # Web Links row
+        web_data = meta.get("web")
+        if web_data:
+            urls = [u.strip() for u in web_data.split(",") if u.strip()]
+            if urls:
+                row = QWidget()
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                s = UIConstants.scale
+                
+                l = QLabel("<b>Links:</b>")
+                l.setFixedWidth(s(100))
+                l.setObjectName("meta_label")
+                row_layout.addWidget(l)
+                
+                flow = FlowLayout(spacing=5)
+                
+                for url in urls:
+                    parsed = urlparse(url)
+                    host = parsed.netloc or url
+                    if host.startswith("www."): host = host[4:]
+                    
+                    btn = Badge(host, lambda u=url: QDesktopServices.openUrl(QUrl(u)))
+                    flow.addWidget(btn)
+                
+                flow_widget = QWidget()
+                flow_widget.setLayout(flow)
+                row_layout.addWidget(flow_widget, 1)
+                
+                self.info_layout.addWidget(row)
+                self._metadata_rows.append((l, flow_widget))
             
     def _on_delete_clicked(self):
         if not self._path: return

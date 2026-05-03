@@ -15,7 +15,8 @@ class APIClient:
         self.client = httpx.AsyncClient(
             base_url=self.profile.get_base_url(), 
             timeout=NETWORK_TIMEOUT,
-            follow_redirects=True
+            follow_redirects=True,
+            verify=self.profile.verify_ssl
         )
 
         self._setup_headers()

@@ -7,10 +7,10 @@
 [![PyPI version](https://img.shields.io/pypi/v/comiccatcher.svg)](https://pypi.org/project/comiccatcher/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**ComicCatcher** is a desktop OPDS (v2.0 and v1.2) browser and comic reader. It's been mostly tested with self-hosted comic servers like [**Codex**](https://github.com/ajslater/codex), [**Komga**](https://komga.org), [**Stump**](https://stumpapp.dev), [**Kavita**](https://www.kavitareader.com/), and [**Ubooquity**](https://vaemendis.net/ubooquity/), but should work with any server that supports similar features. Comics can be streamed page-by-page, or downloaded and read offline.  Written in Python and runs on Linux, Windows, and macOS (not yet tested 🤞).
+**ComicCatcher** is a desktop OPDS (v2.0 and v1.2) browser and comic reader. It's been mostly tested with self-hosted comic servers like [**Codex**](https://github.com/ajslater/codex), [**Komga**](https://komga.org), [**Stump**](https://stumpapp.dev), [**Kavita**](https://www.kavitareader.com/), and [**Ubooquity**](https://vaemendis.net/ubooquity/), but should work with any server that supports similar features. Comics can be streamed page-by-page, or downloaded and read offline.  Written in Python and runs on Linux, Windows, and macOS.  ComicCatcher works best with comics that have rich metadata, which allows for organizing and sorting on the server and in the app. OPDS v2.0 servers provide a better experience.
 
 
-🚨 **NOTE** 🚨 This is still an early phase and the app is very untested, so mostly likely it will be broken for you. 🙈 
+🚨 **NOTE** 🚨 This is still an early phase and the app is very untested, but hopefully it'll work for you even so! 🙈 
 
 
 ---
@@ -70,6 +70,11 @@
 3.  **Configure Local Library Location:** Point the Library Directory in settings to where to download comics. (Defaults to `~/ComicCatcher`)
 4.  **Browse:** Browse the feed to find a comic.
 5.  **Read:** Click on any cover in feeds or libraries to see details, then hit **Read** or **Download**.  Downloaded comics will appear in the Library tab.
+
+### 💡 Tips
+  * Use `H` or `Ctrl+H` throughout the app for keyboard help.
+  * Right-click on thumnbails for a quick details popup.  Left-click on the comic title in the reader for the same.
+
 
 ## 🗺️ Roadmap
 

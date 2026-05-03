@@ -124,9 +124,12 @@ class LocalLibraryDB:
             self.conn.commit()
 
     def get_comic(self, file_path: str) -> Optional[sqlite3.Row]:
+        if not file_path:
+            return None
+        p = str(Path(file_path).absolute())
         with self._lock:
             cursor = self.conn.cursor()
-            cursor.execute("SELECT * FROM comics WHERE file_path = ?", (file_path,))
+            cursor.execute("SELECT * FROM comics WHERE file_path = ?", (p,))
             return cursor.fetchone()
 
     def get_comic_by_url(self, url: str) -> Optional[sqlite3.Row]:
@@ -148,6 +151,13 @@ class LocalLibraryDB:
             cursor = self.conn.cursor()
             cursor.execute("SELECT file_path, file_mtime FROM comics")
             return {row["file_path"]: row["file_mtime"] for row in cursor.fetchall()}
+
+    def get_all_comics_state(self) -> Dict[str, tuple[float, str]]:
+        """Returns a dict mapping file_path to (mtime, status)."""
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT file_path, file_mtime, _status FROM comics")
+            return {row["file_path"]: (row["file_mtime"], row["_status"]) for row in cursor.fetchall()}
 
     def upsert_comic(self, file_path: str, mtime: float, meta: Dict[str, Any], source_url: Optional[str] = None):
         with self._lock:
@@ -312,9 +322,11 @@ class LocalLibraryDB:
         return grouped
     def get_comics_in_dir(self, dir_path: str) -> Dict[str, sqlite3.Row]:
         """Return all comics under a directory, keyed by absolute file_path."""
+        p = Path(dir_path).absolute()
+        prefix = str(p).rstrip('/') + '/'
+        
         with self._lock:
             cursor = self.conn.cursor()
-            prefix = dir_path.rstrip('/') + '/'
             cursor.execute("SELECT * FROM comics WHERE file_path LIKE ?", (prefix + '%',))
             rows = cursor.fetchall()
         return {row['file_path']: row for row in rows}

@@ -25,8 +25,9 @@
 15. [Caching Strategy](#15-caching-strategy)
 16. [Data Flows](#16-data-flows)
 17. [Navigation & History](#17-navigation--history)
-18. [Testing](#18-testing)
-19. [Known Issues & Future Enhancements](#19-known-issues--future-enhancements)
+18. [Performance & Optimization](#18-performance--optimization)
+19. [Testing](#19-testing)
+20. [Known Issues & Future Enhancements](#20-known-issues--future-enhancements)
 
 ---
 
@@ -34,27 +35,36 @@
 
 ComicCatcher is a native desktop application built with **PyQt6**, using **qasync** to integrate Qt's event loop with Python's `asyncio`. All network I/O is non-blocking via `httpx`; blocking work (comicbox metadata extraction, ZIP file reading, disk I/O) is offloaded to threads via `asyncio.to_thread`.
 
+The application supports both **OPDS 2.0** (JSON) and **OPDS 1.2** (XML/Atom) feeds, providing a unified internal data model for cross-server compatibility.
+
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  Qt Event Loop (qasync)                                          │
-│                                                                  │
-│  ┌─────────────┐   ┌─────────────────────────────────────────┐  │
-│  │  Sidebar    │   │  Stacked Content Views (9 indices)      │  │
-│  │  - Feeds    │   │  FeedList / Browser / FeedDetail / ...  │  │
-│  │  - Library  │   │  LocalLibrary / LocalDetail / ...       │  │
-│  │  - Settings │   │  Settings / SearchRoot / ...            │  │
-│  └─────────────┘   └─────────────────────────────────────────┘  │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐    │
-│  │  API Layer (async)                                       │    │
-│  │  APIClient → OPDS2Client → FeedReconciler → ImageMgr    │    │
-│  └──────────────────────────────────────────────────────────┘    │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐    │
-│  │  Local Library (thread pool)                             │    │
-│  │  LibraryScanner → LocalLibraryDB (SQLite) → comicbox     │    │
-│  └──────────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│  Qt Event Loop (qasync)                                                  │
+│                                                                          │
+│  ┌─────────────┐   ┌──────────────────────────────────────────────────┐  │
+│  │  Sidebar    │   │  Stacked Content Views (9 indices)               │  │
+│  │  - Feeds    │   │  FeedList / Browser / FeedDetail / ...           │  │
+│  │  - Library  │   │  LocalLibrary / LocalDetail / ...                │  │
+│  │  - Settings │   │  Settings / SearchRoot / ...                     │  │
+│  └─────────────┘   └──────────────────────────────────────────────────┘  │
+│                                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐    │
+│  │  UI Controllers & Filters                                        │    │
+│  │  KeyboardBrowserNavigator (Active Capture Model)                 │    │
+│  │  ThemeManager (Dynamic CSS)                                      │    │
+│  └──────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐    │
+│  │  API Layer (async)                                               │    │
+│  │  APIClient → OPDS2Client (Hybrid 2.0/1.2) → FeedReconciler       │    │
+│  │  ImageMgr / DownloadManager                                      │    │
+│  └──────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐    │
+│  │  Local Library (thread pool)                                     │    │
+│  │  LibraryScanner → LocalLibraryDB (SQLite) → comicbox             │    │
+│  └──────────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -69,7 +79,8 @@ pdffile.py                  Shared PDF helper (MuPDF backend)
 
 api/
   client.py                  httpx.AsyncClient with Bearer / Basic auth
-  opds_v2.py                 OPDS 2.0 feed parser + in-memory JSON cache
+  opds_v2.py                 Hybrid OPDS client supporting 2.0 (JSON) and 1.2 (XML)
+  opds12_parser.py           OPDS 1.2 (Atom) parser with server-specific cleanups
   feed_reconciler.py         Transforms raw OPDS feeds into unified FeedPage models
   image_manager.py           3-tier image cache: memory → disk (SHA256) → network
   download_manager.py        Background CBZ streamer with progress & cancellation
@@ -99,12 +110,15 @@ ui/
 
   components/                Reusable UI building blocks
     auth_dialog.py           OAuth2 / Basic Auth credential entry dialog
+    badge.py                 Styled text badge for status or attributes
     base_card_delegate.py    Base class for card rendering (paints titles, frames)
     feed_card_delegate.py    OPDS-specific card rendering with badge support
     library_card_delegate.py Local-specific card rendering with progress bars
     base_ribbon.py           Horizontal carousel for RIBBON sections
     collapsible_section.py   Expandable section container with header
     feed_browser_model.py    Virtualized QAbstractListModel for grid data
+    help_popover.py          Context-aware shortcut legend overlay
+    keyboard_nav.py          Central "Active Capture" keyboard navigation logic
     mini_detail_popover.py   Bubble-style metadata summary popover
     paging_control.py        Pagination controls for paged views
     popover_mixin.py         Mixin for standardized popup/popover positioning
@@ -186,7 +200,15 @@ Thin async HTTP wrapper built on `httpx.AsyncClient`.
 
 ### `OPDS2Client` (`api/opds_v2.py`)
 
-High-level OPDS 2.0 parser with in-memory JSON caching.
+Hybrid OPDS client that handles both OPDS 2.0 (JSON) and OPDS 1.2 (XML/Atom). It automatically detects the feed version based on Content-Type and delegates XML parsing to `opds12_parser.py`. It also implements task tracking to ensure safe request cancellation during rapid navigation.
+
+### `OPDS 1.2 Parser` (`api/opds12_parser.py`)
+
+Specialized parser for legacy OPDS 1.2 feeds. Key features include:
+- **XML/Atom Parsing**: Full support for entry-based navigation and publication feeds.
+- **Server Cleanups**: Automated removal of progress icons from Kavita titles and improved author extraction for Stump.
+- **Base64 Support**: Handles embedded images often used for server icons.
+- **Model Normalization**: Maps legacy XML fields to the modern Pydantic models used throughout the app.
 
 ### `FeedReconciler` (`api/feed_reconciler.py`)
 
@@ -331,6 +353,33 @@ Stack Index (ViewIndex):
 - Single global **Back** button in the header.
 - Smart **Breadcrumbs** distinguishing feed identity from path.
 
+### 8.3 Keyboard Navigation: Active Capture Model
+
+ComicCatcher uses a specialized "Active Capture" model for keyboard navigation, primarily managed by `KeyboardBrowserNavigator` (`ui/components/keyboard_nav.py`). This component acts as a master event filter for Browser views, enabling efficient operation without a mouse.
+
+#### Core Principles
+- **Global Shortcut Simplification**: `MainWindow` only handles top-level global shortcuts (Ctrl+L, Ctrl+B, etc.).
+- **Active Cursor**: Use `Ctrl + Arrow Keys` to spawn a visual focus ring ("Keyboard Cursor").
+- **Physical Boundary Enforcement**: The navigator respects the visual layout of sections (Grids and Ribbons), allowing movement between disparate widgets based on their geometric position.
+- **Native Block**: The navigator swallows alpha-numeric keys and Tab/Backtab within browser views to prevent focus from escaping the viewport or triggering native Qt type-ahead searches.
+
+#### Shortcut Reference
+| Key | Action |
+| :--- | :--- |
+| `Ctrl + Arrows` | Spawn/Move Keyboard Cursor |
+| `Enter / Return` | Activate selected item (Open Detail/Reader) |
+| `Space` | Toggle selection in Bulk Mode |
+| `P` | Cycle Display Mode (Scrolled / Paged) |
+| `G` | Cycle Grouping (for Local Library) |
+| `Z` | Cycle Card Size (Zoom) |
+| `T` | Toggle Title Labels |
+| `S` | Toggle Bulk Selection Mode |
+| `A` | Add Feed (context-aware) |
+| `H` | Toggle Help Popover |
+| `[` / `]` | Collapse Section / Follow Section Link |
+| `\` | Toggle all sections (Expand/Collapse) |
+| `Esc` | Clear Cursor / Exit Bulk Mode |
+
 ---
 
 ## 9. Views Reference
@@ -367,7 +416,13 @@ OPDS streaming reader (extends BaseReaderView).
 
 ### LocalLibraryView (`views/local_library.py`)
 
-Local comic library browser with grouping support.
+High-performance browser for the local SQLite library. Key features:
+- **Grouping**: Dynamically clusters items by Series, Publisher, Writer, or Artist.
+- **Label Focus**: Toggles display labels between Series metadata and individual Item titles.
+- **Display Modes**: Supports both Paged (Dashboard) and Scrolled (Virtualized) layouts.
+- **Thumbnail Management**: Multi-tier cover extraction (local cache -> comicbox metadata -> file scan).
+- **Scan Integration**: Real-time UI updates during background library scans.
+- **Bulk Operations**: Dedicated selection mode for marking read/unread or deleting multiple files.
 
 ### LocalDetailView (`views/local_detail.py`)
 
@@ -384,6 +439,14 @@ Offline CBZ reader (extends BaseReaderView).
 ### `BaseReaderView` (`ui/base_reader.py`)
 
 Shared engine for online and local readers. Handles UI overlays, hotkeys, page compositing, and context-aware book transitions.
+
+### `Badge` (`ui/components/badge.py`)
+
+A lightweight, styled text component used for status indicators (e.g., "Read", "New") and interactive attributes.
+
+### `BrowserHelpPopover` (`ui/components/help_popover.py`)
+
+A context-aware overlay that displays a legend of keyboard shortcuts relevant to the current view. It is triggered by the `H` key in browser views.
 
 ---
 
@@ -454,9 +517,44 @@ Independent `feed_history` and `search_history` stacks with support for deep-lin
 
 ---
 
-## 18. Testing
+## 18. Performance & Optimization
+
+ComicCatcher implements several aggressive optimization techniques to ensure a fluid 60 FPS experience even with thousands of items and heavy network I/O.
+
+### 18.1 UI Virtualization
+
+- **ScrolledFeedView**: Rather than creating a widget for every item, the scrolled view uses a custom `QAbstractScrollArea` that dynamically repositions and reuses a small set of "Section" widgets (Ribbons or virtualized Grids).
+- **Grid Capping**: Large grid sections are capped to the height of the visible slice, with their internal scrollbars synced to the outer viewport. This prevents hitting Qt's internal pixel-limit (`QWIDGETSIZE_MAX`) and minimizes layout calculation overhead.
+
+### 18.2 Delegate Paint Caching
+
+The `BaseCardDelegate` (`ui/components/base_card_delegate.py`) performs manual painting for maximum control and speed. To avoid expensive repeat operations, it uses several pixmap caches:
+
+- **Skeleton Cache**: Pre-renders the rounded card background, borders, and empty states.
+- **Label Cache**: Pre-renders elided primary and secondary text labels into pixmaps. Since Qt's text eliding and layout calculations are computationally expensive, caching these results significantly reduces the cost of `paint()` calls during scrolling.
+- **Memory Management**: The label cache is automatically cleared when it exceeds 500 entries or when the theme changes.
+
+### 18.3 Visibility-Aware Resource Loading
+
+- **Viewport Probing**: The `ViewportHelper` (`ui/view_helpers.py`) uses coordinate-based probing to accurately detect which items are currently visible to the user.
+- **On-Demand Fetching**: Cover image downloads and metadata "enrichment" (fetching full JSON manifests) are only triggered for items within the visible range (plus a small safety buffer).
+- **Redundancy Prevention**: A `pending_set` is used to track active async requests, ensuring the app never initiates duplicate network tasks for the same resource.
+
+### 18.4 Multi-Tier Image Caching
+
+The `ImageManager` manages a three-tier cache to minimize latency:
+1.  **Memory Cache**: Decoded `QPixmap` objects for immediate painting.
+2.  **Disk Cache**: Compressed files stored with SHA256 hashes of their URLs.
+3.  **Network**: On-demand fetching via `httpx`.
+
+---
+
+## 19. Testing
 
 See TESTING.md
 
 ---
 
+## 20. Known Issues & Future Enhancements
+
+(No content available in the previous version; placeholder retained.)
