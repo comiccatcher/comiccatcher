@@ -3,25 +3,23 @@
 
 import asyncio
 import os
+import sys
 import enum
-import traceback
 import urllib.parse
 from pathlib import Path
-from urllib.parse import urljoin
 
-from typing import List, Dict, Optional, Set, Any, Union, Tuple
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QGridLayout,
     QListWidget, QListWidgetItem, QStackedWidget, QLabel, QPushButton, QToolButton, QFrame,
-    QDialog, QTextEdit, QMessageBox, QStyle, QApplication, QLineEdit, QScrollArea,
-    QLayout, QSizePolicy, QGraphicsDropShadowEffect
+    QDialog, QTextEdit, QMessageBox, QApplication, QLineEdit, QGraphicsDropShadowEffect
 )
-from PyQt6.QtCore import Qt, QSize, QTimer, QRect, QPoint, QObject, QEvent
-from PyQt6.QtGui import QIcon, QPixmap, QCursor, QKeyEvent, QAction, QColor
+from PyQt6.QtCore import Qt, QSize, QTimer, QPoint, QObject, QEvent, QRectF
+from PyQt6.QtGui import QIcon, QPixmap, QCursor, QColor, QPainter, QPen
 
 from comiccatcher.config import ConfigManager, CONFIG_DIR
 from comiccatcher.ui.flow_layout import FlowLayout
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants, Keys
+from comiccatcher.ui.components.popover_mixin import BubbleMixin
 from comiccatcher.ui.views.feed_list import FeedListView
 from comiccatcher.ui.views.local_library import LocalLibraryView
 from comiccatcher.ui.views.local_detail import LocalDetailView
@@ -32,12 +30,12 @@ from comiccatcher.ui.views.settings import SettingsView
 from comiccatcher.ui.views.downloads import DownloadsView
 from comiccatcher.ui.views.search_root import SearchRootView
 from comiccatcher.ui.views.feed_browser import FeedBrowser
-from comiccatcher.ui.theme_manager import ThemeManager
 from comiccatcher.api.download_manager import DownloadManager
 from comiccatcher.api.client import APIClient
 from comiccatcher.api.local_db import LocalLibraryDB
 from comiccatcher.api.opds_v2 import OPDS2Client
 from comiccatcher.api.image_manager import ImageManager
+from comiccatcher.ui.win_utils import apply_windows_fullscreen_fix, apply_windows_popover_fix
 
 from comiccatcher.logger import get_logger
 logger = get_logger("ui.app_layout")
@@ -72,21 +70,53 @@ class SidebarIndex(enum.IntEnum):
     LIBRARY = 1
     SETTINGS = 2
 
-class DownloadPopover(QFrame):
+class DownloadPopover(QFrame, BubbleMixin):
     def __init__(self, parent, download_manager: DownloadManager):
         super().__init__(parent)
         self.dm = download_manager
-        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         s = UIConstants.scale
-        self.setFixedWidth(s(350))
-        self.setFixedHeight(s(400))
+        
+        self._margin = s(20) # Margin for bubble shadow
+        self.setFixedWidth(s(350) + self._margin * 2)
+        self.setFixedHeight(s(400) + self._margin * 2)
         self.setObjectName("download_popover")
         
+        self.container = QFrame(self)
+        self.container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(self._margin, self._margin, self._margin, self._margin)
+        layout.addWidget(self.container)
+        
+        self.inner_layout = QVBoxLayout(self.container)
+        self.inner_layout.setContentsMargins(s(10), s(10), s(10), s(10))
         
         self.downloads_view = DownloadsView(self.dm)
-        layout.addWidget(self.downloads_view)
+        self.inner_layout.addWidget(self.downloads_view)
+        
+        self.reapply_theme()
+
+    def reapply_theme(self):
+        self.theme = ThemeManager.get_current_theme_colors()
+        self.downloads_view.reapply_theme()
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        self.paint_bubble(
+            painter, 
+            QRectF(self.rect()), 
+            QRectF(self.container.geometry()), 
+            self.theme
+        )
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if sys.platform == "win32":
+            apply_windows_popover_fix(self.winId())
+            QTimer.singleShot(5, lambda: apply_windows_popover_fix(self.winId()))
 
     def keyPressEvent(self, event):
         """Swallow keys and close the popover."""
@@ -219,10 +249,22 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("ComicCatcher")
         self.resize(s(1200), s(800))
 
-        # App Icon
-        icon_path = Path(__file__).parent.parent / "resources" / "app.png"
-        if icon_path.exists():
-            self.setWindowIcon(QIcon(str(icon_path)))
+        # App Icon - Load all available resolutions for better scaling in docks
+        resources_dir = Path(__file__).parent.parent / "resources"
+        icon = QIcon()
+        # Add specific sizes first so the OS has good defaults
+        for size in [32, 64, 128, 256]:
+            p = resources_dir / f"app_{size}.png"
+            if p.exists():
+                icon.addFile(str(p), QSize(size, size))
+        
+        # Finally add the high-res master icon
+        master_icon = resources_dir / "app.png"
+        if master_icon.exists():
+            icon.addFile(str(master_icon))
+            
+        if not icon.isNull():
+            self.setWindowIcon(icon)
         
         self.api_client = None
         self.opds_client = OPDS2Client(None) # persistent cache
@@ -241,6 +283,7 @@ class MainWindow(QMainWindow):
 
         # Main horizontal layout (Sidebar | Content)
         self.central_widget = QWidget()
+        self.central_widget.setObjectName("central_widget")
         self.setCentralWidget(self.central_widget)
         self.layout = QHBoxLayout(self.central_widget)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -495,16 +538,14 @@ class MainWindow(QMainWindow):
         self.local_detail_view = LocalDetailView(self.config_manager, self.on_back_to_local_library, self.image_manager, self.on_read_local_comic, self.local_db)
         
         self.local_reader_view = LocalReaderView(
-            self.on_exit_reader, 
-            self.image_manager, 
+            self.on_exit_reader,
+            self.image_manager,
             self.config_manager,
             on_get_adjacent=self._on_reader_boundary_reached,
             on_transition=self.on_reader_transition_local,
             local_db=self.local_db
         )
-        
         self.feed_detail_view = FeedDetailView(self.config_manager, self.on_back_to_browser, self.on_read_book, self.on_navigate_to_url, self.on_start_download, self.on_open_detail, self.image_manager, self.local_db)
-        
         self.feed_reader_view = FeedReaderView(
             self.config_manager, 
             self.on_exit_reader, 
@@ -653,6 +694,8 @@ class MainWindow(QMainWindow):
         # 6. Notify all active views
         if hasattr(self, 'exit_fullscreen_bar'):
             self.exit_fullscreen_bar.reapply_theme()
+        if self.downloads_popover:
+            self.downloads_popover.reapply_theme()
 
         for i in range(self.content_stack.count()):
             widget = self.content_stack.widget(i)
@@ -763,8 +806,16 @@ class MainWindow(QMainWindow):
             self.showNormal()
             if hasattr(self, 'exit_fullscreen_bar'):
                 self.exit_fullscreen_bar.hide()
+            if sys.platform == "win32":
+                apply_windows_fullscreen_fix(self.winId(), False)
         else:
+            if sys.platform == "win32":
+                # Fix for Windows 11 ghost borders: reset state before going fullscreen
+                self.showNormal()
             self.showFullScreen()
+            if sys.platform == "win32":
+                # Apply native fix for 1px border and rounded corners
+                apply_windows_fullscreen_fix(self.winId(), True)
 
     def keyPressEvent(self, event):
         # We now handle global keys in eventFilter for better interception
@@ -1204,7 +1255,7 @@ class MainWindow(QMainWindow):
             btn.setFixedSize(s(24), s(24))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda _, x=0: self.on_jump_to_history(0))
-            btn.setToolTip(f"Jump back to Start")
+            btn.setToolTip("Jump back to Start")
             start_layout.addWidget(btn)
         
         self.breadcrumb_items_layout.addWidget(start_widget)

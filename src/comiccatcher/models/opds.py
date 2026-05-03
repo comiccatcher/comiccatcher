@@ -12,6 +12,7 @@ class Link(BaseModel):
     title: Optional[str] = None
     templated: Optional[bool] = False
     properties: Optional[Dict[str, Any]] = None
+    size: Optional[int] = None
 
 class Contributor(BaseModel):
     model_config = ConfigDict(extra='allow')

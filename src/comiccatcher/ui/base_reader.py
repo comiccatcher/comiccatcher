@@ -27,14 +27,16 @@ from PyQt6.QtGui import QKeyEvent, QPainter, QPixmap, QAction, QActionGroup, QCo
 from PyQt6.QtWidgets import (
     QFrame, QGraphicsPixmapItem, QGraphicsScene, QGraphicsView,
     QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget, QMenu,
-    QGraphicsDropShadowEffect, QScrollArea
+    QGraphicsDropShadowEffect, QApplication
 )
 
+import sys
 from comiccatcher.logger import get_logger
 from comiccatcher.api.image_manager import ImageManager
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants, THEMES
 from comiccatcher.ui.components.mini_detail_popover import MiniDetailPopover
 from comiccatcher.ui.components.popover_mixin import BubbleMixin
+from comiccatcher.ui.win_utils import apply_windows_popover_fix
 
 logger = get_logger("ui.base_reader")
 
@@ -107,7 +109,7 @@ class AdjacentBookPopover(QFrame, BubbleMixin):
     def __init__(self, parent=None, on_clicked: Callable[[], None] = None, theme_name="light"):
         super().__init__(parent)
         self.on_clicked = on_clicked
-        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
         s = UIConstants.scale
@@ -160,6 +162,12 @@ class AdjacentBookPopover(QFrame, BubbleMixin):
         self.title_label.setWordWrap(True)
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.inner_layout.addWidget(self.title_label)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if sys.platform == "win32":
+            apply_windows_popover_fix(self.winId())
+            QTimer.singleShot(5, lambda: apply_windows_popover_fix(self.winId()))
         
     def set_arrow(self, side: str):
         self.arrow_side = side
@@ -452,6 +460,123 @@ class ThumbnailSlider(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Mipmap Pixmap Item
+# ---------------------------------------------------------------------------
+
+class MipmapPixmapItem(QGraphicsPixmapItem):
+    """
+    A QGraphicsPixmapItem that dynamically swaps between full-resolution and 
+    downscaled mipmaps based on the current view scale, improving visual quality 
+    when zoomed out and reducing aliasing artifacts.
+    """
+    def __init__(self, pixmap=None):
+        super().__init__()
+        self._mipmaps: dict[float, QPixmap] = {}
+        self._current_level = 1.0
+        self._base_width = 0
+        self._base_height = 0
+        self._task = None
+        self._is_smooth = True
+        if pixmap:
+            self.setPixmap(pixmap)
+
+    def set_smooth(self, is_smooth: bool):
+        if self._is_smooth == is_smooth:
+            return
+        self._is_smooth = is_smooth
+        if not is_smooth:
+            self._current_level = 1.0
+            if 1.0 in self._mipmaps:
+                super().setPixmap(self._mipmaps[1.0])
+                self.setScale(1.0)
+        else:
+            if self.scene() and self.scene().views():
+                view = self.scene().views()[0]
+                self.update_mipmap_level(view.transform().m11())
+
+    def setPixmap(self, pixmap: QPixmap):
+        super().setPixmap(pixmap)
+        self.setScale(1.0)
+        self._mipmaps.clear()
+        self._current_level = 1.0
+        
+        if pixmap.isNull():
+            self._base_width = 0
+            self._base_height = 0
+            return
+            
+        self._base_width = pixmap.width()
+        self._base_height = pixmap.height()
+        self._mipmaps[1.0] = pixmap
+
+        # Dispatch background generation of mipmaps
+        self._generate_mipmaps(pixmap.toImage())
+
+    def _generate_mipmaps(self, qimage):
+        import asyncio
+        from PyQt6.QtCore import Qt
+
+        qimage = qimage.copy()
+
+        def scale_images():
+            if qimage.isNull(): return None
+            img50 = qimage.scaled(max(1, int(qimage.width() * 0.5)), max(1, int(qimage.height() * 0.5)), 
+                                  Qt.AspectRatioMode.KeepAspectRatio, 
+                                  Qt.TransformationMode.SmoothTransformation)
+            img25 = qimage.scaled(max(1, int(qimage.width() * 0.25)), max(1, int(qimage.height() * 0.25)), 
+                                  Qt.AspectRatioMode.KeepAspectRatio, 
+                                  Qt.TransformationMode.SmoothTransformation)
+            img15 = qimage.scaled(max(1, int(qimage.width() * 0.15)), max(1, int(qimage.height() * 0.15)), 
+                                  Qt.AspectRatioMode.KeepAspectRatio, 
+                                  Qt.TransformationMode.SmoothTransformation)
+            return img50, img25, img15
+
+        async def worker():
+            try:
+                res = await asyncio.to_thread(scale_images)
+                if not res: return
+                img50, img25, img15 = res
+                self._mipmaps[0.5] = QPixmap.fromImage(img50)
+                self._mipmaps[0.25] = QPixmap.fromImage(img25)
+                self._mipmaps[0.15] = QPixmap.fromImage(img15)
+                # Apply if needed
+                if self.scene() and self.scene().views():
+                    view = self.scene().views()[0]
+                    self.update_mipmap_level(view.transform().m11())
+            except Exception as e:
+                logger.error(f"Error generating mipmaps: {e}")
+
+        self._task = asyncio.create_task(worker())
+
+
+    @property
+    def base_width(self) -> int: return self._base_width
+
+    @property
+    def base_height(self) -> int: return self._base_height
+
+    def update_mipmap_level(self, view_scale: float):
+        if not self._base_width or not self._base_height or not self._is_smooth:
+            return
+
+        # Determine appropriate target mipmap level
+        target_level = 1.0
+        if view_scale <= 0.15 and 0.15 in self._mipmaps:
+            target_level = 0.15
+        elif view_scale <= 0.25 and 0.25 in self._mipmaps:
+            target_level = 0.25
+        elif view_scale <= 0.50 and 0.50 in self._mipmaps:
+            target_level = 0.50
+
+        if target_level != self._current_level:
+            self._current_level = target_level
+            pm = self._mipmaps[target_level]
+            super().setPixmap(pm)
+            # Adjust internal scale to match the physical size of 1.0
+            self.setScale(1.0 / target_level)
+
+
+# ---------------------------------------------------------------------------
 # Base reader
 # ---------------------------------------------------------------------------
 
@@ -467,11 +592,26 @@ class BaseReaderView(QWidget):
     CURSOR_HIDE_MS  = 5000
     PREFETCH_AHEAD  = 3
     PREFETCH_BEHIND = 1
+    
+    # Touchpad Scroll Settings
+    TOUCHPAD_SCROLL_THRESHOLD = 120
+    DISCRETE_SCROLL_STEP = 120
+    
+    # Zoom Settings
+    ZOOM_STEP_IN = 1.05
+    ZOOM_STEP_OUT = 0.95
+    
+    # Smart Panning Settings
+    SMART_PAN_STEP_H_PCT = 0.15
+    SMART_PAN_STEP_V_PCT = 0.4
+    
+    # Interaction Settings
+    CLICK_ZONE_PCT = 0.15 # Percentage of width for side page-turn zones
+    CLICK_GUARD_MS = 150  # Max delay to distinguish single/double click
 
     def __init__(
-        self, 
-        on_exit, 
-        image_manager: ImageManager = None, 
+        self,
+        on_exit,        image_manager: ImageManager = None, 
         on_title_clicked: Callable[[], None] = None,
         on_get_adjacent: Callable[[int], Any] = None,
         on_transition: Callable[[Any], None] = None,
@@ -503,8 +643,15 @@ class BaseReaderView(QWidget):
         self._auto_hide_controls = config_manager.get_reader_auto_hide_controls() if config_manager else True
         self._slider_dragging  = False
         self._thumb_visible    = config_manager.get_reader_thumbs_visible() if config_manager else True
-        self._continuous_items: dict[int, QGraphicsPixmapItem] = {}
+        self._continuous_items: dict[int, MipmapPixmapItem] = {}
         self._is_closing       = False
+        self._scroll_accumulator = 0 # Accumulates high-precision deltas (touchpad)
+        self._ignore_next_release = False # Suppress click handling after a double-click
+        
+        self._click_timer = QTimer(self)
+        self._click_timer.setSingleShot(True)
+        self._click_timer.timeout.connect(self._on_click_timer_timeout)
+        self._pending_click_pos = None
 
         self.setStyleSheet("background-color: black; color: white;")
         self.setMouseTracking(True)
@@ -539,7 +686,7 @@ class BaseReaderView(QWidget):
         self._mouse_press_pos = None
         self._zoom_cycle_idx = 0
 
-        self.pixmap_item = QGraphicsPixmapItem()
+        self.pixmap_item = MipmapPixmapItem()
         self.scene.addItem(self.pixmap_item)
 
         root = QVBoxLayout(self)
@@ -857,10 +1004,27 @@ class BaseReaderView(QWidget):
             return False # Let QGraphicsView start drag
 
         if t == QEvent.Type.MouseButtonDblClick and source is vp:
+            w = vp.width()
+            x = event.position().x()
+            
+            # 1. In navigation zones: Stop the pending single click and do NOTHING.
+            if x < w * self.CLICK_ZONE_PCT or x > w * (1 - self.CLICK_ZONE_PCT):
+                self._click_timer.stop()
+                self._pending_click_pos = None
+                self._ignore_next_release = True # Swallow the second release too
+                return True 
+            
+            # 2. In center: Cycle zoom and ignore the final release to prevent overlay flicker.
+            self._ignore_next_release = True
             self._cycle_zoom()
             return True
 
         if t == QEvent.Type.MouseButtonRelease and source is vp:
+            if self._ignore_next_release:
+                self._ignore_next_release = False
+                self._mouse_press_pos = None
+                return True
+
             if self._mouse_press_pos:
                 diff = event.position() - self._mouse_press_pos
                 if diff.manhattanLength() < 5:
@@ -876,12 +1040,46 @@ class BaseReaderView(QWidget):
             # Ctrl+Wheel for zooming
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 if event.angleDelta().y() > 0:
-                    self._zoom(1.1)
+                    self._zoom(self.ZOOM_STEP_IN)
                 else:
-                    self._zoom(0.9)
+                    self._zoom(self.ZOOM_STEP_OUT)
                 return True
 
-            return self._smart_scroll(event.angleDelta().y())
+            # Use pixelDelta to detect high-precision (touchpad) devices.
+            is_touchpad = not event.pixelDelta().isNull()
+            dy = event.angleDelta().y()
+            
+            if is_touchpad:
+                self._scroll_accumulator += dy
+                
+                # Continuous Vertical mode needs smooth scrolling passthrough 
+                # unless we've hit a boundary where we transition books.
+                if self._page_layout == PageLayout.CONTINUOUS:
+                    vbar = self.view.verticalScrollBar()
+                    at_boundary = (dy < 0 and vbar.value() >= vbar.maximum()) or \
+                                  (dy > 0 and vbar.value() <= vbar.minimum())
+                    
+                    if at_boundary:
+                        if abs(self._scroll_accumulator) >= self.TOUCHPAD_SCROLL_THRESHOLD:
+                            step_dy = self.DISCRETE_SCROLL_STEP if self._scroll_accumulator > 0 else -self.DISCRETE_SCROLL_STEP
+                            self._scroll_accumulator = 0
+                            return self._smart_scroll(step_dy)
+                        else:
+                            return True # Swallow events until threshold met
+                    else:
+                        self._scroll_accumulator = 0 # Moving smoothly, clear threshold
+                        return self._smart_scroll(dy)
+
+                # Discrete page modes: accumulate until threshold reached
+                if abs(self._scroll_accumulator) >= self.TOUCHPAD_SCROLL_THRESHOLD:
+                    step_dy = self.DISCRETE_SCROLL_STEP if self._scroll_accumulator > 0 else -self.DISCRETE_SCROLL_STEP
+                    self._scroll_accumulator = 0
+                    return self._smart_scroll(step_dy)
+                else:
+                    return True # Swallow intermediate high-res events
+
+            self._scroll_accumulator = 0 # Discrete mouse wheel reset
+            return self._smart_scroll(dy)
 
         return super().eventFilter(source, event)
 
@@ -892,11 +1090,12 @@ class BaseReaderView(QWidget):
         vbar = self.view.verticalScrollBar()
         hbar = self.view.horizontalScrollBar()
         vp_h = self.view.viewport().height()
+        vp_w = self.view.viewport().width()
 
         # 1. Typewriter flow (Fit Width/Height, Not Continuous)
         if self._fit_mode in (FitMode.FIT_WIDTH, FitMode.FIT_HEIGHT, FitMode.ORIGINAL, FitMode.CUSTOM) and self._page_layout != PageLayout.CONTINUOUS:
-            scroll_amount_h = 80
-            v_jump = int(vp_h * 0.7) # 70% of viewport for overlap
+            scroll_amount_h = int(vp_w * self.SMART_PAN_STEP_H_PCT)
+            v_jump = int(vp_h * self.SMART_PAN_STEP_V_PCT) # Overlap percentage
             
             if dy < 0: # Scroll "Down" / Forward
                 # 1a. Try Horizontal panning first (if it has range)
@@ -965,13 +1164,37 @@ class BaseReaderView(QWidget):
             self._prev()
         return True
 
+    def _on_click_timer_timeout(self):
+        if self._pending_click_pos:
+            pos = self._pending_click_pos
+            self._pending_click_pos = None
+            self._execute_click(pos)
+
     def _handle_click(self, event):
         self._bump_cursor() # Restore cursor on any click
         w = self.view.viewport().width()
-        x = event.position().x()
+        pos = event.position()
+        x = pos.x()
         
-        is_left = x < w / 3
-        is_right = x > w * 2 / 3
+        zone_w = w * self.CLICK_ZONE_PCT
+        is_side = x < zone_w or x > w - zone_w
+        
+        if is_side:
+            # For side zones, we wait to ensure it's not a double-click
+            self._pending_click_pos = pos
+            # Use snappier guard interval
+            self._click_timer.start(self.CLICK_GUARD_MS)
+        else:
+            # Center click is immediate
+            self._execute_click(pos)
+
+    def _execute_click(self, pos):
+        w = self.view.viewport().width()
+        x = pos.x()
+        
+        zone_w = w * self.CLICK_ZONE_PCT
+        is_left = x < zone_w
+        is_right = x > w - zone_w
         
         if is_left:
             # Page turn or boundary
@@ -1082,9 +1305,9 @@ class BaseReaderView(QWidget):
             self._bumper_key = None
 
         if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
-            self._zoom(1.1)
+            self._zoom(self.ZOOM_STEP_IN)
         elif key == Qt.Key.Key_Minus:
-            self._zoom(0.9)
+            self._zoom(self.ZOOM_STEP_OUT)
         elif key == Qt.Key.Key_0:
             self._set_fit_mode(FitMode.FIT_PAGE)
         elif key == Qt.Key.Key_Space:
@@ -1151,13 +1374,22 @@ class BaseReaderView(QWidget):
 
     def _toggle_fullscreen(self):
         win = self.window()
+        # Redirect to MainWindow's implementation if available to ensure
+        # Windows-specific fixes and exit bars are handled correctly.
+        if hasattr(win, '_toggle_fullscreen') and win is not self:
+            win._toggle_fullscreen()
+        else:
+            if win.isFullScreen():
+                win.showNormal()
+            else:
+                win.showFullScreen()
+
+        # Update reader's local button icon state
         if win.isFullScreen():
-            win.showNormal()
-            self.btn_fullscreen.setIcon(ThemeManager.get_icon("fullscreen", "white"))
+            self.btn_fullscreen.setIcon(ThemeManager.get_icon("minimize", "white"))
             self.btn_fullscreen.setToolTip("Exit fullscreen  [F11]")
         else:
-            win.showFullScreen()
-            self.btn_fullscreen.setIcon(ThemeManager.get_icon("minimize", "white"))
+            self.btn_fullscreen.setIcon(ThemeManager.get_icon("fullscreen", "white"))
             self.btn_fullscreen.setToolTip("Exit fullscreen  [F11]")
 
     # ------------------------------------------------------------------ #
@@ -1215,14 +1447,14 @@ class BaseReaderView(QWidget):
         
         scale_group = QActionGroup(self)
         
-        fast_action = QAction("Fast (Nearest Neighbor)", self)
+        fast_action = QAction("Fast", self)
         fast_action.setCheckable(True)
         fast_action.setChecked(self.config_manager.get_reader_scaling_mode() == "fast")
         fast_action.triggered.connect(lambda: self._set_scaling_quality("fast"))
         scale_group.addAction(fast_action)
         self.settings_menu.addAction(fast_action)
 
-        smooth_action = QAction("Smooth (Bilinear)", self)
+        smooth_action = QAction("Smooth", self)
         smooth_action.setCheckable(True)
         smooth_action.setChecked(self.config_manager.get_reader_scaling_mode() == "smooth")
         smooth_action.triggered.connect(lambda: self._set_scaling_quality("smooth"))
@@ -1345,12 +1577,11 @@ class BaseReaderView(QWidget):
         # Use first available page as a reference for min_scale
         if self._page_layout == PageLayout.CONTINUOUS:
             sample_item = next(iter(self._continuous_items.values()))
-            pm = sample_item.pixmap()
         else:
-            pm = self.pixmap_item.pixmap()
+            sample_item = self.pixmap_item
 
-        min_scale_w = vp.width() / max(1, pm.width())
-        min_scale_h = vp.height() / max(1, pm.height())
+        min_scale_w = vp.width() / max(1, sample_item.base_width)
+        min_scale_h = vp.height() / max(1, sample_item.base_height)
         min_scale = min(min_scale_w, min_scale_h)
         
         # Current scale
@@ -1358,6 +1589,8 @@ class BaseReaderView(QWidget):
         
         if current_scale < min_scale:
             self._set_fit_mode(FitMode.FIT_PAGE)
+        else:
+            self._update_mipmap_levels()
 
     def _cycle_zoom(self):
         if self.pixmap_item.pixmap().isNull():
@@ -1372,10 +1605,10 @@ class BaseReaderView(QWidget):
             self._set_fit_mode(FitMode.FIT_PAGE)
         else:
             # Calculate base Fit Page scale
-            pm = self.pixmap_item.pixmap()
+            pm_item = self.pixmap_item
             vp = self.view.viewport()
-            base_scale_w = vp.width() / max(1, pm.width())
-            base_scale_h = vp.height() / max(1, pm.height())
+            base_scale_w = vp.width() / max(1, pm_item.base_width)
+            base_scale_h = vp.height() / max(1, pm_item.base_height)
             base_scale = min(base_scale_w, base_scale_h)
 
             target_total_scale = base_scale * target_multiplier
@@ -1385,6 +1618,7 @@ class BaseReaderView(QWidget):
             self.view.scale(target_total_scale, target_total_scale)
             self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            self._update_mipmap_levels()
 
     def _cycle_fit(self):
         try:
@@ -1432,26 +1666,26 @@ class BaseReaderView(QWidget):
             if self._fit_mode == FitMode.FIT_PAGE:
                 # Use first item to calculate page-fit scale
                 sample_item = next(iter(self._continuous_items.values()))
-                pm = sample_item.pixmap()
                 self.view.resetTransform()
-                if pm.width() > 0 and pm.height() > 0:
-                    scale_w = vp.width() / pm.width()
-                    scale_h = vp.height() / pm.height()
+                if sample_item.base_width > 0 and sample_item.base_height > 0:
+                    scale_w = vp.width() / sample_item.base_width
+                    scale_h = vp.height() / sample_item.base_height
                     scale = min(scale_w, scale_h)
                     self.view.scale(scale, scale)
             elif self._fit_mode == FitMode.FIT_WIDTH:
-                max_w = max((it.pixmap().width() for it in self._continuous_items.values()), default=1)
+                max_w = max((it.base_width for it in self._continuous_items.values()), default=1)
                 self.view.resetTransform()
                 if max_w > 0:
                     scale = vp.width() / max_w
                     self.view.scale(scale, scale)
             elif self._fit_mode == FitMode.ORIGINAL:
                 self.view.resetTransform()
+            self._update_mipmap_levels()
             return
 
         if self.pixmap_item.pixmap().isNull():
             return
-        pm  = self.pixmap_item.pixmap()
+        pm_item  = self.pixmap_item
 
         if self._fit_mode == FitMode.FIT_PAGE:
             self.view.setHorizontalScrollBarPolicy(off)
@@ -1461,16 +1695,16 @@ class BaseReaderView(QWidget):
         elif self._fit_mode == FitMode.FIT_WIDTH:
             self.view.setHorizontalScrollBarPolicy(off)
             self.view.setVerticalScrollBarPolicy(on)
-            if pm.width() > 0:
+            if pm_item.base_width > 0:
                 self.view.resetTransform()
-                self.view.scale(vp.width() / pm.width(), vp.width() / pm.width())
+                self.view.scale(vp.width() / pm_item.base_width, vp.width() / pm_item.base_width)
 
         elif self._fit_mode == FitMode.FIT_HEIGHT:
             self.view.setHorizontalScrollBarPolicy(on)
             self.view.setVerticalScrollBarPolicy(off)
-            if pm.height() > 0:
+            if pm_item.base_height > 0:
                 self.view.resetTransform()
-                self.view.scale(vp.height() / pm.height(), vp.height() / pm.height())
+                self.view.scale(vp.height() / pm_item.base_height, vp.height() / pm_item.base_height)
 
         elif self._fit_mode == FitMode.ORIGINAL:
             self.view.setHorizontalScrollBarPolicy(on)
@@ -1480,6 +1714,19 @@ class BaseReaderView(QWidget):
         elif self._fit_mode == FitMode.CUSTOM:
             self.view.setHorizontalScrollBarPolicy(on)
             self.view.setVerticalScrollBarPolicy(on)
+
+        self._update_mipmap_levels()
+
+    def _update_mipmap_levels(self):
+        try:
+            view_scale = self.view.transform().m11()
+            if hasattr(self.pixmap_item, 'update_mipmap_level') and not self.pixmap_item.pixmap().isNull():
+                self.pixmap_item.update_mipmap_level(view_scale)
+            for it in self._continuous_items.values():
+                if hasattr(it, 'update_mipmap_level') and not it.pixmap().isNull():
+                    it.update_mipmap_level(view_scale)
+        except Exception as e:
+            logger.error(f"Error updating mipmaps: {e}")
 
     # ------------------------------------------------------------------ #
     # Page layout                                                          #
@@ -1684,11 +1931,10 @@ class BaseReaderView(QWidget):
             pm = await self._load_page_pixmap(i)
             if not pm or pm.isNull(): continue
             self.thumb_slider.store_thumb(i, pm)
-            
-            item = QGraphicsPixmapItem(pm)
+
+            item = MipmapPixmapItem(pm)
             self.scene.addItem(item)
-            self._continuous_items[i] = item
-            
+            self._continuous_items[i] = item            
         if not self._continuous_items:
             return
 
@@ -1731,7 +1977,7 @@ class BaseReaderView(QWidget):
         
         for idx, item in self._continuous_items.items():
             try:
-                if item.pos().y() <= scene_y < item.pos().y() + item.pixmap().height():
+                if item.pos().y() <= scene_y < item.pos().y() + item.base_height:
                     visible_idx = idx
                     break
             except RuntimeError:

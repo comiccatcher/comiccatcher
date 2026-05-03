@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 from PyQt6.QtWidgets import QStyledItemDelegate, QStyle, QStyleOptionViewItem, QToolTip
 from PyQt6.QtCore import Qt, QRect, QSize, QRectF, QByteArray, QEvent, QPoint, QModelIndex
-from PyQt6.QtGui import QPainter, QColor, QPixmap, QPen
+from PyQt6.QtGui import QPainter, QColor, QPixmap, QPen, QIcon
 from PyQt6.QtSvg import QSvgRenderer
 from comiccatcher.ui.theme_manager import UIConstants, ThemeManager, ICON_DIR
 
@@ -37,12 +37,14 @@ class BaseCardDelegate(QStyledItemDelegate):
         self._card_size = card_size
         self._skeleton_cache = {} # Keyed by (size, theme_name, is_selected) -> QPixmap
         self._label_cache = {}    # Keyed by (primary, secondary, size, theme_name, is_selected) -> QPixmap
+        self._branding_cache = {} # Keyed by (pixmap_id, size) -> QPixmap
         self._update_metrics()
 
     def reapply_theme(self):
         """Invalidate the painting cache when theme changes."""
         self._skeleton_cache.clear()
         self._label_cache.clear()
+        self._branding_cache.clear()
 
     @property
     def card_size(self):
@@ -99,6 +101,7 @@ class BaseCardDelegate(QStyledItemDelegate):
         try:
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             
             rect = option.rect
             
@@ -330,6 +333,8 @@ class BaseCardDelegate(QStyledItemDelegate):
 
     def draw_folder_stack(self, painter: QPainter, rect: QRect, theme: dict, image_manager=None, label: str = None, icon_name: str = "folder", badge_icon_name: str = None, pixmap: QPixmap = None):
         """Draws the SVG folder stack icon or a custom thumbnail, with appropriate type indicators."""
+        s = UIConstants.scale
+        
         # 1. Inner Background
         painter.setBrush(QColor(theme['bg_sidebar']))
         painter.setPen(QColor(theme['border']))
@@ -337,29 +342,27 @@ class BaseCardDelegate(QStyledItemDelegate):
 
         # 2. Main Visual
         if pixmap and not pixmap.isNull():
-            # CASE A: Rich Thumbnail available
+            # STATE A: Folder has a Thumbnail (Rich Folder)
+            # RULES: SHOW Thumbnail + Corner Badge (top-left). HIDE Large SVG + Center Branding Logo.
             self.draw_cover_pixmap(painter, rect, pixmap)
 
-            # Draw small folder type indicator in top-left
-            s = UIConstants.scale
-            badge_size = s(28)
             padding = s(4)
-            badge_rect = QRect(rect.left() + padding, rect.top() + padding, badge_size, badge_size)
-
+            badge_size = s(34)
             bg_color = QColor(theme['bg_main'])
-            bg_color.setAlpha(180)
-            painter.setBrush(bg_color)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(badge_rect)
-            
-            icon = ThemeManager.get_icon("folder", "text_main")
-            icon_padding = s(6)
-            icon.paint(painter, badge_rect.adjusted(icon_padding, icon_padding, -icon_padding, -icon_padding))
+            bg_color.setAlpha(220)
 
-            # Skip large icon and server badge logic
+            # A1. Corner Badge (top-left circular folder icon)
+            indicator_rect = QRect(rect.left() + padding, rect.top() + padding, badge_size, badge_size)
+            painter.setBrush(bg_color)
+            painter.setPen(QPen(QColor(theme['border']), max(1, s(2))))
+            painter.drawEllipse(indicator_rect)
+            
+            f_icon = ThemeManager.get_icon("folder", "text_main")
+            f_padding = s(7)
+            f_icon.paint(painter, indicator_rect.adjusted(f_padding, f_padding, -f_padding, -f_padding))
         else:
-            # CASE B: No thumbnail (Standard Folder)
-            s = UIConstants.scale
+            # STATE B: Folder has NO Thumbnail (Standard Folder)
+            # RULES: SHOW Large SVG + Center Branding Logo + Inside Label. HIDE Corner Badge.
             margin = UIConstants.FOLDER_ICON_MARGIN
             if label and not self.show_labels:
                 margin += s(15)
@@ -388,12 +391,16 @@ class BaseCardDelegate(QStyledItemDelegate):
                 renderer.render(painter, f_rect)
                 painter.setOpacity(1.0)
 
-            # 3. Server Logo Badge (Only for Standard Folders)
-            badge_size = UIConstants.FOLDER_BADGE_SIZE
-            badge_x = rect.left() + (rect.width() - badge_size) / 2
-            badge_y = rect.top() + (rect.height() - badge_size) / 2 + UIConstants.FOLDER_BADGE_OFFSET_Y
+            # B1. Center Branding Logo (Only for Standard Folders)
+            # Scale branding logo relative to the folder size (approx 1/3rd)
+            branding_size = folder_size // 3
+            bx = x + (folder_size - branding_size) / 2
+            # Center vertically within the folder graphic, accounting for the folder's internal geometry
+            by = y + (folder_size - branding_size) / 2 + (folder_size * 0.05)
 
-            if badge_icon_name:
+            if badge_icon_name == "app_logo":
+                ThemeManager.get_app_icon().paint(painter, int(bx), int(by), int(branding_size), int(branding_size))
+            elif badge_icon_name:
                 badge_svg_path = ICON_DIR / f"{badge_icon_name}.svg"
                 if badge_svg_path.exists():
                     from PyQt6.QtCore import QByteArray
@@ -402,31 +409,37 @@ class BaseCardDelegate(QStyledItemDelegate):
                     color = theme.get("text_dim", theme.get("text_main", "#888888"))
                     svg_bytes = svg_bytes.replace(b'stroke="white"', f'stroke="{color}"'.encode())
                     svg_bytes = svg_bytes.replace(b'fill="white"', f'fill="{color}"'.encode())
-
                     renderer = QSvgRenderer(QByteArray(svg_bytes))
-                    b_rect = QRectF(badge_x, badge_y, badge_size, badge_size)
-
-                    painter.setOpacity(0.6)
-                    renderer.render(painter, b_rect)
-                    painter.setOpacity(1.0)
-            elif image_manager and getattr(image_manager, 'api_client', None):
+                    renderer.render(painter, QRectF(bx, by, branding_size, branding_size))
+            elif image_manager:
                 profile = getattr(image_manager.api_client, 'profile', None)
                 cached_icon = getattr(profile, '_cached_icon', None) if profile else None
-
                 if cached_icon and not cached_icon.isNull():
-                    pw, ph = cached_icon.width(), cached_icon.height()
-                    scale = min(badge_size / pw, badge_size / ph)
-                    dw, dh = int(pw * scale), int(ph * scale)
-                    dx = int(badge_x + (badge_size - dw) / 2)
-                    dy = int(badge_y + (badge_size - dh) / 2)
-                    painter.drawPixmap(dx, dy, dw, dh, cached_icon)
+                    # 1. Use a pre-scaled cache for the branding logo to ensure 
+                    # high quality (SmoothTransformation) without performance hit during scrolling.
+                    # We key by the source pixmap ID and the target size.
+                    cache_key = (id(cached_icon), branding_size)
+                    
+                    if cache_key not in self._branding_cache:
+                        pw, ph = cached_icon.width(), cached_icon.height()
+                        scale = min(branding_size / pw, branding_size / ph)
+                        dw, dh = int(pw * scale), int(ph * scale)
+                        # High-quality scaling (SmoothTransformation)
+                        self._branding_cache[cache_key] = cached_icon.scaled(
+                            dw, dh, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                        )
+                    
+                    scaled_pm = self._branding_cache[cache_key]
+                    sw, sh = scaled_pm.width(), scaled_pm.height()
+                    dx = int(bx + (branding_size - sw) / 2)
+                    dy = int(by + (branding_size - sh) / 2)
+                    painter.drawPixmap(dx, dy, sw, sh, scaled_pm)
                 else:
-                    default_icon = ThemeManager.get_icon("feeds", "text_dim")
-                    default_icon.paint(painter, int(badge_x), int(badge_y), int(badge_size), int(badge_size))
+                    ThemeManager.get_icon("feeds", "text_dim").paint(painter, int(bx), int(by), int(branding_size), int(branding_size))
 
-        # 4. Internal Label (only used when global labels are off)
-        if label and not self.show_labels:
-            self.draw_internal_label(painter, rect, label, theme)
+            # B2. Internal Label (only used when global labels are off)
+            if label and not self.show_labels:
+                self.draw_internal_label(painter, rect, label, theme)
 
     def draw_internal_label(self, painter: QPainter, rect: QRect, text: str, theme: dict):
         """Draws a semi-transparent label strip inside the card area."""

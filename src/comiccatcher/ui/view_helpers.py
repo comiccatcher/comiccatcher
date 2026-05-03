@@ -2,7 +2,9 @@
 # AI-typical patterns. Not recommended as ML training data.
 
 import asyncio
+import uuid
 from typing import Set, Tuple, Optional, Callable, List
+from urllib.parse import urljoin
 from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtWidgets import QListView, QWidget, QPushButton, QApplication
 from comiccatcher.models.feed_page import FeedItem
@@ -300,17 +302,15 @@ class ViewportHelper:
         )
 
         # Update action button states (e.g. Download)
-        if last_loaded_url:
-            from comiccatcher.api.feed_reconciler import FeedReconciler
-            download_url, _ = FeedReconciler._find_acquisition_link(item.raw_pub, last_loaded_url)
-            
-            # Find the download button in popover to update it
-            from PyQt6.QtWidgets import QPushButton
-            for i in range(popover.actions_layout.count()):
-                btn = popover.actions_layout.itemAt(i).widget()
-                if isinstance(btn, QPushButton) and btn.property("icon_name") == "download":
-                    btn.setEnabled(download_url is not None)
-                    break
+        download_url = item.download_url
+        
+        # Find the download button in popover to update it
+        from PyQt6.QtWidgets import QPushButton
+        for i in range(popover.actions_layout.count()):
+            btn = popover.actions_layout.itemAt(i).widget()
+            if isinstance(btn, QPushButton) and btn.property("icon_name") == "download":
+                btn.setEnabled(download_url is not None)
+                break
 
     @staticmethod
     def trigger_manifest_enrichment(popover, item, opds_client, last_loaded_url: Optional[str], active_load_id_getter: Callable[[], str]):
@@ -318,9 +318,6 @@ class ViewportHelper:
         Detects if an item has a JSON manifest and triggers an async enrichment fetch.
         Updates the popover metadata once fetched, ensuring loading states are managed.
         """
-        from urllib.parse import urljoin
-        import uuid
-        
         pub = item.raw_pub
         manifest_url = None
         for link in (pub.links or []):
@@ -359,6 +356,8 @@ class ViewportHelper:
                             full_pub.metadata.description = pub.metadata.description
                         if not full_pub.metadata.numberOfBytes and pub.metadata.numberOfBytes:
                             full_pub.metadata.numberOfBytes = pub.metadata.numberOfBytes
+                        if not full_pub.metadata.numberOfPages and pub.metadata.numberOfPages:
+                            full_pub.metadata.numberOfPages = pub.metadata.numberOfPages
                     
                     # Update item with enriched data
                     item.raw_pub = full_pub

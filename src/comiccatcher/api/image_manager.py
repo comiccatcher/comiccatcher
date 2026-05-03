@@ -28,7 +28,7 @@ class ImageManager:
         # Increase cache to 50MB (default is often only 10MB)
         QPixmapCache.setCacheLimit(50 * 1024)
 
-    def get_image_sync(self, url: str):
+    def get_image_sync(self, url: str, max_dim: Optional[int] = None):
         """Synchronously retrieves an image from cache (memory or disk)."""
         if not url: return None
         
@@ -43,6 +43,11 @@ class ImageManager:
         path_str = str(cache_path)
         pixmap = QPixmapCache.find(path_str)
         if pixmap:
+            # If a specific dimension is requested, scale it
+            if max_dim and (pixmap.width() > max_dim or pixmap.height() > max_dim):
+                from PyQt6.QtCore import Qt
+                pixmap = pixmap.scaled(max_dim, max_dim, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            
             self._pixmap_memory_cache[url] = pixmap
             return pixmap
             
@@ -51,6 +56,10 @@ class ImageManager:
             try:
                 pixmap = QPixmap(path_str)
                 if not pixmap.isNull():
+                    if max_dim and (pixmap.width() > max_dim or pixmap.height() > max_dim):
+                        from PyQt6.QtCore import Qt
+                        pixmap = pixmap.scaled(max_dim, max_dim, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    
                     QPixmapCache.insert(path_str, pixmap)
                     self._pixmap_memory_cache[url] = pixmap
                     return pixmap
@@ -127,6 +136,18 @@ class ImageManager:
                 import base64
                 with open(cache_path, "rb") as f:
                     data = f.read()
+                    
+                    # If we have it on disk but need it scaled for memory...
+                    if max_dim:
+                        from PIL import Image
+                        import io
+                        try:
+                            with Image.open(io.BytesIO(data)) as img:
+                                if img.width > max_dim or img.height > max_dim:
+                                    import asyncio
+                                    data = await asyncio.to_thread(self._scale_image, data, max_dim)
+                        except: pass
+
                     b64 = base64.b64encode(data).decode("utf-8")
                     self._memory_cache[url] = b64
                     return b64
@@ -147,6 +168,11 @@ class ImageManager:
                 if resp.status_code == 200:
                     data = resp.content
                     
+                    # ALWAYS save original to disk
+                    with open(cache_path, "wb") as f:
+                        f.write(data)
+
+                    # Scale ONLY for the memory cache/return value
                     if max_dim:
                         from PIL import Image
                         import io
@@ -155,11 +181,7 @@ class ImageManager:
                                 if img.width > max_dim or img.height > max_dim:
                                     import asyncio
                                     data = await asyncio.to_thread(self._scale_image, data, max_dim)
-                        except Exception as e:
-                            logger.error(f"Error checking image dimensions for {url}: {e}")
-
-                    with open(cache_path, "wb") as f:
-                        f.write(data)
+                        except: pass
 
                     import base64
                     b64 = base64.b64encode(data).decode("utf-8")
@@ -186,19 +208,22 @@ class ImageManager:
     def _get_cache_path(self, url: str) -> Path:
         """Generates a unique file path for a URL. Result is cached to avoid hashing."""
         if url in self._path_cache:
-            return self._path_cache[url]
+            # Even if in path_cache, the directory might have been deleted (e.g. clear cache)
+            path = self._path_cache[url]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return path
 
         url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()
         # Ensure subdirectory based on hash to avoid flat folder limits
         prefix = url_hash[:2]
         sub_dir = CACHE_DIR / prefix
-        if prefix not in self._created_subdirs:
-            sub_dir.mkdir(parents=True, exist_ok=True)
-            self._created_subdirs.add(prefix)
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        self._created_subdirs.add(prefix)
 
         path = sub_dir / url_hash
         self._path_cache[url] = path
         return path
+
 
 
     def clear_memory_cache(self):

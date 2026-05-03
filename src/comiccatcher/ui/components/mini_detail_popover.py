@@ -4,21 +4,23 @@
 import re
 import calendar
 import asyncio
+import sys
 from typing import Callable, Optional, Dict, List, Any, Tuple
 from urllib.parse import urljoin
 from PyQt6.QtWidgets import (
     QFrame, QLabel, QVBoxLayout, QHBoxLayout, QScrollArea, QWidget,
     QPushButton, QGridLayout, QApplication
 )
-from PyQt6.QtCore import Qt, QPoint, QSize, QUrl, QRectF, QPointF
+from PyQt6.QtCore import Qt, QPoint, QSize, QUrl, QRectF, QPointF, QTimer
 from PyQt6.QtGui import (
     QPixmap, QColor, QFontMetrics, QIcon, QDesktopServices, 
     QPainter, QPainterPath, QPolygonF, QBrush, QPen
 )
 from comiccatcher.ui.theme_manager import THEMES, UIConstants, ThemeManager
-from comiccatcher.ui.utils import format_artist_credits, format_publication_date, parse_opds_date
+from comiccatcher.ui.utils import format_artist_credits, format_publication_date, parse_opds_date, format_file_size
 from comiccatcher.ui.components.popover_mixin import BubbleMixin
 from comiccatcher.ui.components.loading_spinner import LoadingSpinner
+from comiccatcher.ui.win_utils import apply_windows_popover_fix
 from comiccatcher.logger import get_logger
 
 logger = get_logger("ui.mini_detail_popover")
@@ -123,7 +125,7 @@ def format_opds_publication(pub: Any) -> Dict[str, Any]:
     # 4. Published Date
     month, year = parse_opds_date(getattr(meta, "published", None))
     published = format_publication_date(month, year)
-
+    
     # 5. Summary
     summary = getattr(meta, "description", None)
 
@@ -136,6 +138,25 @@ def format_opds_publication(pub: Any) -> Dict[str, Any]:
         if l_type == "text/html" and l_href:
             web_urls.append(l_href)
 
+    # 7. Pages and Byte Count
+    pages = getattr(meta, "numberOfPages", None)
+    if not pages and getattr(pub, "readingOrder", None):
+        pages = len(pub.readingOrder)
+    
+    bytes_count = getattr(meta, "numberOfBytes", None)
+    
+    # Fallback to link size for acquisition links if meta doesn't have it
+    if not bytes_count:
+        for link in links:
+            l_rel = getattr(link, "rel", None) or (link.get("rel") if isinstance(link, dict) else None)
+            if l_rel:
+                rel_str = l_rel if isinstance(l_rel, str) else str(l_rel)
+                if "acquisition" in rel_str:
+                    l_size = getattr(link, "size", None) or (link.get("size") if isinstance(link, dict) else None)
+                    if l_size:
+                        bytes_count = l_size
+                        break
+
     return {
         "credits": "\n".join(creds),
         "publisher": publisher,
@@ -144,7 +165,43 @@ def format_opds_publication(pub: Any) -> Dict[str, Any]:
         "series": series_text,
         "web": ", ".join(web_urls) if web_urls else None,
         "title": getattr(meta, "title", None),
-        "subtitle": getattr(meta, "subtitle", None)
+        "subtitle": getattr(meta, "subtitle", None),
+        "pages": pages,
+        "bytes": bytes_count
+    }
+
+def format_library_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Transforms a library database row (as dict) into a standardized 
+    data dictionary for MiniDetailPopover.
+    """
+    creds = []
+    # Roles in DB are lowercase
+    for role in ["writer", "penciller", "inker", "colorist", "letterer", "editor"]:
+        val = meta.get(role)
+        if val: creds.append(f"{role.capitalize()}: {val}")
+    
+    published = format_publication_date(meta.get("month"), meta.get("year"))
+    
+    series_text = get_selective_series_text(
+        meta.get("title"), 
+        meta.get("series"), 
+        meta.get("issue")
+    )
+    
+    return {
+        "credits": "\n".join(creds),
+        "publisher": meta.get("publisher"),
+        "published": published,
+        "summary": meta.get("summary"),
+        "web": meta.get("web"),
+        "manga": meta.get("manga"),
+        "notes": meta.get("notes"),
+        "imprint": meta.get("imprint"),
+        "genre": meta.get("genre"),
+        "pages": meta.get("page_count"),
+        "title": meta.get("title"),
+        "series": series_text
     }
 
 class MiniDetailPopover(QFrame, BubbleMixin):
@@ -155,7 +212,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
     """
     def __init__(self, parent=None, theme_name: Optional[str] = None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
         s = UIConstants.scale
@@ -239,6 +296,12 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         self.spinner = LoadingSpinner(self.container, size=s(24))
         
         self.reapply_theme()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if sys.platform == "win32":
+            apply_windows_popover_fix(self.winId())
+            QTimer.singleShot(5, lambda: apply_windows_popover_fix(self.winId()))
 
     def keyPressEvent(self, event):
         """Swallow keys and close the popover."""
@@ -434,6 +497,21 @@ class MiniDetailPopover(QFrame, BubbleMixin):
                 p_label = QLabel(" • ".join(pub_parts))
                 p_label.setStyleSheet(f"font-size: {s(12)}px; color: {self.theme['text_dim']}; margin-top: {s(1)}px;")
                 text_stack.addWidget(p_label)
+
+            # Pages and Size line
+            page_size_parts = []
+            pages = data.get("pages")
+            if pages:
+                page_size_parts.append(f"{pages} pages")
+            
+            bytes_count = data.get("bytes")
+            if bytes_count:
+                page_size_parts.append(format_file_size(bytes_count))
+                
+            if page_size_parts:
+                ps_label = QLabel(" • ".join(page_size_parts))
+                ps_label.setStyleSheet(f"font-size: {s(12)}px; color: {self.theme['text_dim']}; margin-top: {s(1)}px;")
+                text_stack.addWidget(ps_label)
                 
             header_layout.addLayout(text_stack, 1)
             

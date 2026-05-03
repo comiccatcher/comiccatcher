@@ -10,12 +10,25 @@ from PyQt6.QtWidgets import (
     QScrollArea, QFrame, QProgressBar, QSizePolicy, QGraphicsOpacityEffect,
     QSpacerItem
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QPixmap, QFont
 
 from comiccatcher.logger import get_logger
 from comiccatcher.api.image_manager import ImageManager
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
+
+class ClickableLabel(QLabel):
+    """A QLabel that emits a signal when clicked and shows a pointing hand cursor."""
+    clicked = pyqtSignal()
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 class BaseDetailView(QWidget):
     def __init__(self, on_back, image_manager: ImageManager):
@@ -114,6 +127,11 @@ class BaseDetailView(QWidget):
         """Standardized helper to add a widget to the main content layout (before the spacer)."""
         self.content_layout.insertWidget(self.content_layout.count() - 1, widget)
 
+    def _on_cover_clicked(self):
+        """Called when the cover image is clicked. Subclasses should override if they have a 'Read' action."""
+        if hasattr(self, 'btn_read') and self.btn_read and self.btn_read.isEnabled():
+            self.btn_read.click()
+
     def update_header_margins(self):
         """Standardized helper to update child header margins."""
         # Since content is now centered and limited in width, it typically 
@@ -140,7 +158,16 @@ class BaseDetailView(QWidget):
         self.scroll.setStyleSheet("background: transparent;")
         
         if hasattr(self, 'cover_label'):
-            self.cover_label.setStyleSheet(f"background-color: {theme['card_bg']}; border: {max(1, s(1))}px solid {theme['card_border']}; border-radius: {s(4)}px;")
+            self.cover_label.setStyleSheet(f"""
+                #cover_label {{
+                    background-color: {theme['card_bg']}; 
+                    border: {max(1, s(1))}px solid {theme['card_border']}; 
+                    border-radius: {s(4)}px;
+                }}
+                #cover_label:hover {{
+                    border-color: {theme['accent']};
+                }}
+            """)
             
         # Re-apply for all dynamically added labels and buttons
         for label, subtitle in self._labels:
@@ -233,13 +260,15 @@ class BaseDetailView(QWidget):
         self.cover_layout.setSpacing(s(5))
         
         # Cover
-        self.cover_label = QLabel()
-        # Calculate cover width as 1/3 of max width (approx 250px at 1.0x scale)
+        self.cover_label = ClickableLabel()
+        self.cover_label.setObjectName("cover_label")
+        # Calculate cover width as 1/3 of max width (approx 300px at 1.0x scale)
         cover_w = UIConstants.DETAIL_MAX_WIDTH // 3
         cover_h = int(cover_w * 1.5) # Maintain 2:3 aspect ratio for the placeholder
         self.cover_label.setFixedSize(cover_w, cover_h)
         self.cover_label.setScaledContents(False)
         self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cover_label.clicked.connect(self._on_cover_clicked)
         self.cover_layout.addWidget(self.cover_label)
         
         # Blue line progress bar

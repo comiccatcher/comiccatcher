@@ -37,7 +37,12 @@ def _ensure_desktop_entry():
         return
     try:
         app_dir = Path(__file__).parent.resolve()
-        icon_path = app_dir / "resources" / "app.png"
+        # Use 128px icon for desktop file - it scales much better in docks than 1024px
+        icon_path = app_dir / "resources" / "app_128.png"
+        if not icon_path.exists():
+            # Fallback to master if 128 is missing
+            icon_path = app_dir / "resources" / "app.png"
+            
         if not icon_path.exists():
             return
 
@@ -47,16 +52,13 @@ def _ensure_desktop_entry():
 
         # When installed as a package, we should ideally use the entry point command
         # but sys.executable main.py works for development mode too.
-        # Let's check if we are in a package or dev mode.
         if "site-packages" in str(app_dir):
             exec_line = "Exec=comiccatcher"
         else:
             exec_line = f"Exec={sys.executable} {app_dir / 'main.py'}"
 
-        if desktop_file.exists() and exec_line in desktop_file.read_text():
-            return  # already up to date
-
-        desktop_file.write_text("\n".join([
+        # Update if file is missing, or icon/exec path changed
+        content = "\n".join([
             "[Desktop Entry]",
             "Version=1.0",
             "Type=Application",
@@ -69,7 +71,12 @@ def _ensure_desktop_entry():
             "StartupWMClass=comiccatcher",
             "StartupNotify=true",
             "",
-        ]))
+        ])
+
+        if desktop_file.exists() and desktop_file.read_text() == content:
+            return
+
+        desktop_file.write_text(content)
 
         import subprocess
         subprocess.run(

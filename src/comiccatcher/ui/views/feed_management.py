@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlparse
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QLineEdit, QPushButton, QFormLayout, QGroupBox, QMessageBox,
-    QDialog, QApplication, QStyle, QFrame, QComboBox, QTextEdit
+    QDialog, QApplication, QStyle, QFrame, QComboBox, QTextEdit, QCheckBox
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
@@ -134,6 +134,10 @@ class FeedEditDialog(QDialog):
         self.auth_type_combo.addItem("Bearer Token", "bearer")
         self.auth_type_combo.addItem("API Key", "apikey")
         
+        self.verify_ssl_checkbox = QCheckBox("Verify SSL Certificates")
+        self.verify_ssl_checkbox.setToolTip("Uncheck if the server uses a self-signed or invalid certificate.")
+        self.verify_ssl_checkbox.setChecked(True)
+
         if feed:
             self.name_input.setText(feed.name)
             self.url_input.setText(feed.url)
@@ -141,6 +145,7 @@ class FeedEditDialog(QDialog):
             self.pass_input.setText(feed.password or "")
             self.token_input.setText(feed.bearer_token or "")
             self.apikey_input.setText(feed.api_key or "")
+            self.verify_ssl_checkbox.setChecked(feed.verify_ssl)
             
             # Format custom headers
             if feed.custom_headers:
@@ -165,6 +170,7 @@ class FeedEditDialog(QDialog):
         self.form_layout.addRow("Name:", self.name_input)
         self.form_layout.addRow("URL:", self.url_input)
         self.form_layout.addRow("Auth Type:", self.auth_type_combo)
+        self.form_layout.addRow("", self.verify_ssl_checkbox)
         
         # Add all dynamic rows once (they will be hidden/shown by _update_auth_field_visibility)
         self.form_layout.addRow(self.user_label, self.user_input)
@@ -242,6 +248,7 @@ class FeedEditDialog(QDialog):
         password = self.pass_input.text() or None
         token = self.token_input.text() or None
         api_key = self.apikey_input.text() or None
+        verify_ssl = self.verify_ssl_checkbox.isChecked()
         
         # Parse custom headers
         custom_headers = {}
@@ -254,17 +261,17 @@ class FeedEditDialog(QDialog):
 
         self.btn_test.setEnabled(False)
         self.btn_test.setText("Testing...")
-        asyncio.create_task(self._run_connection_test(url, auth_type, username, password, token, api_key, custom_headers))
+        asyncio.create_task(self._run_connection_test(url, auth_type, username, password, token, api_key, custom_headers, verify_ssl))
 
-    async def _run_connection_test(self, url, auth_type, username, password, token, api_key, custom_headers):
+    async def _run_connection_test(self, url, auth_type, username, password, token, api_key, custom_headers, verify_ssl):
         try:
-            temp_feed = FeedProfile(id="temp", name="temp", url=url, auth_type=auth_type, username=username, password=password, bearer_token=token, api_key=api_key, custom_headers=custom_headers)
+            temp_feed = FeedProfile(id="temp", name="temp", url=url, auth_type=auth_type, username=username, password=password, bearer_token=token, api_key=api_key, custom_headers=custom_headers, verify_ssl=verify_ssl)
             async with APIClient(temp_feed) as client:
                 response = await client.get(url)
                 
                 pixmap = None
                 if response.status_code < 400:
-                    icon_url, source = await self._discover_icon(url, auth_type, username, password, token, api_key, custom_headers)
+                    icon_url, source = await self._discover_icon(url, auth_type, username, password, token, api_key, custom_headers, verify_ssl)
                     if icon_url:
                         await self.shared_image_manager.get_image_b64(icon_url, api_client=client)
                         full_path = self.shared_image_manager._get_cache_path(icon_url)
@@ -288,7 +295,7 @@ class FeedEditDialog(QDialog):
             self.btn_test.setEnabled(True)
             self.btn_test.setText("Test Connection")
 
-    async def _discover_icon(self, url: str, auth_type: str = "none", username: str = None, password: str = None, token: str = None, api_key: str = None, custom_headers: Optional[Dict[str, str]] = None) -> tuple[Optional[str], str]:
+    async def _discover_icon(self, url: str, auth_type: str = "none", username: str = None, password: str = None, token: str = None, api_key: str = None, custom_headers: Optional[Dict[str, str]] = None, verify_ssl: bool = True) -> tuple[Optional[str], str]:
         """Discover feed icon via OPDS Auth Doc, root feed, or site HTML. Returns (url, source_name)."""
         logger.debug(f"Starting icon discovery for {url}")
         icon_url = None
@@ -305,18 +312,21 @@ class FeedEditDialog(QDialog):
                 if resp.status_code == 200:
                     ct = resp.headers.get("content-type", "").lower()
                     # Some servers return octet-stream for images, so check extension too
-                    return "image" in ct or "octet-stream" in ct or test_url.lower().endswith((".ico", ".png", ".jpg", ".jpeg"))
+                    return "image" in ct or "octet-stream" in ct or test_url.lower().endswith((".ico", ".png", ".jpg", ".jpeg", ".webp"))
             except:
                 pass
             return False
 
         try:
-            temp_feed = FeedProfile(id="temp", name="temp", url=url, auth_type=auth_type, username=username, password=password, bearer_token=token, api_key=api_key, custom_headers=custom_headers or {})
+            temp_feed = FeedProfile(id="temp", name="temp", url=url, auth_type=auth_type, username=username, password=password, bearer_token=token, api_key=api_key, custom_headers=custom_headers or {}, verify_ssl=verify_ssl)
             async with APIClient(temp_feed) as client:
                 response = await client.get(url)
                 
+                # We collect ALL candidates and score them together
+                # Format: {"url": str, "score": int, "src": str, "is_manifest": bool}
+                candidates = []
+                
                 auth_doc_url = None
-                feed_logo_url = None
                 
                 if response.status_code == 200:
                     content_type = response.headers.get("content-type", "").lower()
@@ -335,33 +345,28 @@ class FeedEditDialog(QDialog):
 
                             for child in root:
                                 tag = _strip_ns(child.tag)
-                                if not feed_logo_url and tag in ["icon", "logo"]:
-                                    feed_logo_url = _resolve(url, child.text)
+                                if tag in ["icon", "logo"]:
+                                    h_val = _resolve(url, child.text)
+                                    score = 15
+                                    if "favicon" in h_val.lower(): score = 5
+                                    candidates.append({"url": h_val, "score": score, "src": f"OPDS {tag}"})
                                 if tag == "link":
                                     rel = child.get("rel", "")
                                     href = child.get("href")
                                     if href:
                                         if "authenticate" in rel or "http://opds-spec.org/auth/document" in rel:
                                             auth_doc_url = _resolve(url, href)
-                                        if not feed_logo_url and ("logo" in rel or "icon" in rel):
-                                            feed_logo_url = _resolve(url, href)
-                                        if rel == "search" and "opensearchdescription+xml" in child.get("type", ""):
-                                            # Quick OSDD check
-                                            try:
-                                                osdd_resp = await client.get(_resolve(url, href))
-                                                if osdd_resp.status_code == 200:
-                                                    osdd_root = ET.fromstring(osdd_resp.text)
-                                                    for os_child in osdd_root:
-                                                        if _strip_ns(os_child.tag) == "Image":
-                                                            feed_logo_url = _resolve(url, os_child.text)
-                                                            break
-                                            except: pass
+                                        if "logo" in rel or "icon" in rel:
+                                            h_val = _resolve(url, href)
+                                            score = 15
+                                            if "favicon" in h_val.lower(): score = 5
+                                            candidates.append({"url": h_val, "score": score, "src": f"OPDS {rel}"})
                         except: pass
                     else:
                         try:
                             data = response.json()
                             to_scan = [data]
-                            while to_scan and not auth_doc_url:
+                            while to_scan:
                                 item = to_scan.pop(0)
                                 if not isinstance(item, dict): continue
                                 
@@ -372,17 +377,12 @@ class FeedEditDialog(QDialog):
                                 if href:
                                     if "authenticate" in rels or "http://opds-spec.org/auth/document" in rels:
                                         auth_doc_url = urljoin(url, href)
-                                        break
                                     
-                                    props = item.get("properties", {})
-                                    if isinstance(props, dict) and "authenticate" in props:
-                                        p_auth = props["authenticate"]
-                                        if isinstance(p_auth, dict) and p_auth.get("href"):
-                                            auth_doc_url = urljoin(url, p_auth["href"])
-                                            break
-                                            
-                                    if not feed_logo_url and ("logo" in rels or "icon" in rels):
-                                        feed_logo_url = urljoin(url, href)
+                                    if "logo" in rels or "icon" in rels:
+                                        h_val = urljoin(url, href)
+                                        score = 15
+                                        if "favicon" in h_val.lower(): score = 5
+                                        candidates.append({"url": h_val, "score": score, "src": f"OPDS {rels}"})
 
                                 for key in ["links", "navigation", "publications", "groups"]:
                                     val = item.get(key)
@@ -399,80 +399,150 @@ class FeedEditDialog(QDialog):
                         if match:
                             auth_doc_url = urljoin(url, match.group(1))
 
-                # Priority 1: Auth Document
+                # Phase 1: Auth Document Candidates
                 if auth_doc_url:
-                    auth_resp = await client.get(auth_doc_url)
-                    if auth_resp.status_code == 200:
-                        auth_data = auth_resp.json()
-                        auth_links = auth_data.get("links", [])
-                        candidate = None
-                        for al in auth_links:
-                            if al.get("rel") in ["logo", "icon"]:
-                                candidate = urljoin(auth_doc_url, al.get("href"))
-                                break
-                        if not candidate:
-                            candidate = auth_data.get("logo") or auth_data.get("icon")
-                            if candidate and not candidate.startswith("http"):
-                                candidate = urljoin(auth_doc_url, candidate)
-                        
-                        if await is_valid_icon(candidate, client):
-                            icon_url = candidate
-                            source = "OPDS Authentication Document"
+                    try:
+                        auth_resp = await client.get(auth_doc_url)
+                        if auth_resp.status_code == 200:
+                            auth_data = auth_resp.json()
+                            auth_links = auth_data.get("links", [])
+                            for al in auth_links:
+                                if al.get("rel") in ["logo", "icon"]:
+                                    h_val = urljoin(auth_doc_url, al.get("href"))
+                                    candidates.append({"url": h_val, "score": 25, "src": "Auth Doc Logo"})
+                            
+                            c2 = auth_data.get("logo") or auth_data.get("icon")
+                            if c2:
+                                h_val = urljoin(auth_doc_url, c2) if not c2.startswith("http") else c2
+                                candidates.append({"url": h_val, "score": 20, "src": "Auth Doc Property"})
+                    except: pass
                 
-                # Priority 2: Feed Logo
-                if not icon_url and feed_logo_url:
-                    if await is_valid_icon(feed_logo_url, client):
-                        icon_url = feed_logo_url
-                        source = "OPDS Feed Logo"
+                # Phase 2: Site HTML Probing
+                parsed = urlparse(url)
+                path_parts = [p for p in parsed.path.split('/') if p]
+                search_roots = []
+                
+                # 1. Domain Root (Highest priority for finding web app HTML)
+                search_roots.append(f"{parsed.scheme}://{parsed.netloc}/")
+                
+                # 2. Walk up the path (Subpath awareness for /komga/, /codex/, etc)
+                current_path = ""
+                for i in range(min(len(path_parts), 3)):
+                    current_path += f"/{path_parts[i]}"
+                    search_roots.append(f"{parsed.scheme}://{parsed.netloc}{current_path}/")
+                
+                # Remove duplicates and reverse so we check deeper paths first, 
+                # but keep domain root as a fallback if nothing else is found.
+                search_roots = list(dict.fromkeys(search_roots))
+                search_roots.reverse()
 
-                # Priority 3: Site HTML Probing (Subpath-aware)
-                if not icon_url:
-                    parsed = urlparse(url)
-                    # Try probing up the path to find the application root (e.g. /komga/ instead of just /)
-                    path_parts = [p for p in parsed.path.split('/') if p]
-                    search_roots = []
-                    
-                    # 1. Domain Root
-                    search_roots.append(f"{parsed.scheme}://{parsed.netloc}/")
-                    
-                    # 2. Walk up the path (max 3 levels)
-                    current_path = ""
-                    for i in range(min(len(path_parts), 3)):
-                        current_path += f"/{path_parts[i]}"
-                        search_roots.append(f"{parsed.scheme}://{parsed.netloc}{current_path}/")
-                    
-                    # Remove duplicates and reverse so we check deeper (more specific) paths first
-                    search_roots = list(dict.fromkeys(search_roots))
-                    search_roots.reverse()
+                for root_url in search_roots:
+                    try:
+                        site_resp = await client.get(root_url, timeout=5.0)
+                        ct = site_resp.headers.get("content-type", "").lower()
+                        if site_resp.status_code == 200 and ("text/html" in ct or "text/plain" in ct):
+                            import re
+                            html = site_resp.text
+                            # If it's plain text, it's not a web page we can parse
+                            if "text/plain" in ct and "<link" not in html: continue
 
-                    for root_url in search_roots:
+                            # 1. Parse <link> tags
+                            for m in re.finditer(r'<link([^>]+)>', html, re.IGNORECASE):
+                                attrs = m.group(1)
+                                rel = re.search(r'rel=["\'](.*?)["\']', attrs, re.IGNORECASE)
+                                href = re.search(r'href=["\'](.*?)["\']', attrs, re.IGNORECASE)
+                                sizes = re.search(r'sizes=["\'](.*?)["\']', attrs, re.IGNORECASE)
+                                
+                                if not rel or not href: continue
+                                r_val = rel.group(1).lower()
+                                h_val = urljoin(root_url, href.group(1))
+                                s_val = sizes.group(1).lower() if sizes else ""
+
+                                score = 0
+                                is_manifest = False
+                                if "manifest" in r_val:
+                                    score = 120 # Manifest beats Apple Touch Icon
+                                    is_manifest = True
+                                elif "apple-touch-icon" in r_val:
+                                    score = 90
+                                elif "icon" in r_val:
+                                    score = 10
+                                    
+                                if "512" in s_val: score += 40
+                                elif "256" in s_val: score += 30
+                                elif "192" in s_val: score += 25
+                                elif "180" in s_val or "152" in s_val: score += 20
+                                elif "32" in s_val: score -= 5
+                                elif "16" in s_val: score -= 8
+
+                                if any(x in h_val.lower() for x in ["chrome", "large", "logo", "branding"]):
+                                    score += 15
+                                if "favicon" in h_val.lower():
+                                    score -= 10
+
+                                if score > 0:
+                                    candidates.append({"url": h_val, "score": score, "src": f"Site {r_val}", "is_manifest": is_manifest})
+
+                            # 2. Parse <meta> tags (OpenGraph / Twitter)
+                            for m in re.finditer(r'<meta([^>]+)>', html, re.IGNORECASE):
+                                attrs = m.group(1)
+                                prop = re.search(r'(?:property|name)=["\'](.*?)["\']', attrs, re.IGNORECASE)
+                                content = re.search(r'content=["\'](.*?)["\']', attrs, re.IGNORECASE)
+                                
+                                if not prop or not content: continue
+                                p_val = prop.group(1).lower()
+                                c_val = urljoin(root_url, content.group(1))
+                                
+                                if p_val in ["og:image", "twitter:image"]:
+                                    # OG images are usually high res, but might not be square
+                                    # Still better than a tiny favicon
+                                    score = 50
+                                    if "logo" in c_val.lower(): score += 10
+                                    candidates.append({"url": c_val, "score": score, "src": f"Meta {p_val}"})
+
+                    except: pass
+
+                # Phase 3: Proactive Probing (Common paths not explicitly linked)
+                base = f"{parsed.scheme}://{parsed.netloc}"
+                for path in ["/apple-touch-icon.png", "/android-chrome-512x512.png", "/favicon.ico"]:
+                    probe_url = urljoin(base, path)
+                    # Don't add if already found via links
+                    if not any(c["url"] == probe_url for c in candidates):
+                        score = 2
+                        if "apple" in path: score = 85 # Apple touch icon probe is high value
+                        if "chrome" in path: score = 80
+                        candidates.append({"url": probe_url, "score": score, "src": "Domain Probe"})
+
+                # 2. Sort candidates by score
+                candidates.sort(key=lambda x: x["score"], reverse=True)
+
+                # 3. Process top candidates until one works
+                for cand in candidates:
+                    if cand.get("is_manifest"):
                         try:
-                            site_resp = await client.get(root_url, timeout=5.0)
-                            if site_resp.status_code == 200 and "text/html" in site_resp.headers.get("content-type", ""):
-                                import re
-                                # Look for shortcut icon or icon in HTML
-                                match = re.search(r'<link[^>]*rel=["\'](?:shortcut )?icon["\'][^>]*href=["\'](.*?)["\']', site_resp.text, re.IGNORECASE)
-                                if match:
-                                    candidate = urljoin(root_url, match.group(1))
-                                    if await is_valid_icon(candidate, client):
-                                        icon_url = candidate
-                                        source = f"Site HTML Icon ({root_url})"
+                            m_resp = await client.get(cand["url"], timeout=3.0)
+                            if m_resp.status_code == 200:
+                                m_data = m_resp.json()
+                                m_icons = m_data.get("icons", [])
+                                m_icons.sort(key=lambda x: x.get("sizes", "0x0"), reverse=True)
+                                for mi in m_icons:
+                                    m_href = urljoin(cand["url"], mi["src"])
+                                    if await is_valid_icon(m_href, client):
+                                        icon_url = m_href
+                                        source = f"Manifest Icon ({mi.get('sizes', '?')}) via {cand['url']}"
                                         break
-                        except:
-                            pass
-
-                # Priority 4: Default Favicon Fallback (Domain Root)
-                if not icon_url:
-                    parsed = urlparse(url)
-                    base = f"{parsed.scheme}://{parsed.netloc}"
-                    test_url = urljoin(base, "/favicon.ico")
-                    if await is_valid_icon(test_url, client):
-                        icon_url = test_url
-                        source = "Favicon (Fallback)"
+                        except: pass
+                    else:
+                        if await is_valid_icon(cand["url"], client):
+                            icon_url = cand["url"]
+                            source = cand["src"]
+                            break
+                    
+                    if icon_url: break
         except Exception as e:
             logger.debug(f"Icon discovery failed for {url}: {e}")
             
-        logger.debug(f"Final icon URL for {url}: {icon_url}")
+        logger.debug(f"Final icon URL for {url}: {icon_url} (Source: {source})")
         return icon_url, source
 
     def save_and_close(self):
@@ -487,6 +557,7 @@ class FeedEditDialog(QDialog):
         password = self.pass_input.text() or None
         token = self.token_input.text() or None
         api_key = self.apikey_input.text() or None
+        verify_ssl = self.verify_ssl_checkbox.isChecked()
 
         # Parse custom headers
         custom_headers = {}
@@ -506,16 +577,19 @@ class FeedEditDialog(QDialog):
             self.feed.bearer_token = token
             self.feed.api_key = api_key
             self.feed.custom_headers = custom_headers
+            self.feed.verify_ssl = verify_ssl
             self.config_manager.update_feed(self.feed)
             asyncio.create_task(self._discover_and_save_icon(self.feed))
         else:
             new_feed = self.config_manager.add_feed(name, url, auth_type, username, password, token, api_key, custom_headers=custom_headers)
+            new_feed.verify_ssl = verify_ssl
+            self.config_manager.update_feed(new_feed)
             asyncio.create_task(self._discover_and_save_icon(new_feed))
         
         self.accept()
 
     async def _discover_and_save_icon(self, feed: FeedProfile):
-        icon_url, _ = await self._discover_icon(feed.url, feed.auth_type, feed.username, feed.password, feed.bearer_token, feed.api_key, feed.custom_headers)
+        icon_url, _ = await self._discover_icon(feed.url, feed.auth_type, feed.username, feed.password, feed.bearer_token, feed.api_key, feed.custom_headers, feed.verify_ssl)
         if icon_url:
             feed.icon_url = icon_url
             self.config_manager.update_feed(feed)

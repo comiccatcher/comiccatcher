@@ -5,10 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "comiccatcher"
 dynamic = ["version"]
-authors = [
-  { name = "Tony Beville" },
-]
-description = "A desktop OPDS 2.0 browser and comic downloader/streamer/reader"
+description = "A desktop OPDS 2.0/1.2 browser and comic downloader/streamer/reader"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -23,7 +20,7 @@ dependencies = [
     "qasync>=0.27.1",
     "httpx>=0.27.0",
     "pydantic>=2.6.4",
-    "comicbox>=2.2.1",
+    "comicbox>=3.0.0",
     "Pillow>=10.2.0",
     "rarfile>=4.2",
     "py7zr>=1.1.0",
@@ -35,6 +32,9 @@ comiccatcher = "comiccatcher.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools]
+py-modules = ["pdffile"]
 
 [tool.setuptools.package-data]
 comiccatcher = ["resources/*", "resources/icons/*"]

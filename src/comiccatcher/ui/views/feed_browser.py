@@ -1048,9 +1048,7 @@ class FeedBrowser(BaseBrowserView):
         btn_down = self.detail_popover.add_action("download", "Download", lambda: self._on_mini_detail_download(item))
 
         # Initial state based on current metadata
-        from comiccatcher.api.feed_reconciler import FeedReconciler
-        download_url, _ = FeedReconciler._find_acquisition_link(item.raw_pub, self._last_loaded_url)
-        btn_down.setEnabled(download_url is not None)
+        btn_down.setEnabled(item.download_url is not None)
 
         # 3. Position and show
         ViewportHelper.position_popover(self.detail_popover, view, index)
@@ -1066,9 +1064,8 @@ class FeedBrowser(BaseBrowserView):
     def _on_mini_detail_download(self, item):
 
         """Starts a download for a single item from the popover."""
-        from comiccatcher.api.feed_reconciler import FeedReconciler
         pub = item.raw_pub
-        url, filename = FeedReconciler._find_acquisition_link(pub, self._last_loaded_url)
+        url = item.download_url
         if url:
             self.download_requested.emit(pub, url)
         else:

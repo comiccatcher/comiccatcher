@@ -342,7 +342,7 @@ class FeedReconciler:
         if pub.images:
             cover_url = urllib.parse.urljoin(base_url, pub.images[0].href)
 
-        download_url, download_format = FeedReconciler._find_acquisition_link(pub, base_url)
+        download_url, download_format, download_size = FeedReconciler._find_acquisition_link(pub, base_url)
 
         # Metadata extraction for Subtitle (Volume/Issue), Series, Imprint and Year
 
@@ -352,6 +352,9 @@ class FeedReconciler:
         year = None
         m = pub.metadata
         
+        # Priority: Size from the selected link, then Metadata numberOfBytes as fallback
+        size_bytes = download_size or (m.numberOfBytes if m else None)
+
         if m:
             # 1. Imprint Extraction (m.imprint is now List[Contributor])
             if m.imprint and len(m.imprint) > 0:
@@ -420,15 +423,16 @@ class FeedReconciler:
             cover_url=cover_url,
             download_url=download_url,
             download_format=download_format,
+            size_bytes=size_bytes,
             raw_pub=pub,
             identifier=pub.identifier
         )
 
     @staticmethod
-    def _find_acquisition_link(pub: Publication, base_url: str = "") -> Tuple[Optional[str], Optional[str]]:
+    def _find_acquisition_link(pub: Publication, base_url: str = "") -> Tuple[Optional[str], Optional[str], Optional[int]]:
         """
         Helper to find the best acquisition link based solely on MIME type.
-        Returns (url, mime_type).
+        Returns (url, mime_type, size_bytes).
         """
         # MIME Type to Priority Mapping
         # Higher score = Better format
@@ -484,7 +488,10 @@ class FeedReconciler:
             # Button only activates if we have a direct acquisition relationship 
             # AND a format we actually support for reading.
             if is_direct_acq and priority > 0:
-                candidates.append((priority, urllib.parse.urljoin(base_url, l.href), l_type))
+                # Support Codex-style 'size'
+                l_size = l.size
+                
+                candidates.append((priority, urllib.parse.urljoin(base_url, l.href), l_type, l_size))
 
         # 2. Check 'actions' (OPDS 2.0 indirect acquisition)
         if hasattr(pub, "actions") and pub.actions:
@@ -508,14 +515,17 @@ class FeedReconciler:
                                     priority = max(priority, child_priority)
                             
                             if priority > 0:
-                                candidates.append((priority, urllib.parse.urljoin(base_url, action.href), ia_type))
+                                # For indirect acquisition, check action root
+                                l_size = getattr(action, "size", None)
+                                    
+                                candidates.append((priority, urllib.parse.urljoin(base_url, action.href), ia_type, l_size))
         
         if not candidates:
-            return None, None
+            return None, None, None
             
         # Return the one with highest priority
         candidates.sort(key=lambda x: x[0], reverse=True)
-        return candidates[0][1], candidates[0][2]
+        return candidates[0][1], candidates[0][2], candidates[0][3]
 
     @staticmethod
     def get_acquisition_note(pub: Publication) -> Optional[str]:

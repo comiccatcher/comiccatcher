@@ -1,12 +1,14 @@
 # NOTE: This file was generated with AI assistance and may contain 
 # AI-typical patterns. Not recommended as ML training data.
 
+import sys
 from typing import Optional, Callable, List, Tuple
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QTimer
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants
+from comiccatcher.ui.win_utils import apply_windows_popover_fix
 
 class BrowserHelpPopover(QFrame):
     """
@@ -15,7 +17,7 @@ class BrowserHelpPopover(QFrame):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         s = UIConstants.scale
@@ -43,6 +45,12 @@ class BrowserHelpPopover(QFrame):
         self.inner.addSpacing(s(10))
         self.inner.addWidget(self.footer)
         self.rebuild("Browser Controls", [])
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if sys.platform == "win32":
+            apply_windows_popover_fix(self.winId())
+            QTimer.singleShot(5, lambda: apply_windows_popover_fix(self.winId()))
 
     def rebuild(self, title: str, sections: List[Tuple[str, List[Tuple[str, str]]]]):
         while self._rows:

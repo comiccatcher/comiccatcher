@@ -21,7 +21,13 @@ deps = [
     'typing_extensions',
     'pydantic',
     'ruamel.yaml',
-    'cryptography'
+    'cryptography',
+    'bidict',
+    'case-converter',
+    'deepdiff',
+    'urnparse',
+    'fitz',
+    'pymupdf'
 ]
 
 for dep in deps:
@@ -30,6 +36,9 @@ for dep in deps:
         hiddenimports += collect_submodules(dep)
     except Exception:
         pass
+
+# Ensure the standalone pdffile module is included
+hiddenimports.append('pdffile')
 
 # Ensure metadata for comicbox is available for version checks
 datas += copy_metadata('comicbox')

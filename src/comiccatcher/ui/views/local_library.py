@@ -27,7 +27,7 @@ from comiccatcher.api.library_scanner import LibraryScanner
 from comiccatcher.ui.views.base_browser import BaseBrowserView
 from comiccatcher.ui.components.library_card_delegate import LibraryCardDelegate
 from comiccatcher.ui.components.base_ribbon import BaseCardRibbon
-from comiccatcher.ui.components.mini_detail_popover import MiniDetailPopover
+from comiccatcher.ui.components.mini_detail_popover import MiniDetailPopover, format_library_metadata
 
 logger = get_logger("ui.local_library")
 
@@ -136,7 +136,8 @@ def populate_item_from_row(item, row_dict, label_focus, is_folder_mode, image_ma
     if cached:
         set_item_data(item, Qt.ItemDataRole.DecorationRole, cached)
     else:
-        item.setIcon(ThemeManager.get_icon("book"))
+        set_item_data(item, Qt.ItemDataRole.UserRole + 4, "generic")
+        item.setIcon(ThemeManager.get_icon("book" if not file_path.is_dir() else "folder"))
     
     return cached is not None
 
@@ -1301,14 +1302,17 @@ class LocalLibraryView(BaseBrowserView):
                 if entry.is_dir:
                     item = QListWidgetItem(entry.name)
                     item.setData(Qt.ItemDataRole.UserRole, entry.path)
+                    item.setData(Qt.ItemDataRole.UserRole + 4, "generic")
                     item.setIcon(ThemeManager.get_icon("folder"))
                     self.list_widget.addItem(item)
                 else:
-                    row = dir_rows.get(str(entry.path.absolute()))
+                    abs_path = str(entry.path.absolute())
+                    row = dir_rows.get(abs_path)
                     if row:
                         r = dict(row)
                     else:
-                        r = {"file_path": str(entry.path), "title": entry.path.stem}
+                        # Ensure we still have the absolute path for the context menu to use
+                        r = {"file_path": abs_path, "title": entry.path.stem}
                     
                     item = QListWidgetItem()
                     cached = populate_item_from_row(item, r, label_focus, True, self.image_manager)
@@ -1723,37 +1727,13 @@ class LocalLibraryView(BaseBrowserView):
         self.detail_popover.add_action("action_delete", "Delete", do_delete) 
 
         # Populate and Show
-        # Build data dict
-        creds = []
-        for role in ["writer", "penciller", "inker", "colorist", "letterer", "editor"]:
-            val = meta.get(role)
-            if val: creds.append(f"{role.capitalize()}: {val}")
+        data = format_library_metadata(meta)
         
-        # Build published string with month and year
-        pub_month = meta.get("month")
-        pub_year = meta.get("year")
-        date_parts = []
-        if pub_month:
-            import calendar
-            try:
-                m_val = int(pub_month)
-                if 1 <= m_val <= 12:
-                    date_parts.append(calendar.month_name[m_val])
-            except: pass
-        if pub_year:
-            date_parts.append(str(pub_year))
-
-        data = {
-            "credits": "\n".join(creds),
-            "publisher": meta.get("publisher"),
-            "published": " ".join(date_parts) if date_parts else None,
-            "summary": meta.get("summary") or meta.get("description"),
-            "web": meta.get("web"),
-            "manga": meta.get("manga"),
-            "notes": meta.get("notes"),
-            "imprint": meta.get("imprint"),
-            "genre": meta.get("genre")
-        }
+        # Add local-specific bytes
+        if file_path:
+            p = Path(file_path)
+            if p.exists():
+                data["bytes"] = p.stat().st_size
         
         label_focus = self.config_manager.get_library_label_focus()
         primary, secondary = generate_comic_labels(meta, label_focus)

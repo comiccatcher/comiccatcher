@@ -21,7 +21,7 @@ class LibraryScanner:
         self.is_scanning = False
         self._cancel_flag = False
         self.on_progress: Callable[[int, int, str], None] = lambda curr, total, msg: None
-        self.on_finished: Callable[[], None] = lambda: None
+        self.on_finished: Callable[[bool], None] = lambda changed: None
         self.on_cover = on_cover  # Optional[Callable[[Path, bytes], None]] — sync, called in thread
         
     def cancel(self):
@@ -39,7 +39,7 @@ class LibraryScanner:
             logger.debug(f"Starting library scan in {self.library_dir}")
             
             # 1. Get current DB state in one go
-            db_mtimes = await asyncio.to_thread(self.db.get_all_comics_mtimes)
+            db_state = await asyncio.to_thread(self.db.get_all_comics_state)
             
             # 2. Collect all comic files
             all_files: List[Path] = []
@@ -72,9 +72,9 @@ class LibraryScanner:
                 
                 try:
                     mtime = file_path.stat().st_mtime
-                    db_mtime = db_mtimes.get(path_str)
+                    db_mtime, db_status = db_state.get(path_str, (None, None))
                     
-                    if db_mtime is None or db_mtime < mtime:
+                    if db_mtime is None or db_mtime < mtime or db_status == "error":
                         to_update.append(file_path)
                 except Exception as e:
                     logger.error(f"Error stat-ing {file_path}: {e}")

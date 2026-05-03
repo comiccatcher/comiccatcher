@@ -30,8 +30,19 @@ class LibraryCardDelegate(BaseCardDelegate):
             is_dir = file_path.is_dir()
             
         pixmap = index.data(Qt.ItemDataRole.DecorationRole)
+        is_generic_icon = False
         if isinstance(pixmap, QIcon):
+            # Check if this is the generic folder icon (which shouldn't trigger the "Rich" folder state)
+            # Generic icons are usually small (16x16 or 32x32) while covers are large.
+            # A more robust check is to see if the index has a specific cover set.
+            # For the Library, if it's a dir and doesn't have a cover in DB, it gets the folder icon.
+            is_generic_icon = index.data(Qt.ItemDataRole.UserRole + 4) == "generic"
             pixmap = pixmap.pixmap(option.decorationSize)
+        elif isinstance(pixmap, QPixmap):
+            # If it's a QPixmap, it's likely a real thumbnail
+            pass
+        else:
+            pixmap = None
             
         progress_data = index.data(Qt.ItemDataRole.UserRole + 1) # (current, total)
         curr_page, total_pages = 0, 0
@@ -56,10 +67,10 @@ class LibraryCardDelegate(BaseCardDelegate):
         config = CardConfig(
             primary_text=primary,
             secondary_text=None, # Explicitly disabled
-            cover_pixmap=pixmap,
+            cover_pixmap=None if is_generic_icon else pixmap,
             is_folder=is_dir,
             folder_icon_name=self.folder_icon,
-            badge_icon_name="library" if is_dir else None,
+            badge_icon_name="app_logo" if is_dir else None,
             progress_pct=prog_pct,
             progress_color=option.palette.highlight().color(),
             image_manager=self.image_manager,
