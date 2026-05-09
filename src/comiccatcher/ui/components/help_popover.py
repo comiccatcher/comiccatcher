@@ -84,35 +84,35 @@ class BrowserHelpPopover(QFrame):
         self.container.setStyleSheet(f"""
             QFrame#browser_help_container {{
                 background-color: {theme['bg_header']};
-                border: {max(1, s(2))}px solid {theme['accent']};
+                border: {max(1, s(2))}px solid {theme['brand_primary']};
                 border-radius: {s(15)}px;
             }}
             QLabel {{
-                color: {theme['text_main']};
+                color: {theme['content_primary']};
                 background: transparent;
                 font-size: {s(13)}px;
             }}
             QLabel#header {{
                 font-weight: bold;
                 font-size: {s(18)}px;
-                color: {theme['accent']};
+                color: {theme['brand_primary']};
             }}
             QLabel#section {{
                 font-weight: bold;
                 font-size: {s(14)}px;
-                color: {theme['accent']};
+                color: {theme['brand_primary']};
                 margin-top: {s(10)}px;
             }}
             QLabel#key {{
                 font-family: monospace;
                 font-weight: bold;
-                color: {theme['text_main']};
+                color: {theme['content_primary']};
                 background: rgba(128,128,128,40);
                 border-radius: {s(3)}px;
                 padding: 0 {s(4)}px;
             }}
         """)
-        self.footer.setStyleSheet(f"color: {theme['text_dim']}; font-style: italic; font-size: {s(11)}px;")
+        self.footer.setStyleSheet(f"color: {theme['content_secondary']}; font-style: italic; font-size: {s(11)}px;")
 
     def mousePressEvent(self, event):
         self.hide()

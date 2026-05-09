@@ -24,7 +24,7 @@ from comiccatcher.ui.flow_layout import FlowLayout
 from comiccatcher.ui.components.badge import Badge
 from comiccatcher.ui.views.base_detail import BaseDetailView
 from comiccatcher.ui.view_helpers import HelpPopoverMixin
-from comiccatcher.ui.utils import format_artist_credits, format_publication_date, format_file_size
+from comiccatcher.ui.utils import format_artist_credits, format_publication_date, format_file_size, format_progression_status
 
 logger = get_logger("ui.local_detail")
 
@@ -104,7 +104,7 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
                 line_text = " • ".join(pub_parts)
                 pub_label = QLabel(line_text)
                 theme = ThemeManager.get_current_theme_colors()
-                pub_label.setStyleSheet(f"font-size: {s(14)}px; color: {theme['text_dim']}; margin-top: {s(2)}px;")
+                pub_label.setStyleSheet(f"font-size: {s(14)}px; color: {theme['content_secondary']}; margin-top: {s(2)}px;")
                 line_layout.addWidget(pub_label)
                 
                 self.info_layout.addLayout(line_layout)
@@ -115,6 +115,9 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
             COMIC_EXTS = {".cbz", ".cbr", ".cb7", ".cbt", ".pdf"}
             is_comic = self._path.suffix.lower() in COMIC_EXTS
             self.btn_read.setEnabled(is_comic)
+            
+            # Sync cover hover state with button state
+            self.update_cover_state()
             
             if not hasattr(self, 'actions_layout'):
                 self.actions_layout = QHBoxLayout()
@@ -204,13 +207,11 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
                 total = r.get("page_count", 0)
                 
                 theme = ThemeManager.get_current_theme_colors()
-                dim_color = theme['text_dim']
+                dim_color = theme['content_secondary']
                 
                 if total > 0:
-                    if curr > 0:
-                        prog_text = f"Page {curr + 1} of {total}"
-                    else:
-                        prog_text = f"{total} Pages"
+                    # current_page in format_progression_status is 1-based
+                    prog_text = format_progression_status(curr + 1, total)
                         
                     if self._file_size_str:
                         prog_text += f"&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;<span style='color: {dim_color};'>{self._file_size_str}</span>"
@@ -223,11 +224,6 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
                         if total == 1 and curr == 0:
                              # Still unread-ish or just one page
                              pass
-                        else:
-                            finished_text = f"Finished: {total} pages read"
-                            if self._file_size_str:
-                                finished_text += f"&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;<span style='color: {dim_color};'>{self._file_size_str}</span>"
-                            self.progression_label.setText(finished_text)
                         self.btn_read.setText("Read Again")
                     elif curr > 0:
                         self.btn_read.setText("Resume")
@@ -243,7 +239,7 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
             else:
                 if self._file_size_str:
                     theme = ThemeManager.get_current_theme_colors()
-                    dim_color = theme['text_dim']
+                    dim_color = theme['content_secondary']
                     self.progression_label.setText(f"<span style='color: {dim_color};'>{self._file_size_str}</span>")
                     self.progression_label.show()
                 else:

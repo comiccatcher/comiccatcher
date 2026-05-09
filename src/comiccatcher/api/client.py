@@ -62,14 +62,14 @@ class APIClient:
             elif self.profile.username and self.profile.password:
                 self.client.auth = httpx.BasicAuth(self.profile.username, self.profile.password)
 
-    async def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None) -> httpx.Response:
-        return await self.client.get(endpoint, params=params, timeout=timeout)
+    async def get(self, endpoint: str, **kwargs) -> httpx.Response:
+        return await self.client.get(endpoint, **kwargs)
 
-    async def post(self, endpoint: str, json: Optional[Dict[str, Any]] = None) -> httpx.Response:
-        return await self.client.post(endpoint, json=json)
+    async def post(self, endpoint: str, **kwargs) -> httpx.Response:
+        return await self.client.post(endpoint, **kwargs)
         
-    async def put(self, endpoint: str, json: Optional[Dict[str, Any]] = None) -> httpx.Response:
-        return await self.client.put(endpoint, json=json)
+    async def put(self, endpoint: str, **kwargs) -> httpx.Response:
+        return await self.client.put(endpoint, **kwargs)
 
     async def close(self):
         await self.client.aclose()

@@ -771,7 +771,7 @@ class LocalLibraryView(BaseBrowserView):
         for btn in [self.btn_sel_delete, self.btn_sel_mark_read, self.btn_sel_mark_unread]:
             icon_name = self._bulk_selection_buttons.get(btn)
             if icon_name:
-                btn.setIcon(ThemeManager.get_icon(icon_name, "accent" if count > 0 else "text_dim"))
+                btn.setIcon(ThemeManager.get_icon(icon_name, "brand_primary" if count > 0 else "brand_primary"))
 
     def keyboard_trigger_bulk_action(self):
         """Perform bulk delete for selection mode."""
@@ -947,7 +947,7 @@ class LocalLibraryView(BaseBrowserView):
         if hasattr(self, "lib_icon_label"):
             self.lib_icon_label.setPixmap(ThemeManager.get_icon("library").pixmap(UIConstants.scale(18), UIConstants.scale(18)))
         if hasattr(self, "path_label"):
-            self.path_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
+            self.path_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['content_primary']};")
 
         # 2. Style Segmented Groups (structural styling)
         if hasattr(self, "btn_view_file"):
@@ -1043,8 +1043,8 @@ class LocalLibraryView(BaseBrowserView):
         if not hasattr(self, "btn_view_file"): return
 
         # 1. Navigation & Actions
-        self.btn_up.setIcon(ThemeManager.get_icon("back", "text_dim"))
-        self.btn_refresh.setIcon(ThemeManager.get_icon("refresh", "text_dim"))
+        self.btn_up.setIcon(ThemeManager.get_icon("back", "content_secondary"))
+        self.btn_refresh.setIcon(ThemeManager.get_icon("refresh", "content_secondary"))
 
         # 2. View Modes
         mode = self.config_manager.get_library_display_mode()
@@ -1052,9 +1052,9 @@ class LocalLibraryView(BaseBrowserView):
         self.btn_view_grid.setChecked(mode == "grid")
         self.btn_view_group.setChecked(mode == "grouped")
         
-        self.btn_view_file.setIcon(ThemeManager.get_icon("view_file", "accent" if mode == "file" else "text_dim"))
-        self.btn_view_grid.setIcon(ThemeManager.get_icon("view_grid", "accent" if mode == "grid" else "text_dim"))
-        self.btn_view_group.setIcon(ThemeManager.get_icon("view_group", "accent" if mode == "grouped" else "text_dim"))
+        self.btn_view_file.setIcon(ThemeManager.get_icon("view_file", "content_secondary"))
+        self.btn_view_grid.setIcon(ThemeManager.get_icon("view_grid", "content_secondary"))
+        self.btn_view_group.setIcon(ThemeManager.get_icon("view_group", "content_secondary"))
 
         # 3. Card Size
         small = self._card_size == "small"
@@ -1065,51 +1065,51 @@ class LocalLibraryView(BaseBrowserView):
         self.btn_card_medium.setChecked(medium)
         self.btn_card_large.setChecked(large)
         
-        self.btn_card_small.setIcon(ThemeManager.get_icon("card_small", "accent" if small else "text_dim"))
-        self.btn_card_medium.setIcon(ThemeManager.get_icon("card_medium", "accent" if medium else "text_dim"))
-        self.btn_card_large.setIcon(ThemeManager.get_icon("card_large", "accent" if large else "text_dim"))
+        self.btn_card_small.setIcon(ThemeManager.get_icon("card_small", "content_secondary"))
+        self.btn_card_medium.setIcon(ThemeManager.get_icon("card_medium", "content_secondary"))
+        self.btn_card_large.setIcon(ThemeManager.get_icon("card_large", "content_secondary"))
 
         # 4. Labels
         self.btn_labels.setChecked(self._show_labels)        
-        self.btn_labels.setIcon(ThemeManager.get_icon("label", "accent" if self._show_labels else "text_dim"))
+        self.btn_labels.setIcon(ThemeManager.get_icon("label", "content_secondary"))
         
         # 5. Label Focus
         focus = self.config_manager.get_library_label_focus()
         self.btn_focus_series.setChecked(focus == "series")
         self.btn_focus_title.setChecked(focus == "title")
-        self.btn_focus_series.setIcon(ThemeManager.get_icon("focus_series", "accent" if focus == "series" else "text_dim"))
-        self.btn_focus_title.setIcon(ThemeManager.get_icon("focus_title", "accent" if focus == "title" else "text_dim"))
+        self.btn_focus_series.setIcon(ThemeManager.get_icon("focus_series", "content_secondary"))
+        self.btn_focus_title.setIcon(ThemeManager.get_icon("focus_title", "content_secondary"))
         
         # 6. Sort Direction
         sort_dir = self.config_manager.get_library_sort_direction()
         self.btn_sort_asc.setChecked(sort_dir == "asc")
         self.btn_sort_desc.setChecked(sort_dir == "desc")
-        self.btn_sort_asc.setIcon(ThemeManager.get_icon("sort_asc", "accent" if sort_dir == "asc" else "text_dim"))
-        self.btn_sort_desc.setIcon(ThemeManager.get_icon("sort_desc", "accent" if sort_dir == "desc" else "text_dim"))
+        self.btn_sort_asc.setIcon(ThemeManager.get_icon("sort_asc", "content_secondary"))
+        self.btn_sort_desc.setIcon(ThemeManager.get_icon("sort_desc", "content_secondary"))
         
         # 7. Sort Order
         order = self.config_manager.get_library_sort_order()
         self.btn_sort_alpha.setChecked(order == "alpha")
         self.btn_sort_date.setChecked(order == "pub_date")
         self.btn_sort_added.setChecked(order == "added_date")
-        self.btn_sort_alpha.setIcon(ThemeManager.get_icon("sort_alpha", "accent" if order == "alpha" else "text_dim"))
-        self.btn_sort_date.setIcon(ThemeManager.get_icon("sort_date", "accent" if order == "pub_date" else "text_dim"))
-        self.btn_sort_added.setIcon(ThemeManager.get_icon("sort_added", "accent" if order == "added_date" else "text_dim"))
+        self.btn_sort_alpha.setIcon(ThemeManager.get_icon("sort_alpha", "content_secondary"))
+        self.btn_sort_date.setIcon(ThemeManager.get_icon("sort_date", "content_secondary"))
+        self.btn_sort_added.setIcon(ThemeManager.get_icon("sort_added", "content_secondary"))
         
         # 8. Grouping
         self.btn_group_misc.setEnabled(mode == "grouped")
         group_misc = self.config_manager.get_library_group_misc()
         self.btn_group_misc.setChecked(group_misc)
-        self.btn_group_misc.setIcon(ThemeManager.get_icon("group_misc", "accent" if group_misc else "text_dim"))
+        self.btn_group_misc.setIcon(ThemeManager.get_icon("group_misc", "content_secondary"))
         
         self.btn_group_by.setEnabled(mode == "grouped")
-        self.btn_group_by.setIcon(ThemeManager.get_icon("group_by", "accent" if mode == "grouped" else "text_dim"))
+        self.btn_group_by.setIcon(ThemeManager.get_icon("group_by", "content_secondary"))
         self._build_group_by_menu()
 
         # 9. Selection mode
         if hasattr(self, "btn_select"):
             self.btn_select.setChecked(self._bulk_selection_mode)
-            self.btn_select.setIcon(ThemeManager.get_icon("select", "accent" if self._bulk_selection_mode else "text_dim"))
+            self.btn_select.setIcon(ThemeManager.get_icon("select", "content_secondary"))
 
     def _on_label_focus_changed(self, focus: str):
         if self.config_manager.get_library_label_focus() == focus: return

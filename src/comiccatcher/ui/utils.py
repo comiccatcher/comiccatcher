@@ -5,6 +5,9 @@ import calendar
 import re
 from typing import Dict, List, Any, Optional, Tuple
 
+# Supported image extensions for comic archives
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".jxl", ".gif"}
+
 def format_artist_credits(roles: Dict[str, str]) -> List[str]:
     """
     Intelligently group artist roles (Penciller, Inker, Colorist)
@@ -79,4 +82,27 @@ def parse_opds_date(date_str: Optional[str]) -> Tuple[Optional[str], Optional[st
         return None, match_y.group(1)
 
     return None, None
+
+def format_progression_status(current_page: int, total_pages: int, pct: float = None) -> str:
+    """
+    Common logic for formatting progression text for Detail views.
+    current_page is 1-based.
+    """
+    if total_pages <= 0:
+        if pct is not None and pct > 0:
+            return f"Progress: {int(pct*100)}%"
+        return ""
+
+    if current_page >= total_pages and total_pages > 1:
+        # Finished state: No percentage, use specific wording.
+        return f"Finished: {total_pages} pages read"
+    
+    if current_page > 1:
+        # In-progress state
+        if pct is not None:
+             return f"Page {current_page} of {total_pages} ({int(pct*100)}%)"
+        return f"Page {current_page} of {total_pages}"
+    
+    # Unread or Page 1
+    return f"{total_pages} Pages"
 

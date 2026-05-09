@@ -139,10 +139,19 @@ class FullscreenExitBar(QFrame):
     SHOW_THRESHOLD = 15
     HIDE_THRESHOLD = 150
 
-    def __init__(self, parent, on_exit):
-        super().__init__(parent)
+    def __init__(self, on_exit):
+        # We don't pass a parent to the constructor to ensure it's a 
+        # truly top-level window that uses global coordinates for move().
+        # We use Popup flag as it's the most reliable way on Linux to get 
+        # a transient floating window that bypasses tiling and positioning rules.
+        super().__init__(None)
         self.on_exit = on_exit
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowFlags(
+            Qt.WindowType.Popup | 
+            Qt.WindowType.FramelessWindowHint | 
+            Qt.WindowType.NoDropShadowWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint
+        )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setObjectName("fullscreen_exit_bar")
         
@@ -177,7 +186,7 @@ class FullscreenExitBar(QFrame):
         # Button styling only (Background is handled in paintEvent)
         self.btn_exit.setStyleSheet(f"""
             QPushButton {{
-                color: {theme['text_main']};
+                color: {theme['content_primary']};
                 font-weight: bold;
                 font-size: {s(15)}px;
                 background: transparent;
@@ -185,10 +194,10 @@ class FullscreenExitBar(QFrame):
                 padding: {s(8)}px;
             }}
             QPushButton:hover {{
-                color: {theme['accent']};
+                color: {theme['brand_primary']};
             }}
         """)
-        self.btn_exit.setIcon(ThemeManager.get_icon("minimize", "text_main"))
+        self.btn_exit.setIcon(ThemeManager.get_icon("minimize", "content_primary"))
         self.update()
 
     def paintEvent(self, event):
@@ -206,7 +215,7 @@ class FullscreenExitBar(QFrame):
         
         # 2. Draw Pill Shape
         pw = max(2, int(s(2)))
-        pen = QPen(QColor(theme['accent']))
+        pen = QPen(QColor(theme['brand_primary']))
         pen.setWidth(pw)
         painter.setPen(pen)
         painter.setBrush(bg_color)
@@ -216,16 +225,20 @@ class FullscreenExitBar(QFrame):
         rect = QRectF(self.rect()).adjusted(margin, margin, -margin, -margin)
         painter.drawRoundedRect(rect, s(20), s(20))
 
-    def show_at_top(self):
-        win = self.parent().window()
+    def show_at_top(self, win: QMainWindow):
         s = UIConstants.scale
         bar_w = s(220)
         self.setFixedWidth(bar_w)
         
-        # Position at top center, but with a small floating offset
-        geo = win.geometry()
-        x = geo.x() + (geo.width() // 2) - (bar_w // 2)
-        y = geo.y() + s(10) # 10px floating offset
+        # Determine the target monitor (where the mouse is, or where the window is).
+        # This is more reliable than window-width math during fullscreen transitions.
+        screen = QApplication.screenAt(QCursor.pos()) or win.screen() or QApplication.primaryScreen()
+        sgeo = screen.geometry()
+        
+        # Absolute center of the monitor
+        x = sgeo.x() + (sgeo.width() // 2) - (bar_w // 2)
+        y = sgeo.y() + s(10) # 10px floating offset
+        
         self.move(x, y)
         self.show()
         self.raise_()
@@ -319,7 +332,6 @@ class MainWindow(QMainWindow):
         add_nav_item("Settings", "settings")
         
         self.nav_list.currentRowChanged.connect(self._on_sidebar_changed)
-        self.nav_list.installEventFilter(self)
         self.sidebar_layout.addWidget(self.nav_list)
         
         self.layout.addWidget(self.sidebar)
@@ -354,8 +366,8 @@ class MainWindow(QMainWindow):
         debug_btn_qss = f"""
             QPushButton {{
                 background-color: {theme['bg_item_hover']};
-                color: {theme['text_main']};
-                border: {max(1, s(1))}px solid {theme['border']};
+                color: {theme['content_primary']};
+                border: {max(1, s(1))}px solid {theme['layout_divider']};
                 border-radius: {s(4)}px;
                 padding: 0px;
                 font-size: {s(9)}px;
@@ -413,7 +425,7 @@ class MainWindow(QMainWindow):
         
         self.btn_tab_feed = QPushButton("Browse")
         self.btn_tab_feed.setObjectName("tab_button")
-        self.btn_tab_feed.setIcon(ThemeManager.get_icon("home", "accent"))
+        self.btn_tab_feed.setIcon(ThemeManager.get_icon("home", "brand_primary"))
         self.btn_tab_feed.setCheckable(True)
         self.btn_tab_feed.setChecked(True)
         self.btn_tab_feed.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -421,7 +433,7 @@ class MainWindow(QMainWindow):
 
         self.btn_tab_search = QPushButton("Search")
         self.btn_tab_search.setObjectName("tab_button")
-        self.btn_tab_search.setIcon(ThemeManager.get_icon("search", "text_dim"))
+        self.btn_tab_search.setIcon(ThemeManager.get_icon("search", "content_secondary"))
         self.btn_tab_search.setCheckable(True)
         self.btn_tab_search.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_tab_search.clicked.connect(lambda: self._on_tab_clicked("search"))
@@ -583,7 +595,7 @@ class MainWindow(QMainWindow):
         self.settings_view.feed_management.icon_loaded.connect(self._on_feed_icon_loaded)
 
         # Fullscreen helper
-        self.exit_fullscreen_bar = FullscreenExitBar(self, self._toggle_fullscreen)
+        self.exit_fullscreen_bar = FullscreenExitBar(self._toggle_fullscreen)
 
         # Apply initial theme
         self._apply_theme()
@@ -655,10 +667,10 @@ class MainWindow(QMainWindow):
         # but we can refresh its icon here.
         
         # 3. Debug Bar
-        self.history_counter.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DEBUG}px; font-weight: bold; color: {theme['text_main']};")
-        self.debug_url_text.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DEBUG}px; background: transparent; border: none; color: {theme['text_dim']};")
+        self.history_counter.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DEBUG}px; font-weight: bold; color: {theme['content_primary']};")
+        self.debug_url_text.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DEBUG}px; background: transparent; border: none; color: {theme['content_secondary']};")
 
-        small_btn_style = f"font-size: {UIConstants.FONT_SIZE_DEBUG}px; background-color: {theme['bg_item_hover']}; color: {theme['text_main']}; border: {max(1, s(1))}px solid {theme['border']}; border-radius: {s(2)}px;"
+        small_btn_style = f"font-size: {UIConstants.FONT_SIZE_DEBUG}px; background-color: {theme['bg_item_hover']}; color: {theme['content_primary']}; border: {max(1, s(1))}px solid {theme['layout_divider']}; border-radius: {s(2)}px;"
         self.btn_logs.setStyleSheet(small_btn_style)
         self.btn_logs.setFixedSize(s(55), s(22))
         self.btn_copy.setStyleSheet(small_btn_style)
@@ -685,11 +697,11 @@ class MainWindow(QMainWindow):
         self.server_identity_container.setStyleSheet(f"""
             QFrame#server_identity_pill {{
                 background-color: {theme['bg_item_hover']};
-                border: {max(1, s(1))}px solid {theme['border']};
+                border: {max(1, s(1))}px solid {theme['layout_divider']};
                 border-radius: {pill_height // 2}px;
             }}
         """)
-        self.server_name_label.setStyleSheet(f"font-weight: bold; font-size: {font_size}px; color: {theme['text_main']}; background: transparent; border: none;")
+        self.server_name_label.setStyleSheet(f"font-weight: bold; font-size: {font_size}px; color: {theme['content_primary']}; background: transparent; border: none;")
         
         # 6. Notify all active views
         if hasattr(self, 'exit_fullscreen_bar'):
@@ -833,7 +845,7 @@ class MainWindow(QMainWindow):
                     
                     # Show if in top threshold
                     if pos.y() < s(FullscreenExitBar.SHOW_THRESHOLD):
-                        self.exit_fullscreen_bar.show_at_top()
+                        self.exit_fullscreen_bar.show_at_top(self)
                     # Hide only if mouse moves significantly away
                     elif pos.y() > s(FullscreenExitBar.HIDE_THRESHOLD) and self.exit_fullscreen_bar.isVisible():
                         self.exit_fullscreen_bar.hide()
@@ -1105,11 +1117,11 @@ class MainWindow(QMainWindow):
         self.btn_tab_feed.setChecked(tab_name == "feed")
         self.btn_tab_search.setChecked(tab_name == "search")
 
-        # Colorize icons to match the text (accent if active, text_dim if inactive)
+        # Colorize icons to match the text (brand_primary if active, content_secondary if inactive)
         s = UIConstants.scale
-        self.btn_tab_feed.setIcon(ThemeManager.get_icon("home", "accent" if tab_name == "feed" else "text_dim"))
+        self.btn_tab_feed.setIcon(ThemeManager.get_icon("home", "brand_primary" if tab_name == "feed" else "content_secondary"))
         self.btn_tab_feed.setIconSize(QSize(s(18), s(18)))
-        self.btn_tab_search.setIcon(ThemeManager.get_icon("search", "accent" if tab_name == "search" else "text_dim"))
+        self.btn_tab_search.setIcon(ThemeManager.get_icon("search", "brand_primary" if tab_name == "search" else "content_secondary"))
         self.btn_tab_search.setIconSize(QSize(s(18), s(18)))
 
         if not navigate:
@@ -1279,7 +1291,7 @@ class MainWindow(QMainWindow):
             # Prepend icon if available
             if icon_name:
                 icon_label = QLabel()
-                # Use text_dim for inactive, accent or default for active is handled by button/label style
+                # Use content_secondary for inactive, brand_primary or default for active is handled by button/label style
                 icon = ThemeManager.get_icon(icon_name)
                 icon_label.setPixmap(icon.pixmap(s(16), s(16)))
                 item_layout.addWidget(icon_label)
@@ -1813,6 +1825,10 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Purge in-memory histories and caches on application quit."""
         logger.info("Application closing. Purging runtime histories and in-memory caches.")
+        
+        # Cleanup parent-less widgets
+        if hasattr(self, 'exit_fullscreen_bar'):
+            self.exit_fullscreen_bar.deleteLater()
         
         # Clear histories
         self.feed_histories.clear()

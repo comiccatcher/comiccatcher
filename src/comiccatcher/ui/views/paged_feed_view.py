@@ -106,7 +106,7 @@ class PagedFeedView(BaseFeedSubView):
         from comiccatcher.ui.components.collapsible_section import CollapsibleSection
         for section in self.findChildren(CollapsibleSection):
             if hasattr(section, 'header_label'):
-                section.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
+                section.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['content_primary']};")
             if hasattr(section, 'btn_toggle'):
                 section._update_ui_state()
         

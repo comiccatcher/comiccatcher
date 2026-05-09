@@ -80,9 +80,9 @@ class ConnectionTestResultDialog(QDialog):
             self.icon_label.setPixmap(ThemeManager.get_icon("feeds").pixmap(s(80), s(80)))
             
         self.status_title.setText("SUCCESS" if self.success else "CONNECTION FAILED")
-        self.status_title.setStyleSheet(f"font-size: {s(20)}px; font-weight: bold; color: {theme['success'] if self.success else theme['danger']};")
-        self.msg_label.setStyleSheet(f"font-size: {s(13)}px; line-height: 1.4; color: {theme['text_main']};")
-        self.line.setStyleSheet(f"background-color: {theme['border']};")
+        self.status_title.setStyleSheet(f"font-size: {s(20)}px; font-weight: bold; color: {theme['status_success'] if self.success else theme['status_danger']};")
+        self.msg_label.setStyleSheet(f"font-size: {s(13)}px; line-height: 1.4; color: {theme['content_primary']};")
+        self.line.setStyleSheet(f"background-color: {theme['layout_divider']};")
         self.btn_ok.setStyleSheet("font-weight: bold;")
 
 class FeedEditDialog(QDialog):
@@ -186,7 +186,7 @@ class FeedEditDialog(QDialog):
         btn_layout = QHBoxLayout()
         self.btn_test = QPushButton("Test Connection")
         self.btn_test.setObjectName("secondary_button")
-        self.btn_test.setIcon(ThemeManager.get_icon("refresh", "accent"))
+        self.btn_test.setIcon(ThemeManager.get_icon("refresh", "brand_primary"))
         self.btn_test.setIconSize(QSize(s(18), s(18)))
         self.btn_test.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_test.clicked.connect(self.test_connection)
@@ -194,14 +194,14 @@ class FeedEditDialog(QDialog):
         is_edit = feed is not None
         self.btn_save = QPushButton("Save Feed" if is_edit else "Add Feed")
         self.btn_save.setObjectName("primary_button")
-        self.btn_save.setIcon(ThemeManager.get_icon("action_read" if is_edit else "plus", "white"))
+        self.btn_save.setIcon(ThemeManager.get_icon("action_read" if is_edit else "plus", "text_on_accent"))
         self.btn_save.setIconSize(QSize(s(18), s(18)))
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.clicked.connect(self.save_and_close)
         
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setObjectName("secondary_button")
-        self.btn_cancel.setIcon(ThemeManager.get_icon("close", "accent"))
+        self.btn_cancel.setIcon(ThemeManager.get_icon("close", "brand_primary"))
         self.btn_cancel.setIconSize(QSize(s(18), s(18)))
         self.btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cancel.clicked.connect(self.reject)
@@ -623,21 +623,21 @@ class FeedManagementView(QWidget):
         self.list_btns = QHBoxLayout()
         self.btn_edit = QPushButton("Edit")
         self.btn_edit.setObjectName("secondary_button")
-        self.btn_edit.setIcon(ThemeManager.get_icon("label", "accent"))
+        self.btn_edit.setIcon(ThemeManager.get_icon("label", "brand_primary"))
         self.btn_edit.setIconSize(QSize(s(18), s(18)))
         self.btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_edit.clicked.connect(self.edit_selected)
         
         self.btn_delete = QPushButton("Delete")
         self.btn_delete.setObjectName("secondary_button")
-        self.btn_delete.setIcon(ThemeManager.get_icon("action_delete", "danger"))
+        self.btn_delete.setIcon(ThemeManager.get_icon("action_delete", "status_danger"))
         self.btn_delete.setIconSize(QSize(s(18), s(18)))
         self.btn_delete.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_delete.clicked.connect(self.delete_selected)
         
         self.btn_add = QPushButton("Add New Feed")
         self.btn_add.setObjectName("primary_button")
-        self.btn_add.setIcon(ThemeManager.get_icon("plus", "white"))
+        self.btn_add.setIcon(ThemeManager.get_icon("plus", "text_on_accent"))
         self.btn_add.setIconSize(QSize(s(18), s(18)))
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add.clicked.connect(self.add_feed)
@@ -654,7 +654,7 @@ class FeedManagementView(QWidget):
     def reapply_theme(self):
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
-        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_SUBTITLE}px; font-weight: bold; color: {theme['accent']}; margin-bottom: {s(5)}px;")
+        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_SUBTITLE}px; font-weight: bold; color: {theme['brand_primary']}; margin-bottom: {s(5)}px;")
         
         # Scale list font
         font = self.feeds_list.font()
@@ -664,16 +664,16 @@ class FeedManagementView(QWidget):
         self.feeds_list.setStyleSheet(f"""
             QListWidget {{ 
                 background-color: {theme['bg_sidebar']};
-                border: {max(1, s(1))}px solid {theme['border']};
+                border: {max(1, s(1))}px solid {theme['layout_divider']};
                 border-radius: {s(8)}px; 
                 padding: {s(5)}px;
                 margin-top: {s(10)}px;
-                color: {theme['text_main']};
+                color: {theme['content_primary']};
             }}
             QListWidget::item {{ 
                 padding: 0px; 
-                border-bottom: {max(1, s(1))}px solid {theme['border']}; 
-                color: {theme['text_main']};
+                border-bottom: {max(1, s(1))}px solid {theme['layout_divider']}; 
+                color: {theme['content_primary']};
             }}
             QListWidget::item:selected {{
                 background-color: {theme['bg_item_selected']};
@@ -690,7 +690,7 @@ class FeedManagementView(QWidget):
         for f in self.config_manager.feeds:
             name_fs = UIConstants.FONT_SIZE_FEED_NAME_SMALL
             url_fs = UIConstants.FONT_SIZE_FEED_URL_SMALL
-            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: {theme["text_dim"]};">{f.url}</span>'
+            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: {theme["content_secondary"]};">{f.url}</span>'
 
             item = QListWidgetItem()
             self.feeds_list.addItem(item)

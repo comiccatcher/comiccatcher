@@ -113,7 +113,7 @@ class BaseDetailView(QWidget):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         
         if icon_name:
-            color_key = "white" if object_name == "primary_button" else "accent"
+            color_key = "text_on_accent" if object_name == "primary_button" else "brand_primary"
             btn.setIcon(ThemeManager.get_icon(icon_name, color_key))
             btn.setIconSize(QSize(s(20), s(20)))
             
@@ -131,6 +131,36 @@ class BaseDetailView(QWidget):
         """Called when the cover image is clicked. Subclasses should override if they have a 'Read' action."""
         if hasattr(self, 'btn_read') and self.btn_read and self.btn_read.isEnabled():
             self.btn_read.click()
+
+    def update_cover_state(self):
+        """Standardized helper to update the cover label's cursor and hover style based on button state."""
+        if not hasattr(self, 'cover_label'):
+            return
+            
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
+        
+        # In details view, the cover acts as a secondary "Read" button.
+        # It should only show hover effects and a hand cursor if the book is readable.
+        is_clickable = False
+        if hasattr(self, 'btn_read') and self.btn_read:
+            is_clickable = self.btn_read.isEnabled()
+            
+        hover_style = ""
+        if is_clickable:
+            hover_style = f"#cover_label:hover {{ border-color: {theme['brand_primary']}; }}"
+            self.cover_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.cover_label.setCursor(Qt.CursorShape.ArrowCursor)
+
+        self.cover_label.setStyleSheet(f"""
+            #cover_label {{
+                background-color: {theme['card_bg']}; 
+                border: {max(1, s(1))}px solid {theme['card_border']}; 
+                border-radius: {s(4)}px;
+            }}
+            {hover_style}
+        """)
 
     def update_header_margins(self):
         """Standardized helper to update child header margins."""
@@ -157,41 +187,31 @@ class BaseDetailView(QWidget):
         s = UIConstants.scale
         self.scroll.setStyleSheet("background: transparent;")
         
-        if hasattr(self, 'cover_label'):
-            self.cover_label.setStyleSheet(f"""
-                #cover_label {{
-                    background-color: {theme['card_bg']}; 
-                    border: {max(1, s(1))}px solid {theme['card_border']}; 
-                    border-radius: {s(4)}px;
-                }}
-                #cover_label:hover {{
-                    border-color: {theme['accent']};
-                }}
-            """)
+        self.update_cover_state()
             
         # Re-apply for all dynamically added labels and buttons
         for label, subtitle in self._labels:
-            label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_TITLE}px; font-weight: bold; color: {theme['text_main']};")
+            label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_TITLE}px; font-weight: bold; color: {theme['content_primary']};")
             if subtitle:
-                subtitle.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_SUBTITLE}px; font-style: italic; color: {theme['text_dim']};")
+                subtitle.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_SUBTITLE}px; font-style: italic; color: {theme['content_secondary']};")
         
         if hasattr(self, 'progression_label') and self.progression_label:
             try:
                 # Use font-size and weight, but allow Rich Text to override color for parts of it
-                self.progression_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; font-weight: bold; color: {theme['accent']};")
+                self.progression_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; font-weight: bold; color: {theme['brand_primary']};")
             except RuntimeError:
                 self.progression_label = None
 
         if hasattr(self, 'cover_footer') and self.cover_footer:
             try:
-                self.cover_footer.setStyleSheet(f"font-size: {s(13)}px; font-family: monospace; color: {theme['text_dim']}; margin-top: {s(5)}px;")
+                self.cover_footer.setStyleSheet(f"font-size: {s(13)}px; font-family: monospace; color: {theme['content_secondary']}; margin-top: {s(5)}px;")
             except RuntimeError:
                 self.cover_footer = None
             
         for l, v in self._metadata_rows:
             try:
-                l.setStyleSheet(f"font-weight: bold; font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; color: {theme['text_dim']};")
-                v.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; color: {theme['text_main']};")
+                l.setStyleSheet(f"font-weight: bold; font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; color: {theme['content_secondary']};")
+                v.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; color: {theme['content_primary']};")
             except RuntimeError:
                 pass
         
@@ -204,11 +224,11 @@ class BaseDetailView(QWidget):
                 else:
                     container, label, btn, dividers = item
 
-                label.setStyleSheet(f"color: {theme['text_main']}; line-height: 1.4; font-size: {s(13)}px;")
+                label.setStyleSheet(f"color: {theme['content_primary']}; line-height: 1.4; font-size: {s(13)}px;")
                 if btn:
-                    btn.setStyleSheet(f"color: {theme['accent']}; font-weight: bold; font-size: {s(11)}px; text-align: left; padding: {s(2)}px 0;")
+                    btn.setStyleSheet(f"color: {theme['brand_primary']}; font-weight: bold; font-size: {s(11)}px; text-align: left; padding: {s(2)}px 0;")
                 for div in dividers:
-                    div.setStyleSheet(f"color: {theme['border']}; font-size: {s(14)}px; margin: {s(5)}px 0;")
+                    div.setStyleSheet(f"color: {theme['layout_divider']}; font-size: {s(14)}px; margin: {s(5)}px 0;")
             except RuntimeError:
                 pass
 

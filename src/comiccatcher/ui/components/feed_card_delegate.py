@@ -70,7 +70,8 @@ class FeedCardDelegate(BaseCardDelegate):
             
             pixmap = None
             if item.cover_url:
-                pixmap = self.image_manager.get_image_sync(item.cover_url)
+                # Use centralized thumbnail size for pre-scaled high-quality visuals
+                pixmap = self.image_manager.get_image_sync(item.cover_url, max_dim=UIConstants.THUMBNAIL_SIZE)
                 
             config = CardConfig(
                 primary_text=item.title,
@@ -107,7 +108,7 @@ class FeedCardDelegate(BaseCardDelegate):
         # Draw Chevron
         is_collapsed = index.data(Qt.ItemDataRole.UserRole + 2) # IsCollapsedRole
         icon_name = "chevron_right" if is_collapsed else "chevron_down"
-        icon = ThemeManager.get_icon(icon_name, "accent")
+        icon = ThemeManager.get_icon(icon_name, "brand_primary")
         
         rect = option.rect
         s = UIConstants.scale
@@ -116,7 +117,7 @@ class FeedCardDelegate(BaseCardDelegate):
         icon.paint(painter, icon_rect)
         
         # Draw Title
-        painter.setPen(QColor(theme['accent']))
+        painter.setPen(QColor(theme['brand_primary']))
         font = painter.font()
         font.setPixelSize(UIConstants.FONT_SIZE_SECTION_HEADER)
         font.setBold(True)

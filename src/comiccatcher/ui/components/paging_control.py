@@ -101,7 +101,7 @@ class PagingControl(QWidget):
         s = UIConstants.scale
         
         # Sync label font size
-        self.page_label.setStyleSheet(f"font-weight: bold; font-size: {UIConstants.FONT_SIZE_PAGING}px; margin: 0 {UIConstants.SECTION_HEADER_SPACING}px; color: {theme['text_main']};")
+        self.page_label.setStyleSheet(f"font-weight: bold; font-size: {UIConstants.FONT_SIZE_PAGING}px; margin: 0 {UIConstants.SECTION_HEADER_SPACING}px; color: {theme['content_primary']};")
         
         # Standard icon button style
         btn_style = f"""

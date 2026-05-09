@@ -120,18 +120,18 @@ class SettingsView(BaseBrowserView):
         s = UIConstants.scale
         self.btn_clear_thumbnails = QPushButton("Clear Image Cache")
         self.btn_clear_thumbnails.setObjectName("secondary_button")
-        self.btn_clear_thumbnails.setIcon(ThemeManager.get_icon("refresh", "accent"))
+        self.btn_clear_thumbnails.setIcon(ThemeManager.get_icon("refresh", "brand_primary"))
         self.btn_clear_thumbnails.clicked.connect(self._on_clear_thumbnails_clicked)
         
         self.btn_clear_metadata = QPushButton("Clear Data Cache")
         self.btn_clear_metadata.setObjectName("secondary_button")
-        self.btn_clear_metadata.setIcon(ThemeManager.get_icon("refresh", "accent"))
+        self.btn_clear_metadata.setIcon(ThemeManager.get_icon("refresh", "brand_primary"))
         self.btn_clear_metadata.clicked.connect(self._on_clear_metadata_clicked)
         
         self.btn_reset_library = QPushButton("Wipe Library DB")
         self.btn_reset_library.clicked.connect(self._on_reset_library_clicked)
         self.btn_reset_library.setObjectName("secondary_button")
-        self.btn_reset_library.setIcon(ThemeManager.get_icon("action_delete", "danger"))
+        self.btn_reset_library.setIcon(ThemeManager.get_icon("action_delete", "status_danger"))
         
         cache_buttons.addWidget(self.btn_clear_thumbnails)
         cache_buttons.addWidget(self.btn_clear_metadata)
@@ -165,7 +165,7 @@ class SettingsView(BaseBrowserView):
         v_label = QLabel(f"<b>ComicCatcher v{get_version_string()}</b>")
         v_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_SUBTITLE}px;")
         text_layout.addWidget(v_label)
-        text_layout.addWidget(QLabel("A comic browser/streamer/downloader/reader for OPDS v2 feeds"))
+        text_layout.addWidget(QLabel("A comic browser/streamer/downloader/reader for OPDS feeds"))
         about_header.addLayout(text_layout)
         about_header.addStretch()
         self.about_layout.addLayout(about_header)
@@ -196,13 +196,13 @@ class SettingsView(BaseBrowserView):
             QLabel#section_header {{
                 font-weight: bold;
                 font-size: {UIConstants.FONT_SIZE_DETAIL_SUBTITLE}px;
-                color: {theme['accent']};
+                color: {theme['brand_primary']};
                 margin-bottom: {s(5)}px;
             }}
             QLabel, QCheckBox {{
                 background-color: transparent;
                 font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
-                color: {theme['text_main']};
+                color: {theme['content_primary']};
             }}
             QComboBox, QLineEdit {{
                 font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px;
