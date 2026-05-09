@@ -30,7 +30,7 @@ class Badge(QFrame):
         obj_name = self.objectName()
 
         bg = theme['bg_sidebar'] if is_clickable else "rgba(128, 128, 128, 20)"
-        border_color = theme['border'] if is_clickable else "rgba(128, 128, 128, 50)"
+        border_color = theme['layout_divider'] if is_clickable else "rgba(128, 128, 128, 50)"
 
         self.setStyleSheet(f"""
             QFrame#{obj_name} {{
@@ -41,10 +41,10 @@ class Badge(QFrame):
             }}
             QFrame#{obj_name}:hover {{
                 background-color: {theme['bg_item_hover'] if is_clickable else bg};
-                border-color: {theme['accent'] if is_clickable else border_color};
+                border-color: {theme['brand_primary'] if is_clickable else border_color};
             }}
         """)
-        self.label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_BADGE}px; border: none; background: transparent; color: {theme['text_main'] if is_clickable else theme['text_dim']};")
+        self.label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_BADGE}px; border: none; background: transparent; color: {theme['content_primary'] if is_clickable else theme['content_secondary']};")
         
     def mousePressEvent(self, event):
         if self.on_click:

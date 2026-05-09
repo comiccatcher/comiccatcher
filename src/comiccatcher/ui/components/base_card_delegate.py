@@ -144,7 +144,7 @@ class BaseCardDelegate(QStyledItemDelegate):
                 # For now, we'll check if a pixmap is specifically NULL vs MISSING.
                 # A more robust way is to just use a very subtle icon.
                 s = UIConstants.scale
-                icon = ThemeManager.get_icon(config.fallback_icon_name, "text_dim")
+                icon = ThemeManager.get_icon(config.fallback_icon_name, "content_secondary")
                 icon_size = s(40)
                 icon_rect = QRect(cover_area_rect.left() + (cover_area_rect.width() - icon_size) // 2,
                                  cover_area_rect.top() + (cover_area_rect.height() - icon_size) // 2,
@@ -265,7 +265,7 @@ class BaseCardDelegate(QStyledItemDelegate):
     def draw_keyboard_focus_ring(self, painter: QPainter, content_rect: QRect, theme: dict):
         painter.save()
         # Thicker border for keyboard focus
-        pen = QPen(QColor(theme["accent"]), UIConstants.CARD_BORDER_WIDTH_SELECTED + 2)
+        pen = QPen(QColor(theme["brand_primary"]), UIConstants.CARD_BORDER_WIDTH_SELECTED + 2)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(pen)
         ring_rect = content_rect.adjusted(-1, -1, 1, 1)
@@ -285,7 +285,7 @@ class BaseCardDelegate(QStyledItemDelegate):
         
         # Use theme keys for everything
         on_accent = QColor(theme.get("text_on_accent", "#ffffff"))
-        accent = QColor(theme["accent"])
+        accent = QColor(theme["brand_primary"])
         
         # Draw an outline around the badge to pop it off the blue focus ring if they overlap
         painter.setPen(QPen(on_accent, s(2)))
@@ -337,7 +337,7 @@ class BaseCardDelegate(QStyledItemDelegate):
         
         # 1. Inner Background
         painter.setBrush(QColor(theme['bg_sidebar']))
-        painter.setPen(QColor(theme['border']))
+        painter.setPen(QColor(theme['layout_divider']))
         painter.drawRoundedRect(rect, UIConstants.CARD_ROUNDING, UIConstants.CARD_ROUNDING)
 
         # 2. Main Visual
@@ -354,10 +354,10 @@ class BaseCardDelegate(QStyledItemDelegate):
             # A1. Corner Badge (top-left circular folder icon)
             indicator_rect = QRect(rect.left() + padding, rect.top() + padding, badge_size, badge_size)
             painter.setBrush(bg_color)
-            painter.setPen(QPen(QColor(theme['border']), max(1, s(2))))
+            painter.setPen(QPen(QColor(theme['layout_divider']), max(1, s(2))))
             painter.drawEllipse(indicator_rect)
             
-            f_icon = ThemeManager.get_icon("folder", "text_main")
+            f_icon = ThemeManager.get_icon("folder", "content_primary")
             f_padding = s(7)
             f_icon.paint(painter, indicator_rect.adjusted(f_padding, f_padding, -f_padding, -f_padding))
         else:
@@ -368,7 +368,7 @@ class BaseCardDelegate(QStyledItemDelegate):
                 margin += s(15)
 
             folder_size = min(rect.width(), rect.height()) - margin
-            color = theme.get("text_dim", theme.get("text_main", "#888888"))
+            color = theme.get("content_secondary", theme.get("content_primary", "#888888"))
             svg_path = ICON_DIR / f"{icon_name}.svg"            
 
             x = rect.left() + (rect.width() - folder_size) // 2
@@ -406,7 +406,7 @@ class BaseCardDelegate(QStyledItemDelegate):
                     from PyQt6.QtCore import QByteArray
                     from PyQt6.QtSvg import QSvgRenderer
                     svg_bytes = badge_svg_path.read_bytes()
-                    color = theme.get("text_dim", theme.get("text_main", "#888888"))
+                    color = theme.get("content_secondary", theme.get("content_primary", "#888888"))
                     svg_bytes = svg_bytes.replace(b'stroke="white"', f'stroke="{color}"'.encode())
                     svg_bytes = svg_bytes.replace(b'fill="white"', f'fill="{color}"'.encode())
                     renderer = QSvgRenderer(QByteArray(svg_bytes))
@@ -435,7 +435,7 @@ class BaseCardDelegate(QStyledItemDelegate):
                     dy = int(by + (branding_size - sh) / 2)
                     painter.drawPixmap(dx, dy, sw, sh, scaled_pm)
                 else:
-                    ThemeManager.get_icon("feeds", "text_dim").paint(painter, int(bx), int(by), int(branding_size), int(branding_size))
+                    ThemeManager.get_icon("feeds", "content_secondary").paint(painter, int(bx), int(by), int(branding_size), int(branding_size))
 
             # B2. Internal Label (only used when global labels are off)
             if label and not self.show_labels:
@@ -465,7 +465,7 @@ class BaseCardDelegate(QStyledItemDelegate):
         painter.drawRoundedRect(strip_rect, s(4), s(4))
         
         # Draw text (Middle-elided, 2 rows max)
-        painter.setPen(QColor(theme['text_main']))
+        painter.setPen(QColor(theme['content_primary']))
         elided = metrics.elidedText(text, Qt.TextElideMode.ElideMiddle, int(strip_rect.width() * UIConstants.ELIDED_TEXT_WIDTH_FACTOR))
         painter.drawText(strip_rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, elided)
         painter.restore()
@@ -491,7 +491,7 @@ class BaseCardDelegate(QStyledItemDelegate):
             local_rect = QRect(0, 0, rect.width(), rect.height())
             
             # Primary Label Setup
-            pm_painter.setPen(forced_text_color if forced_text_color else QColor(theme['text_main']))
+            pm_painter.setPen(forced_text_color if forced_text_color else QColor(theme['content_primary']))
             font = pm_painter.font()
             font.setPixelSize(UIConstants.FONT_SIZE_CARD_LABEL)
             font.setBold(False)
@@ -508,7 +508,7 @@ class BaseCardDelegate(QStyledItemDelegate):
                     sec_color.setAlpha(180)
                     pm_painter.setPen(sec_color)
                 else:
-                    pm_painter.setPen(QColor(theme.get('text_dim', '#a0a0a0')))
+                    pm_painter.setPen(QColor(theme.get('content_secondary', '#a0a0a0')))
                 
                 font.setBold(False)
                 font.setPixelSize(UIConstants.FONT_SIZE_CARD_LABEL - 1)

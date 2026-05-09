@@ -349,6 +349,14 @@ class KeyboardBrowserNavigator(QObject):
             candidates.append((dy, abs(dx), candidate))
         
         if not candidates:
+            # Logic Fallback: If coordinate search fails, try immediate model neighbor
+            row = current.index.row() + step
+            model = current.view.model()
+            if model and 0 <= row < model.rowCount():
+                idx = model.index(row, 0)
+                rect = current.view.visualRect(idx)
+                logger.debug(f"Grid H-Move Fallback: row {current.index.row()} -> {row}")
+                return _Candidate(current.view, idx, rect)
             return None
             
         candidates.sort(key=lambda item: (item[0], item[1]))
@@ -403,15 +411,41 @@ class KeyboardBrowserNavigator(QObject):
         count = model.rowCount()
         out = []
         
+        # Determine the physical visible range for the dynamic window
+        viewport = view.viewport()
+        visible_indices = []
+        
+        # Sample items at corners of viewport to find visible range
+        idx_tl = view.indexAt(viewport.rect().topLeft() + QPoint(4, 4))
+        idx_br = view.indexAt(viewport.rect().bottomRight() - QPoint(4, 4))
+        
         # We need a representative sample of candidates. 
-        # For large grids, we prioritize the first 100 and last 100 items.
-        # This ensures jumps TO this view (from above or below) find logical targets.
+        # For large grids, we prioritize the first 100, last 100, 
+        # visible items, and items near the current cursor.
         rows_to_check = set()
-        if count <= 200:
+        
+        if count <= 400:
             rows_to_check.update(range(count))
         else:
+            # 1. Boundaries (Entry/Exit points)
             rows_to_check.update(range(100))
             rows_to_check.update(range(count - 100, count))
+            
+            # 2. Viewport Window
+            if idx_tl.isValid() and idx_br.isValid():
+                v_start = max(0, idx_tl.row() - 50)
+                v_end = min(count, idx_br.row() + 50)
+                rows_to_check.update(range(v_start, v_end))
+                
+            # 3. Cursor Neighborhood (Local nav window)
+            idx = view.property("keyboard_cursor_index")
+            if not idx or not isinstance(idx, QModelIndex) or not idx.isValid():
+                idx = view.currentIndex()
+                
+            if idx.isValid() and idx.model() == model:
+                c_start = max(0, idx.row() - 100)
+                c_end = min(count, idx.row() + 100)
+                rows_to_check.update(range(c_start, c_end))
             
         for row in sorted(rows_to_check):
             idx = model.index(row, 0)

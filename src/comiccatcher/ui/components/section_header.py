@@ -106,9 +106,9 @@ class SectionHeader(QWidget):
 
     def _update_ui_state(self):
         icon_name = "chevron_right" if self._is_collapsed else "chevron_down"
-        self.btn_toggle.setIcon(ThemeManager.get_icon(icon_name, "accent"))
+        self.btn_toggle.setIcon(ThemeManager.get_icon(icon_name, "brand_primary"))
 
     def reapply_theme(self):
         theme = ThemeManager.get_current_theme_colors()
-        self.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
+        self.header_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['content_primary']};")
         self._update_ui_state()

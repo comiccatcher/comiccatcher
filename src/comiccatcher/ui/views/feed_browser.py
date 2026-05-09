@@ -101,10 +101,10 @@ class ErrorOverlay(QWidget):
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
         self.setStyleSheet(f"background-color: {theme['bg_main']};")
-        self.message_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_FEED_NAME_LARGE}px; color: {theme['text_main']};")
+        self.message_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_FEED_NAME_LARGE}px; color: {theme['content_primary']};")
         
         # Use a large error icon
-        icon = ThemeManager.get_icon("close", "danger")
+        icon = ThemeManager.get_icon("close", "status_danger")
         self.icon_label.setPixmap(icon.pixmap(s(64), s(64)))
 
 class FeedBrowser(BaseBrowserView):
@@ -207,8 +207,7 @@ class FeedBrowser(BaseBrowserView):
         # Refresh icon color for visual feedback
         icon_name = self._bulk_selection_buttons.get(self.btn_sel_download)
         if icon_name:
-
-            self.btn_sel_download.setIcon(ThemeManager.get_icon(icon_name, "accent" if count > 0 else "text_dim"))
+            self.btn_sel_download.setIcon(ThemeManager.get_icon(icon_name, "brand_primary" if count > 0 else "content_secondary"))
 
     def keyboard_trigger_bulk_action(self):
         """Perform bulk download for selection mode."""
@@ -752,7 +751,7 @@ class FeedBrowser(BaseBrowserView):
         self._update_busy_state("covers", True)
         task = asyncio.create_task(ViewportHelper.fetch_cover_async(
             url, self.image_manager, set(), # We manage tracking ourselves now
-            on_done_callback=on_done, max_dim=400
+            on_done_callback=on_done, max_dim=UIConstants.THUMBNAIL_SIZE
         ))
         self._pending_covers[url] = task
 
@@ -869,8 +868,8 @@ class FeedBrowser(BaseBrowserView):
             scrolled = self._paging_mode == "scrolled"
             self.btn_mode_scrolled.setChecked(scrolled)
             self.btn_mode_paged.setChecked(not scrolled)
-            self.btn_mode_scrolled.setIcon(ThemeManager.get_icon("scrolling", "accent" if scrolled else "text_dim"))
-            self.btn_mode_paged.setIcon(ThemeManager.get_icon("paging", "accent" if not scrolled else "text_dim"))
+            self.btn_mode_scrolled.setIcon(ThemeManager.get_icon("scrolling", "content_secondary"))
+            self.btn_mode_paged.setIcon(ThemeManager.get_icon("paging", "content_secondary"))
 
         if hasattr(self, 'btn_card_small') and hasattr(self, 'btn_card_medium') and hasattr(self, 'btn_card_large'):
             small = self._card_size == "small"
@@ -879,20 +878,20 @@ class FeedBrowser(BaseBrowserView):
             self.btn_card_small.setChecked(small)
             self.btn_card_medium.setChecked(medium)
             self.btn_card_large.setChecked(large)
-            self.btn_card_small.setIcon(ThemeManager.get_icon("card_small", "accent" if small else "text_dim"))
-            self.btn_card_medium.setIcon(ThemeManager.get_icon("card_medium", "accent" if medium else "text_dim"))
-            self.btn_card_large.setIcon(ThemeManager.get_icon("card_large", "accent" if large else "text_dim"))
+            self.btn_card_small.setIcon(ThemeManager.get_icon("card_small", "content_secondary"))
+            self.btn_card_medium.setIcon(ThemeManager.get_icon("card_medium", "content_secondary"))
+            self.btn_card_large.setIcon(ThemeManager.get_icon("card_large", "content_secondary"))
 
         if hasattr(self, 'btn_labels'):
             self.btn_labels.setChecked(self._show_labels)
-            self.btn_labels.setIcon(ThemeManager.get_icon("label", "accent" if self._show_labels else "text_dim"))
+            self.btn_labels.setIcon(ThemeManager.get_icon("label", "content_secondary"))
 
         if hasattr(self, 'btn_select'):
             self.btn_select.setChecked(self._bulk_selection_mode)
-            self.btn_select.setIcon(ThemeManager.get_icon("select", "accent" if self._bulk_selection_mode else "text_dim"))
+            self.btn_select.setIcon(ThemeManager.get_icon("select", "content_secondary"))
 
         if hasattr(self, 'btn_facets'):
-            self.btn_facets.setIcon(ThemeManager.get_icon("filter", "text_dim"))
+            self.btn_facets.setIcon(ThemeManager.get_icon("filter", "content_secondary"))
 
     @property
     def active_subview(self):

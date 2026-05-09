@@ -10,6 +10,9 @@ from comiccatcher.logger import get_logger
 
 logger = get_logger("api.opds")
 
+# Standard OPDS Accept header preferring v2 (JSON) with v1.2 (XML) fallback
+OPDS_ACCEPT_HEADER = "application/opds+json, application/atom+xml;q=0.9, */*;q=0.1"
+
 class OPDSClientError(Exception):
     """Base exception for OPDS client errors."""
     def __init__(self, message: str, status_code: Optional[int] = None, server_message: Optional[str] = None):
@@ -47,7 +50,7 @@ class OPDS2Client:
     async def _fetch_feed(self, url: str) -> OPDSFeed:
         logger.debug(f"Fetching feed: {url}")
         try:
-            resp = await self.api.get(url)
+            resp = await self.api.get(url, headers={"Accept": OPDS_ACCEPT_HEADER})
             # Log the first 500 chars of the response for debugging
             logger.debug(f"Feed Response ({url}): {resp.text[:500]}...")
             resp.raise_for_status()
@@ -117,7 +120,7 @@ class OPDS2Client:
     async def _fetch_publication(self, url: str) -> Publication:
         logger.debug(f"Fetching publication manifest: {url}")
         try:
-            resp = await self.api.get(url)
+            resp = await self.api.get(url, headers={"Accept": OPDS_ACCEPT_HEADER})
             resp.raise_for_status()
         except Exception as e:
             status = getattr(e.response, "status_code", None) if hasattr(e, "response") else None

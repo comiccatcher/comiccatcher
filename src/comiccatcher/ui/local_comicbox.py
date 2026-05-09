@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from comiccatcher.logger import get_logger
+from comiccatcher.ui.utils import IMAGE_EXTS
 
 
 logger = get_logger("ui.local_comicbox")
@@ -40,18 +41,17 @@ def read_comicbox_dict(path: Path) -> Dict[str, Any]:
 
 def read_comicbox_cover(path: Path) -> Optional[bytes]:
     """
-    Read the cover image bytes via comicbox.
+    Read the cover image bytes. Filters the archive page list by 
+    extension to ensure only valid images are returned.
     """
     try:
-        from comicbox.box import Comicbox  # type: ignore
-    except ImportError:
+        from comiccatcher.ui.local_archive import list_archive_pages, read_archive_entry_bytes
+        pages = list_archive_pages(path)
+        if pages:
+            return read_archive_entry_bytes(path, pages[0].name)
         return None
-
-    try:
-        with Comicbox(str(path)) as cb:
-            return cb.get_cover_page(skip_metadata=True)
     except Exception as e:
-        logger.debug(f"comicbox cover read failed for {path}: {e}")
+        logger.debug(f"Cover extraction failed for {path}: {e}")
         return None
 
 
@@ -70,10 +70,18 @@ def read_comicbox_dict_and_cover(path: Path) -> Tuple[Dict[str, Any], Optional[b
     try:
         with Comicbox(str(path), config=config) as cb:
             d = cb.to_dict() or {}
-            try:
-                cover = cb.get_cover_page()
-            except Exception:
-                cover = None
+            
+            # Identify valid images by extension to avoid metadata file extraction
+            raw_pages = cb.get_page_filenames()
+            pages = [n for n in raw_pages if Path(n).suffix.lower() in IMAGE_EXTS]
+            
+            cover = None
+            if pages:
+                try:
+                    cover = cb.get_page_by_filename(pages[0])
+                except Exception:
+                    pass
+                    
         if not d:
             return {"_comicbox_status": "empty"}, cover
         return d, cover

@@ -92,12 +92,12 @@ class BaseCardRibbon(QListView):
                 margin: 0px;
             }}
             QScrollBar::handle:horizontal {{
-                background: {theme['border']};
+                background: {theme['layout_divider']};
                 min-width: {h * 4}px;
                 border-radius: {radius}px;
             }}
             QScrollBar::handle:horizontal:hover {{
-                background: {theme['text_dim']};
+                background: {theme['content_secondary']};
             }}
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
                 width: 0px;

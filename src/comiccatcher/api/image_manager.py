@@ -5,6 +5,7 @@ import os
 import hashlib
 import base64
 import httpx
+import asyncio
 from pathlib import Path
 from typing import Optional
 from comiccatcher.api.client import APIClient
@@ -21,7 +22,6 @@ class ImageManager:
         self._path_cache = {} # URL -> Path
         self._created_subdirs = set()
         self._pending_tasks = {} # URL -> asyncio.Task
-        import asyncio
         self._semaphore = asyncio.Semaphore(4) # Limit concurrent image downloads to prioritize feeds
         
         from PyQt6.QtGui import QPixmapCache
@@ -33,22 +33,18 @@ class ImageManager:
         if not url: return None
         
         # 1. Check ultra-fast Python memory cache
-        if url in self._pixmap_memory_cache:
-            return self._pixmap_memory_cache[url]
+        mem_key = f"{url}_{max_dim}" if max_dim else url
+        if mem_key in self._pixmap_memory_cache:
+            return self._pixmap_memory_cache[mem_key]
             
         from PyQt6.QtGui import QPixmap, QPixmapCache
         
         # 2. Check QPixmapCache (Keyed by path string)
-        cache_path = self._get_cache_path(url)
+        cache_path = self._get_cache_path(url, max_dim)
         path_str = str(cache_path)
         pixmap = QPixmapCache.find(path_str)
         if pixmap:
-            # If a specific dimension is requested, scale it
-            if max_dim and (pixmap.width() > max_dim or pixmap.height() > max_dim):
-                from PyQt6.QtCore import Qt
-                pixmap = pixmap.scaled(max_dim, max_dim, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            
-            self._pixmap_memory_cache[url] = pixmap
+            self._pixmap_memory_cache[mem_key] = pixmap
             return pixmap
             
         # 3. Check Disk Cache
@@ -56,15 +52,25 @@ class ImageManager:
             try:
                 pixmap = QPixmap(path_str)
                 if not pixmap.isNull():
-                    if max_dim and (pixmap.width() > max_dim or pixmap.height() > max_dim):
-                        from PyQt6.QtCore import Qt
-                        pixmap = pixmap.scaled(max_dim, max_dim, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                    
                     QPixmapCache.insert(path_str, pixmap)
-                    self._pixmap_memory_cache[url] = pixmap
+                    self._pixmap_memory_cache[mem_key] = pixmap
                     return pixmap
             except Exception as e:
                 logger.error(f"Error loading pixmap from disk {url}: {e}")
+        
+        # 4. Fallback: If specific thumbnail doesn't exist, try loading original and scaling
+        # (This handles the migration case where only originals exist)
+        if max_dim:
+            orig_path = self._get_cache_path(url, None)
+            if orig_path.exists():
+                try:
+                    pixmap = QPixmap(str(orig_path))
+                    if not pixmap.isNull():
+                        from PyQt6.QtCore import Qt
+                        pixmap = pixmap.scaled(max_dim, max_dim, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                        self._pixmap_memory_cache[mem_key] = pixmap
+                        return pixmap
+                except: pass
                 
         return None
 
@@ -91,70 +97,82 @@ class ImageManager:
             return None
 
         # 1. Check Memory Cache
-        if url in self._memory_cache:
-            return self._memory_cache[url]
+        mem_key = f"{url}_{max_dim}" if max_dim else url
+        if mem_key in self._memory_cache:
+            return self._memory_cache[mem_key]
 
         # 2. Check for in-flight task (Deduplication)
-        import asyncio
-        if url in self._pending_tasks:
-            return await self._pending_tasks[url]
+        if mem_key in self._pending_tasks:
+            return await self._pending_tasks[mem_key]
 
         # 3. Create new task
         task = asyncio.create_task(self._fetch_image_b64(url, api_client, max_dim, timeout))
-        self._pending_tasks[url] = task
+        self._pending_tasks[mem_key] = task
         try:
             return await task
         finally:
-            self._pending_tasks.pop(url, None)
+            self._pending_tasks.pop(mem_key, None)
 
     async def _fetch_image_b64(self, url: str, api_client: Optional[APIClient] = None, max_dim: Optional[int] = None, timeout: Optional[float] = None) -> Optional[str]:
         """Internal fetch logic."""
+        mem_key = f"{url}_{max_dim}" if max_dim else url
+        import base64
+
         # 0. Handle Data URIs (Base64 embedded images)
         if url.startswith("data:"):
             try:
                 # Format: data:image/png;base64,iVBOR...
                 if ";base64," in url:
                     header, b64 = url.split(";base64,", 1)
-                    self._memory_cache[url] = b64
                     
                     # Optionally cache to disk so it persists across sessions
-                    cache_path = self._get_cache_path(url)
+                    cache_path = self._get_cache_path(url, max_dim)
                     if not cache_path.exists():
                         import base64
                         data = base64.b64decode(b64)
+                        if max_dim:
+                            data = await asyncio.to_thread(self._scale_image, data, max_dim)
                         with open(cache_path, "wb") as f:
                             f.write(data)
+                        b64 = base64.b64encode(data).decode("utf-8")
+
+                    self._memory_cache[mem_key] = b64
                     return b64
             except Exception as e:
                 logger.error(f"Error parsing data URI: {e}")
             return None
 
-        # 1. Check Disk Cache
-        cache_path = self._get_cache_path(url)
+        # 1. Check Specific Disk Cache (e.g. url_400)
+        cache_path = self._get_cache_path(url, max_dim)
         if cache_path.exists():
             try:
-                import base64
                 with open(cache_path, "rb") as f:
                     data = f.read()
-                    
-                    # If we have it on disk but need it scaled for memory...
-                    if max_dim:
-                        from PIL import Image
-                        import io
-                        try:
-                            with Image.open(io.BytesIO(data)) as img:
-                                if img.width > max_dim or img.height > max_dim:
-                                    import asyncio
-                                    data = await asyncio.to_thread(self._scale_image, data, max_dim)
-                        except: pass
-
                     b64 = base64.b64encode(data).decode("utf-8")
-                    self._memory_cache[url] = b64
+                    self._memory_cache[mem_key] = b64
                     return b64
             except Exception as e:
                 logger.error(f"Error reading disk cache for {url}: {e}")
 
-        # 2. Fetch from Server
+        # 2. Check Original Disk Cache (to avoid re-downloading)
+        if max_dim:
+            orig_path = self._get_cache_path(url, None)
+            if orig_path.exists():
+                try:
+                    with open(orig_path, "rb") as f:
+                        data = f.read()
+                        # Scale it and save to the thumbnail path
+                        data = await asyncio.to_thread(self._scale_image, data, max_dim)
+                        with open(cache_path, "wb") as f:
+                            f.write(data)
+                        
+                        b64 = base64.b64encode(data).decode("utf-8")
+                        self._memory_cache[mem_key] = b64
+                        return b64
+                except Exception as e:
+                    logger.error(f"Error scaling from original disk cache {url}: {e}")
+
+        # 3. Fetch from Server
         client = api_client or self.api_client
         if not client:
             logger.error(f"Cannot fetch {url}: No APIClient provided.")
@@ -168,24 +186,19 @@ class ImageManager:
                 if resp.status_code == 200:
                     data = resp.content
                     
-                    # ALWAYS save original to disk
-                    with open(cache_path, "wb") as f:
+                    # Save Original
+                    orig_path = self._get_cache_path(url, None)
+                    with open(orig_path, "wb") as f:
                         f.write(data)
 
-                    # Scale ONLY for the memory cache/return value
+                    # If thumbnail requested, scale and save that too
                     if max_dim:
-                        from PIL import Image
-                        import io
-                        try:
-                            with Image.open(io.BytesIO(data)) as img:
-                                if img.width > max_dim or img.height > max_dim:
-                                    import asyncio
-                                    data = await asyncio.to_thread(self._scale_image, data, max_dim)
-                        except: pass
+                        data = await asyncio.to_thread(self._scale_image, data, max_dim)
+                        with open(cache_path, "wb") as f:
+                            f.write(data)
 
-                    import base64
                     b64 = base64.b64encode(data).decode("utf-8")
-                    self._memory_cache[url] = b64
+                    self._memory_cache[mem_key] = b64
                     return b64
                 else:
                     logger.warning(f"Failed to fetch image {url} - Status: {resp.status_code}")
@@ -205,11 +218,12 @@ class ImageManager:
         scaled = scale_image_to_bytes(data, max_dim, max_dim)
         return scaled if scaled else data
 
-    def _get_cache_path(self, url: str) -> Path:
+    def _get_cache_path(self, url: str, max_dim: Optional[int] = None) -> Path:
         """Generates a unique file path for a URL. Result is cached to avoid hashing."""
-        if url in self._path_cache:
+        cache_key = f"{url}_{max_dim}" if max_dim else url
+        if cache_key in self._path_cache:
             # Even if in path_cache, the directory might have been deleted (e.g. clear cache)
-            path = self._path_cache[url]
+            path = self._path_cache[cache_key]
             path.parent.mkdir(parents=True, exist_ok=True)
             return path
 
@@ -220,8 +234,12 @@ class ImageManager:
         sub_dir.mkdir(parents=True, exist_ok=True)
         self._created_subdirs.add(prefix)
 
-        path = sub_dir / url_hash
-        self._path_cache[url] = path
+        filename = url_hash
+        if max_dim:
+            filename = f"{url_hash}_{max_dim}"
+            
+        path = sub_dir / filename
+        self._path_cache[cache_key] = path
         return path
 
 

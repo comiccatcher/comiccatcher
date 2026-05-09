@@ -25,7 +25,7 @@ class BubbleMixin:
         
         s = UIConstants.scale
         bg_color = QColor(theme['bg_header'])
-        border_color = QColor(theme['accent'])
+        border_color = QColor(theme['brand_primary'])
         pen_width = max(1, s(1.5))
         radius = s(12)
         

@@ -15,6 +15,8 @@ CATEGORIES = {
     "opds": "comiccatcher.opds",     # Feed Data & Syncing
     "lib": "comiccatcher.lib",       # Local Management
     "reader": "comiccatcher.reader", # Reader Engine
+    "cont": "comiccatcher.cont",     # Continuous Reader Engine
+    "input": "comiccatcher.input",   # Touchpad & Mouse Events
     "ui": "comiccatcher.ui",         # Generic Widgets
 }
 

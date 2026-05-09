@@ -209,7 +209,7 @@ class ViewportHelper:
         image_manager, 
         pending_set: Set[str], 
         on_done_callback: Optional[Callable] = None,
-        max_dim: int = 400,
+        max_dim: Optional[int] = None,
         timeout: Optional[float] = None
     ):
         """
@@ -219,9 +219,12 @@ class ViewportHelper:
         if not url or url in pending_set:
             return
             
+        from comiccatcher.ui.theme_manager import UIConstants
+        target_dim = max_dim or UIConstants.THUMBNAIL_SIZE
+            
         pending_set.add(url)
         try:
-            await image_manager.get_image_b64(url, max_dim=max_dim, timeout=timeout)
+            await image_manager.get_image_b64(url, max_dim=target_dim, timeout=timeout)
         except Exception:
             # Failures are logged by ImageManager
             pass

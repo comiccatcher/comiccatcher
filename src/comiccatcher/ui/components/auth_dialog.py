@@ -94,7 +94,7 @@ class DynamicAuthDialog(QDialog):
 
     def reapply_theme(self):
         theme = ThemeManager.get_current_theme_colors()
-        self.setStyleSheet(f"color: {theme['text_main']};")
+        self.setStyleSheet(f"color: {theme['content_primary']};")
 
     def on_login(self):
         self.credentials = {k: v.text() for k, v in self.inputs.items()}

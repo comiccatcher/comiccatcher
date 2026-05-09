@@ -57,6 +57,8 @@ class ConfigManager:
             "reader_flow": "ltr",
             "reader_auto_hide_controls": True,
             "reader_thumbs_visible": True,
+            "reader_bg_mode": "black", # "black", "white", "custom", "mean", "median", "mode"
+            "reader_bg_color": "#000000",
             "ui_scale": 1.0,
         }
         self._ensure_dirs()
@@ -192,6 +194,27 @@ class ConfigManager:
 
     def set_reader_thumbs_visible(self, visible: bool):
         self.settings["reader_thumbs_visible"] = visible
+        self.save_settings()
+
+    def get_reader_bg_mode(self) -> str:
+        return self.settings.get("reader_bg_mode", "black")
+
+    def set_reader_bg_mode(self, mode: str):
+        self.settings["reader_bg_mode"] = mode
+        self.save_settings()
+
+    def get_reader_bg_color(self) -> str:
+        return self.settings.get("reader_bg_color", "#000000")
+
+    def set_reader_bg_color(self, color_hex: str):
+        self.settings["reader_bg_color"] = color_hex
+        self.save_settings()
+
+    def get_ui_scale(self) -> float:
+        return self.settings.get("ui_scale", 1.0)
+
+    def set_ui_scale(self, val: float):
+        self.settings["ui_scale"] = val
         self.save_settings()
 
     def get_show_labels(self) -> bool:

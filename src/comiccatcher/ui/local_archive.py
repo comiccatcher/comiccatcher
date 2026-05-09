@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from comiccatcher.logger import get_logger
+from comiccatcher.ui.utils import IMAGE_EXTS
 
 logger = get_logger("ui.local_archive")
 
@@ -16,7 +17,6 @@ logger = get_logger("ui.local_archive")
 class LocalPage:
     name: str
     index: int
-
 
 def list_archive_pages(path: Path) -> List[LocalPage]:
     """
@@ -30,8 +30,13 @@ def list_archive_pages(path: Path) -> List[LocalPage]:
     try:
         from comicbox.box import Comicbox  # type: ignore
         with Comicbox(str(p)) as cb:
-            # Comicbox already filters out metadata files and sorts case-insensitively.
-            pages = cb.get_page_filenames()
+            # Filter Comicbox results to ensure only files with valid image extensions
+            # are included in the page list.
+            raw_pages = cb.get_page_filenames()
+            pages = [
+                n for n in raw_pages 
+                if Path(n).suffix.lower() in IMAGE_EXTS
+            ]
             return [LocalPage(name=n, index=i) for i, n in enumerate(pages)]
     except Exception as e:
         logger.error(f"Failed to list pages for {path}: {e}")

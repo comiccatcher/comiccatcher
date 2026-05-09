@@ -20,17 +20,20 @@ Features:
 from __future__ import annotations
 import asyncio
 import enum
+import time
 from typing import Optional, Callable, Any
 
-from PyQt6.QtCore import Qt, QEvent, QPoint, QTimer, QSize, QRectF
-from PyQt6.QtGui import QKeyEvent, QPainter, QPixmap, QAction, QActionGroup, QColor, QCloseEvent
+from PyQt6.QtCore import Qt, QEvent, QPoint, QTimer, QSize, QRectF, QPropertyAnimation, pyqtProperty
+from PyQt6.QtGui import QKeyEvent, QPainter, QPixmap, QAction, QActionGroup, QColor, QCloseEvent, QNativeGestureEvent, QLinearGradient, QBrush
 from PyQt6.QtWidgets import (
     QFrame, QGraphicsPixmapItem, QGraphicsScene, QGraphicsView,
     QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget, QMenu,
-    QGraphicsDropShadowEffect, QApplication
+    QGraphicsDropShadowEffect, QApplication, QScroller, QScrollerProperties,
+    QColorDialog
 )
 
 import sys
+import os
 from comiccatcher.logger import get_logger
 from comiccatcher.api.image_manager import ImageManager
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants, THEMES
@@ -39,9 +42,11 @@ from comiccatcher.ui.components.popover_mixin import BubbleMixin
 from comiccatcher.ui.win_utils import apply_windows_popover_fix
 
 logger = get_logger("ui.base_reader")
-
+input_logger = get_logger("input")
+cont_logger = get_logger("cont")
 
 # ---------------------------------------------------------------------------
+
 # Fit mode
 # ---------------------------------------------------------------------------
 
@@ -83,12 +88,46 @@ _LAYOUT_LABELS = {
 _LAYOUT_CYCLE = [PageLayout.SINGLE, PageLayout.DOUBLE, PageLayout.AUTO]
 
 
+# Background mode
+# ---------------------------------------------------------------------------
+
+class BackgroundMode(enum.Enum):
+    BLACK   = "black"
+    WHITE   = "white"
+    CUSTOM  = "custom"
+    MEAN    = "mean"
+    MEDIAN  = "median"
+    MODE    = "mode"
+    MODE_MEAN = "mode_mean"
+    VIBRANT   = "vibrant"
+    CONTRAST  = "contrast"
+    SMOOTH    = "smooth"
+    GRADIENT  = "gradient"
+    CLEAN     = "clean"
+
+
+_BG_LABELS = {
+    BackgroundMode.BLACK: "Black",
+    BackgroundMode.WHITE: "White",
+    BackgroundMode.CUSTOM: "Custom Color...",
+    BackgroundMode.MEAN: "Sampling: Mean (Exp)",
+    BackgroundMode.MEDIAN: "Sampling: Median (Exp)",
+    BackgroundMode.MODE: "Sampling: Mode (Exp)",
+    BackgroundMode.MODE_MEAN: "Sampling: Mode Mean (Exp)",
+    BackgroundMode.VIBRANT: "Sampling: Most Vibrant (Exp)",
+    BackgroundMode.CONTRAST: "Sampling: Contrast Frame (Exp)",
+    BackgroundMode.SMOOTH: "Sampling: Temporal Mean (Exp)",
+    BackgroundMode.GRADIENT: "Sampling: 4-Way Gradient (Exp)",
+    BackgroundMode.CLEAN: "Sampling: Clean Margin (Exp)",
+}
+
+
 def _compose_spread(pm1: QPixmap, pm2: QPixmap) -> QPixmap:
-    """Composite two pages side-by-side, centred vertically, on a black canvas."""
+    """Composite two pages side-by-side, centred vertically, on a transparent canvas."""
     total_w = pm1.width() + pm2.width()
     max_h   = max(pm1.height(), pm2.height())
     result  = QPixmap(total_w, max_h)
-    result.fill(Qt.GlobalColor.black)
+    result.fill(Qt.GlobalColor.transparent)
     painter = QPainter(result)
     painter.drawPixmap(0,           (max_h - pm1.height()) // 2, pm1)
     painter.drawPixmap(pm1.width(), (max_h - pm2.height()) // 2, pm2)
@@ -104,9 +143,8 @@ class AdjacentBookPopover(QFrame, BubbleMixin):
     """
     A popover that appears when reaching the start/end of a book,
     suggesting the next or previous book in the current context.
-    Pinned to "light" theme by default.
     """
-    def __init__(self, parent=None, on_clicked: Callable[[], None] = None, theme_name="light"):
+    def __init__(self, parent=None, on_clicked: Callable[[], None] = None):
         super().__init__(parent)
         self.on_clicked = on_clicked
         self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
@@ -117,7 +155,6 @@ class AdjacentBookPopover(QFrame, BubbleMixin):
         self.setFixedWidth(s(340))
         self.setFixedHeight(s(440))
         
-        self.theme = THEMES.get(theme_name, THEMES["light"])
         self.arrow_side = None # "left", "right", "top", "bottom"
         self.direction = 0
         
@@ -125,15 +162,6 @@ class AdjacentBookPopover(QFrame, BubbleMixin):
         self.container = QFrame(self)
         self.container.setObjectName("adjacent_container")
         self.container.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.container.setStyleSheet(f"""
-            QFrame#adjacent_container {{
-                background-color: transparent;
-                border: none;
-            }}
-            QLabel {{ color: {self.theme['text_main']}; background: transparent; }}
-            QLabel#header_label {{ font-weight: bold; font-size: {s(14)}px; color: {self.theme['accent']}; }}
-            QLabel#title_label {{ font-weight: bold; font-size: {s(15)}px; color: {self.theme['text_main']}; }}
-        """)
         
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(s(30), s(30), s(30), s(30))
@@ -153,7 +181,6 @@ class AdjacentBookPopover(QFrame, BubbleMixin):
         self.cover_label = QLabel()
         self.cover_label.setFixedSize(s(180), s(270))
         self.cover_label.setScaledContents(True)
-        self.cover_label.setStyleSheet(f"border: {max(1, s(1))}px solid {self.theme['border']}; border-radius: {s(4)}px;")
         self.inner_layout.addWidget(self.cover_label, 0, Qt.AlignmentFlag.AlignCenter)
         
         # Title
@@ -162,6 +189,25 @@ class AdjacentBookPopover(QFrame, BubbleMixin):
         self.title_label.setWordWrap(True)
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.inner_layout.addWidget(self.title_label)
+
+        self.reapply_theme()
+
+    def reapply_theme(self):
+        """Standardized method to update styles when theme changes."""
+        self.theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
+        
+        self.container.setStyleSheet(f"""
+            QFrame#adjacent_container {{
+                background-color: transparent;
+                border: none;
+            }}
+            QLabel {{ color: {self.theme['content_primary']}; background: transparent; }}
+            QLabel#header_label {{ font-weight: bold; font-size: {s(14)}px; color: {self.theme['brand_primary']}; }}
+            QLabel#title_label {{ font-weight: bold; font-size: {s(15)}px; color: {self.theme['content_primary']}; }}
+        """)
+        self.cover_label.setStyleSheet(f"border: {max(1, s(1))}px solid {self.theme['layout_divider']}; border-radius: {s(4)}px; background: {self.theme['bg_main']};")
+        self.update()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -208,11 +254,19 @@ class AdjacentBookPopover(QFrame, BubbleMixin):
     def keyPressEvent(self, event):
         key = event.key()
         
-        # Proper direction key triggers transition
-        if key == Qt.Key.Key_Right and self.direction > 0:
-            if self.on_clicked:
-                self.on_clicked()
-        elif key == Qt.Key.Key_Left and self.direction < 0:
+        # Proper direction key triggers transition based on visual position.
+        # This automatically handles RtL and Continuous modes correctly.
+        should_trigger = False
+        if self.arrow_side == "right" and key == Qt.Key.Key_Right:
+            should_trigger = True
+        elif self.arrow_side == "left" and key == Qt.Key.Key_Left:
+            should_trigger = True
+        elif self.arrow_side == "bottom" and (key == Qt.Key.Key_Down or key == Qt.Key.Key_PageDown):
+            should_trigger = True
+        elif self.arrow_side == "top" and (key == Qt.Key.Key_Up or key == Qt.Key.Key_PageUp):
+            should_trigger = True
+            
+        if should_trigger:
             if self.on_clicked:
                 self.on_clicked()
         
@@ -232,7 +286,7 @@ class HelpPopover(QFrame):
     """
     A modal-ish popover displaying reader controls.
     """
-    def __init__(self, parent=None, theme_name="dark"):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -240,21 +294,8 @@ class HelpPopover(QFrame):
         s = UIConstants.scale
         self.setFixedWidth(s(450))
         
-        theme = THEMES.get(theme_name, THEMES["dark"])
-        
         self.container = QFrame(self)
         self.container.setObjectName("help_container")
-        self.container.setStyleSheet(f"""
-            QFrame#help_container {{
-                background-color: {theme['bg_header']};
-                border: {max(1, s(2))}px solid {theme['accent']};
-                border-radius: {s(15)}px;
-            }}
-            QLabel {{ color: {theme['text_main']}; background: transparent; font-size: {s(13)}px; }}
-            QLabel#header {{ font-weight: bold; font-size: {s(18)}px; color: {theme['accent']}; }}
-            QLabel#section {{ font-weight: bold; font-size: {s(14)}px; color: {theme['accent']}; margin-top: {s(10)}px; }}
-            QLabel#key {{ font-family: monospace; font-weight: bold; color: {theme['text_main']}; background: rgba(128,128,128,40); border-radius: {s(3)}px; padding: 0 {s(4)}px; }}
-        """)
         
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(s(30))
@@ -265,62 +306,84 @@ class HelpPopover(QFrame):
         layout.setContentsMargins(s(10), s(10), s(10), s(10))
         layout.addWidget(self.container)
         
-        inner = QVBoxLayout(self.container)
-        inner.setContentsMargins(s(25), s(25), s(25), s(25))
-        inner.setSpacing(s(8))
+        self.inner = QVBoxLayout(self.container)
+        self.inner.setContentsMargins(s(25), s(25), s(25), s(25))
+        self.inner.setSpacing(s(8))
         
-        hdr = QLabel("Reader Controls")
-        hdr.setObjectName("header")
-        hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        inner.addWidget(hdr)
-        inner.addSpacing(s(10))
+        self.hdr = QLabel("Reader Controls")
+        self.hdr.setObjectName("header")
+        self.hdr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.inner.addWidget(self.hdr)
+        self.inner.addSpacing(s(10))
         
-        def add_row(key, desc):
-            row = QHBoxLayout()
-            k_lbl = QLabel(key)
-            k_lbl.setObjectName("key")
-            d_lbl = QLabel(desc)
-            row.addWidget(k_lbl)
-            row.addWidget(d_lbl, 1)
-            inner.addLayout(row)
+        self._add_section("NAVIGATION")
+        self._add_row("Left / Right", "Pan or Turn Page (LtR/RtL)")
+        self._add_row("Up / Down", "Pan or Next / Prev Page")
+        self._add_row("PgUp / PgDn", "Step Pan or Next / Prev Page")
+        self._add_row("Enter / Return", "Toggle UI Overlays")
+        self._add_row("I", "Show Book Information")
+        self._add_row("M", "Show Reader Settings Menu")
+        self._add_row("Home / End", "First / Last Page")
+        self._add_row("[ / ]", "Previous / Next Book (Flow sensitive)")
+        self._add_row("F / F11", "Toggle Fullscreen")
+        self._add_row("Esc", "Exit Reader")
+        
+        self._add_section("ZOOM & PAN")
+        self._add_row("Ctrl + Wheel", "Dynamic Zoom")
+        self._add_row("+ / -", "Step Zoom")
+        self._add_row("0", "Reset Zoom (Fit Page)")
+        self._add_row("Double Click", "Cycle Zoom Levels")
+        self._add_row("Click + Drag", "Pan when Zoomed In")
+        
+        self._add_section("FLOW & LAYOUT")
+        self._add_row("R", "Cycle Reading Flow (LtR > RtL > Cont)")
+        self._add_row("L", "Cycle Page Layout (Single > Double > Auto)")
+        self._add_row("C", "Cycle Fit Mode (Fit > Width > Height > 1:1)")
+        
+        self._add_section("SMART SCROLL")
+        self._add_row("Space / Wheel Dn", "Pan in flow direction, then page turn")
+        self._add_row("Shift+Space / Up", "Pan opposite flow, then page turn")
+        self._add_row("Page Edge", "Navigation bumper requires second press")
 
-        def add_section(text):
-            lbl = QLabel(text)
-            lbl.setObjectName("section")
-            inner.addWidget(lbl)
+        self.inner.addSpacing(s(10))
+        self.footer_label = QLabel("Click anywhere or press any key to close")
+        self.footer_label.setObjectName("help_footer")
+        self.footer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.inner.addWidget(self.footer_label)
 
-        add_section("NAVIGATION")
-        add_row("Left / Right", "Pan or Turn Page (LtR/RtL)")
-        add_row("Up / Down", "Pan or Next / Prev Page")
-        add_row("PgUp / PgDn", "Step Pan or Next / Prev Page")
-        add_row("Enter / Return", "Toggle UI Overlays")
-        add_row("Home / End", "First / Last Page")
-        add_row("[ / ]", "Previous / Next Book (Flow sensitive)")
-        add_row("F / F11", "Toggle Fullscreen")
-        add_row("Esc", "Exit Reader")
-        
-        add_section("ZOOM & PAN")
-        add_row("Ctrl + Wheel", "Dynamic Zoom")
-        add_row("+ / -", "Step Zoom")
-        add_row("0", "Reset Zoom (Fit Page)")
-        add_row("Double Click", "Cycle Zoom Levels")
-        add_row("Click + Drag", "Pan when Zoomed In")
-        
-        add_section("FLOW & LAYOUT")
-        add_row("R", "Cycle Reading Flow (LtR > RtL > Cont)")
-        add_row("L", "Cycle Page Layout (Single > Double > Auto)")
-        add_row("C", "Cycle Fit Mode (Fit > Width > Height > 1:1)")
-        
-        add_section("SMART SCROLL")
-        add_row("Space / Wheel Dn", "Pan in flow direction, then page turn")
-        add_row("Shift+Space / Up", "Pan opposite flow, then page turn")
-        add_row("Page Edge", "Navigation bumper requires second press")
+        self.reapply_theme()
 
-        inner.addSpacing(s(10))
-        footer = QLabel("Click anywhere or press any key to close")
-        footer.setStyleSheet(f"color: {theme['text_dim']}; font-style: italic; font-size: {s(11)}px;")
-        footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        inner.addWidget(footer)
+    def _add_row(self, key, desc):
+        row = QHBoxLayout()
+        k_lbl = QLabel(key)
+        k_lbl.setObjectName("key")
+        d_lbl = QLabel(desc)
+        row.addWidget(k_lbl)
+        row.addWidget(d_lbl, 1)
+        self.inner.addLayout(row)
+
+    def _add_section(self, text):
+        lbl = QLabel(text)
+        lbl.setObjectName("section")
+        self.inner.addWidget(lbl)
+
+    def reapply_theme(self):
+        """Standardized method to update styles when theme changes."""
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
+        
+        self.container.setStyleSheet(f"""
+            QFrame#help_container {{
+                background-color: {theme['bg_header']};
+                border: {max(1, s(2))}px solid {theme['brand_primary']};
+                border-radius: {s(15)}px;
+            }}
+            QLabel {{ color: {theme['content_primary']}; background: transparent; font-size: {s(13)}px; }}
+            QLabel#header {{ font-weight: bold; font-size: {s(18)}px; color: {theme['brand_primary']}; }}
+            QLabel#section {{ font-weight: bold; font-size: {s(14)}px; color: {theme['brand_primary']}; margin-top: {s(10)}px; }}
+            QLabel#key {{ font-family: monospace; font-weight: bold; color: {theme['content_primary']}; background: rgba(128,128,128,40); border-radius: {s(3)}px; padding: 0 {s(4)}px; }}
+            QLabel#help_footer {{ color: {theme['content_secondary']}; font-style: italic; font-size: {s(11)}px; }}
+        """)
 
     def mousePressEvent(self, event):
         self.hide()
@@ -330,9 +393,32 @@ class HelpPopover(QFrame):
         self.hide()
         event.accept()
 
-    def show_at_center(self, parent_rect):
-        x = parent_rect.center().x() - self.width() // 2
-        y = parent_rect.center().y() - self.height() // 2
+    def show_at_center(self, parent_widget: QWidget):
+        self.adjustSize()
+        # Calculate global center of the parent
+        global_top_left = parent_widget.mapToGlobal(QPoint(0, 0))
+        parent_global_rect = QRectF(
+            global_top_left.x(), 
+            global_top_left.y(), 
+            parent_widget.width(), 
+            parent_widget.height()
+        ).toRect()
+            
+        target_center = parent_global_rect.center()
+        
+        # Initial target position
+        x = target_center.x() - self.width() // 2
+        y = target_center.y() - self.height() // 2
+        
+        # Adjust to stay on screen
+        screen = QApplication.screenAt(target_center) or QApplication.primaryScreen()
+        if screen:
+            screen_rect = screen.availableGeometry()
+            # Clamp x
+            x = max(screen_rect.left(), min(x, screen_rect.right() - self.width()))
+            # Clamp y
+            y = max(screen_rect.top(), min(y, screen_rect.bottom() - self.height()))
+            
         self.move(x, y)
         self.show()
 
@@ -364,6 +450,7 @@ class ThumbnailSlider(QWidget):
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         # We use theme-aware colors for the slider
         self.slider.setObjectName("reader_slider")
         layout.addWidget(self.slider)
@@ -384,6 +471,13 @@ class ThumbnailSlider(QWidget):
         """Set an async callable ``async def fn(idx) -> Optional[QPixmap]``."""
         self._thumb_loader = fn
 
+    def clear(self):
+        """Clear the thumbnail cache and loading state."""
+        self._cache.clear()
+        self._loading.clear()
+        self._popup.setPixmap(QPixmap())
+        self._popup.setText("")
+
     def store_thumb(self, idx: int, pixmap: QPixmap):
         if not pixmap.isNull():
             s = UIConstants.scale
@@ -401,7 +495,12 @@ class ThumbnailSlider(QWidget):
     def eventFilter(self, source, event):
         if source is self.slider:
             t = event.type()
-            if t in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress):
+            if t == QEvent.Type.MouseButtonPress:
+                # Immediate jump to click position
+                idx = self._page_at(event.position().x())
+                self.slider.setValue(idx)
+                self._show_at(event.position().x())
+            elif t == QEvent.Type.MouseMove:
                 self._show_at(event.position().x())
             elif t in (QEvent.Type.Leave, QEvent.Type.MouseButtonRelease):
                 self._popup.setVisible(False)
@@ -414,7 +513,12 @@ class ThumbnailSlider(QWidget):
         ratio = max(0.0, min(1.0, x / max(1, self.slider.width())))
         if self.slider.invertedAppearance():
             ratio = 1.0 - ratio
-        return round(ratio * mx)
+            
+        # Evenly bucketize based on total pages (mx + 1)
+        # Use int() for floor-based bucketing, ensuring every page has an equal-width zone.
+        total = mx + 1
+        idx = int(ratio * total)
+        return max(0, min(idx, mx))
 
     def _show_at(self, x: float):
         idx = self._page_at(x)
@@ -473,12 +577,19 @@ class MipmapPixmapItem(QGraphicsPixmapItem):
         super().__init__()
         self._mipmaps: dict[float, QPixmap] = {}
         self._current_level = 1.0
+        self._base_scale = 1.0
         self._base_width = 0
         self._base_height = 0
         self._task = None
         self._is_smooth = True
         if pixmap:
             self.setPixmap(pixmap)
+
+    def set_base_scale(self, scale: float):
+        """Set a base scale (e.g. to normalize widths) that persists across mipmap updates."""
+        self._base_scale = scale
+        # Re-apply the scale using the current mipmap level
+        self.setScale((1.0 / self._current_level) * self._base_scale)
 
     def set_smooth(self, is_smooth: bool):
         if self._is_smooth == is_smooth:
@@ -488,15 +599,19 @@ class MipmapPixmapItem(QGraphicsPixmapItem):
             self._current_level = 1.0
             if 1.0 in self._mipmaps:
                 super().setPixmap(self._mipmaps[1.0])
-                self.setScale(1.0)
+                self.setScale(self._base_scale)
         else:
             if self.scene() and self.scene().views():
                 view = self.scene().views()[0]
                 self.update_mipmap_level(view.transform().m11())
 
     def setPixmap(self, pixmap: QPixmap):
+        # Cancel any pending mipmap generation for a previous pixmap
+        if self._task and not self._task.done():
+            self._task.cancel()
+
         super().setPixmap(pixmap)
-        self.setScale(1.0)
+        self.setScale(self._base_scale)
         self._mipmaps.clear()
         self._current_level = 1.0
         
@@ -526,23 +641,21 @@ class MipmapPixmapItem(QGraphicsPixmapItem):
             img25 = qimage.scaled(max(1, int(qimage.width() * 0.25)), max(1, int(qimage.height() * 0.25)), 
                                   Qt.AspectRatioMode.KeepAspectRatio, 
                                   Qt.TransformationMode.SmoothTransformation)
-            img15 = qimage.scaled(max(1, int(qimage.width() * 0.15)), max(1, int(qimage.height() * 0.15)), 
-                                  Qt.AspectRatioMode.KeepAspectRatio, 
-                                  Qt.TransformationMode.SmoothTransformation)
-            return img50, img25, img15
+            return img50, img25
 
         async def worker():
             try:
                 res = await asyncio.to_thread(scale_images)
                 if not res: return
-                img50, img25, img15 = res
+                img50, img25 = res
                 self._mipmaps[0.5] = QPixmap.fromImage(img50)
                 self._mipmaps[0.25] = QPixmap.fromImage(img25)
-                self._mipmaps[0.15] = QPixmap.fromImage(img15)
                 # Apply if needed
                 if self.scene() and self.scene().views():
                     view = self.scene().views()[0]
                     self.update_mipmap_level(view.transform().m11())
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
                 logger.error(f"Error generating mipmaps: {e}")
 
@@ -559,21 +672,20 @@ class MipmapPixmapItem(QGraphicsPixmapItem):
         if not self._base_width or not self._base_height or not self._is_smooth:
             return
 
-        # Determine appropriate target mipmap level
+        # Determine appropriate target mipmap level considering our base scale
+        effective_scale = view_scale * self._base_scale
         target_level = 1.0
-        if view_scale <= 0.15 and 0.15 in self._mipmaps:
-            target_level = 0.15
-        elif view_scale <= 0.25 and 0.25 in self._mipmaps:
+        if effective_scale <= 0.25 and 0.25 in self._mipmaps:
             target_level = 0.25
-        elif view_scale <= 0.50 and 0.50 in self._mipmaps:
+        elif effective_scale <= 0.50 and 0.50 in self._mipmaps:
             target_level = 0.50
 
         if target_level != self._current_level:
             self._current_level = target_level
             pm = self._mipmaps[target_level]
             super().setPixmap(pm)
-            # Adjust internal scale to match the physical size of 1.0
-            self.setScale(1.0 / target_level)
+            # Adjust internal scale to match the physical size of 1.0, preserving our base scale
+            self.setScale((1.0 / target_level) * self._base_scale)
 
 
 # ---------------------------------------------------------------------------
@@ -594,8 +706,9 @@ class BaseReaderView(QWidget):
     PREFETCH_BEHIND = 1
     
     # Touchpad Scroll Settings
-    TOUCHPAD_SCROLL_THRESHOLD = 120
-    DISCRETE_SCROLL_STEP = 120
+    TOUCHPAD_SCROLL_THRESHOLD = 120   # Units required to trigger a "notch" (120 = 1 mouse wheel click)
+    TOUCHPAD_VELOCITY_THRESHOLD = 75  # Units/sec. Drop below this to unlock the next notch.
+    SWIPE_COOLDOWN_MS = 250          # Fallback lock duration if velocity isn't detected.
     
     # Zoom Settings
     ZOOM_STEP_IN = 1.05
@@ -606,7 +719,7 @@ class BaseReaderView(QWidget):
     SMART_PAN_STEP_V_PCT = 0.4
     
     # Interaction Settings
-    CLICK_ZONE_PCT = 0.15 # Percentage of width for side page-turn zones
+    CLICK_ZONE_PCT = 0.20 # Percentage of width for side page-turn zones
     CLICK_GUARD_MS = 150  # Max delay to distinguish single/double click
 
     def __init__(
@@ -643,9 +756,28 @@ class BaseReaderView(QWidget):
         self._auto_hide_controls = config_manager.get_reader_auto_hide_controls() if config_manager else True
         self._slider_dragging  = False
         self._thumb_visible    = config_manager.get_reader_thumbs_visible() if config_manager else True
+        
+        # Background color settings
+        self._bg_mode = BackgroundMode(config_manager.get_reader_bg_mode()) if config_manager else BackgroundMode.BLACK
+        self._custom_bg_color = QColor(config_manager.get_reader_bg_color()) if config_manager else QColor(Qt.GlobalColor.black)
+        self._current_bg_color = QColor(Qt.GlobalColor.black) # Computed color
+        
+        self._bg_anim = QPropertyAnimation(self, b"bg_color")
+        self._bg_anim.setDuration(400) # 400ms for smooth transition
+        
         self._continuous_items: dict[int, MipmapPixmapItem] = {}
+        self._continuous_y_offsets: dict[int, float] = {}
+        self._continuous_strip_width: float = 1000.0
+        self._continuous_min_y: float = 0.0
+        self._continuous_max_y: float = 0.0
+        self._continuous_loading: set[int] = set()
+        self._continuous_task_lock = asyncio.Lock()
+        self._continuous_session_id: int = 0
         self._is_closing       = False
         self._scroll_accumulator = 0 # Accumulates high-precision deltas (touchpad)
+        self._horizontal_swipe_accumulator = 0
+        self._last_wheel_event_time = 0
+        self._swipe_locked = False
         self._ignore_next_release = False # Suppress click handling after a double-click
         
         self._click_timer = QTimer(self)
@@ -653,7 +785,11 @@ class BaseReaderView(QWidget):
         self._click_timer.timeout.connect(self._on_click_timer_timeout)
         self._pending_click_pos = None
 
-        self.setStyleSheet("background-color: black; color: white;")
+        self._swipe_lock_timer = QTimer(self)
+        self._swipe_lock_timer.setSingleShot(True)
+        self._swipe_lock_timer.setInterval(self.SWIPE_COOLDOWN_MS)
+        self._swipe_lock_timer.timeout.connect(self._unlock_swipe)
+
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -674,17 +810,32 @@ class BaseReaderView(QWidget):
         self.view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.view.setFrameShape(QFrame.Shape.NoFrame)
         self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        self.view.setStyleSheet("border: none; background-color: black;")
+        self.view.setStyleSheet("border: none; background-color: transparent;")
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.view.setMouseTracking(True)
         self.view.viewport().setMouseTracking(True)
         self.view.viewport().setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        # self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        # self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._mouse_press_pos = None
         self._zoom_cycle_idx = 0
+
+        # Kinetic scrolling (momentum)
+        QScroller.grabGesture(self.view.viewport(), QScroller.ScrollerGestureType.LeftMouseButtonGesture)
+        scroller = QScroller.scroller(self.view.viewport())
+        props = scroller.scrollerProperties()
+        # Ensure it feels responsive and "flickable"
+        props.setScrollMetric(QScrollerProperties.ScrollMetric.DragVelocitySmoothingFactor, 0.5)
+        props.setScrollMetric(QScrollerProperties.ScrollMetric.MinimumVelocity, 0.0)
+        props.setScrollMetric(QScrollerProperties.ScrollMetric.MaximumVelocity, 0.8)
+        props.setScrollMetric(QScrollerProperties.ScrollMetric.DecelerationFactor, 0.15)
+        # Bouncing at edges can be annoying for comics, disable overshoot by default
+        props.setScrollMetric(QScrollerProperties.ScrollMetric.HorizontalOvershootPolicy, QScrollerProperties.OvershootPolicy.OvershootAlwaysOff)
+        props.setScrollMetric(QScrollerProperties.ScrollMetric.VerticalOvershootPolicy, QScrollerProperties.OvershootPolicy.OvershootAlwaysOff)
+        scroller.setScrollerProperties(props)
+        scroller.stateChanged.connect(self._on_scroller_state_changed)
 
         self.pixmap_item = MipmapPixmapItem()
         self.scene.addItem(self.pixmap_item)
@@ -698,15 +849,11 @@ class BaseReaderView(QWidget):
         self.header = QFrame(self)
         s = UIConstants.scale
         self.header.setFixedHeight(s(60))
-        self.header.setStyleSheet(
-            "background-color: rgba(0,0,0,160); border: none;"
-        )
         hdr = QHBoxLayout(self.header)
         hdr.setContentsMargins(s(10), s(5), s(10), s(5))
         hdr.setSpacing(s(15))
 
         self.btn_back = QPushButton()
-        self.btn_back.setIcon(ThemeManager.get_icon("back", "white"))
         self.btn_back.setFixedSize(UIConstants.READER_BTN_SIZE, UIConstants.READER_BTN_SIZE)
         self.btn_back.setIconSize(QSize(UIConstants.READER_ICON_SIZE, UIConstants.READER_ICON_SIZE))
         self.btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -714,14 +861,20 @@ class BaseReaderView(QWidget):
         self.btn_back.clicked.connect(self._do_exit)
 
         self.title_label = QLabel("")
-        self.title_label.setStyleSheet(f"color: white; font-weight: bold; background: transparent; font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px;")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
         self.title_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self.title_label.mousePressEvent = lambda e: self._on_title_pressed(e)
 
+        self.zoom_label = QLabel("")
+        self.zoom_label.setFixedWidth(UIConstants.scale(60))
+        self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        
+        # Only show zoom level if debug is on
+        is_debug = bool(os.environ.get("DEBUG"))
+        self.zoom_label.setVisible(is_debug)
+
         self.btn_settings = QPushButton()
-        self.btn_settings.setIcon(ThemeManager.get_icon("settings", "white"))
         self.btn_settings.setFixedSize(UIConstants.READER_BTN_SIZE, UIConstants.READER_BTN_SIZE)
         self.btn_settings.setIconSize(QSize(UIConstants.READER_ICON_SIZE + UIConstants.scale(2), UIConstants.READER_ICON_SIZE + UIConstants.scale(2)))
         self.btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -730,29 +883,12 @@ class BaseReaderView(QWidget):
         self.btn_settings.setMenu(self.settings_menu)
         self._update_settings_menu()
 
-        self.btn_help = QPushButton("?")
-        self.btn_help.setFixedSize(UIConstants.READER_BTN_SIZE, UIConstants.READER_BTN_SIZE)
-        self.btn_help.setStyleSheet(f"font-size: {UIConstants.scale(18)}px; font-weight: bold;")
-        self.btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_help.setToolTip("Show Shortcuts [H]")
-        self.btn_help.clicked.connect(self._toggle_help)
-
-        self.btn_fullscreen = QPushButton()
-        self.btn_fullscreen.setIcon(ThemeManager.get_icon("fullscreen", "white"))
-        self.btn_fullscreen.setFixedSize(UIConstants.READER_BTN_SIZE, UIConstants.READER_BTN_SIZE)
-        self.btn_fullscreen.setIconSize(QSize(UIConstants.READER_ICON_SIZE, UIConstants.READER_ICON_SIZE))
-        self.btn_fullscreen.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_fullscreen.setToolTip("Toggle fullscreen  [F11]")
-        self.btn_fullscreen.clicked.connect(self._toggle_fullscreen)
-
         hdr.addWidget(self.btn_back)
         hdr.addWidget(self.title_label, 1)
-        hdr.addWidget(self.btn_help)
+        hdr.addWidget(self.zoom_label)
         hdr.addWidget(self.btn_settings)
-        hdr.addWidget(self.btn_fullscreen)
 
         self.counter_label = QLabel("0 / 0")
-        self.counter_label.setStyleSheet(f"color: white; background: transparent; font-size: {UIConstants.READER_FONT_COUNTER}px; font-weight: bold;")
         self.counter_label.setFixedWidth(UIConstants.scale(95))
         self.counter_label.setAlignment(
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
@@ -760,9 +896,6 @@ class BaseReaderView(QWidget):
 
         # --- Footer overlay ---
         self.footer = QFrame(self)
-        self.footer.setStyleSheet(
-            "background-color: rgba(0,0,0,160); border: none;"
-        )
         ftr = QVBoxLayout(self.footer)
         s = UIConstants.scale
         ftr.setContentsMargins(s(10), s(6), s(10), s(8))
@@ -773,7 +906,7 @@ class BaseReaderView(QWidget):
         
         self.thumb_slider = ThumbnailSlider(self)
         self.thumb_slider.setStyleSheet("background: transparent; border: none;")
-        self.thumb_slider.slider.setInvertedAppearance(self._rtl)
+        self._update_slider_direction()
         self.thumb_slider.slider.sliderPressed.connect(self._on_slider_pressed)
         self.thumb_slider.slider.sliderReleased.connect(self._on_slider_released)
         self.thumb_slider.slider.valueChanged.connect(self._on_slider_value_changed)
@@ -782,7 +915,7 @@ class BaseReaderView(QWidget):
         slider_row.addWidget(self.thumb_slider)
         ftr.addLayout(slider_row)
 
-        for b in (self.btn_back, self.btn_fullscreen, self.btn_settings, self.btn_help):
+        for b in (self.btn_back, self.btn_settings):
             b.setObjectName("reader_button")
             b.style().unpolish(b)
             b.style().polish(b)
@@ -802,13 +935,276 @@ class BaseReaderView(QWidget):
         self.view.installEventFilter(self)
         self.header.installEventFilter(self)
         self.footer.installEventFilter(self)
-        for b in (self.btn_back, self.btn_fullscreen, self.btn_settings, self.btn_help):
+        for b in (self.btn_back, self.btn_settings):
             b.installEventFilter(self)
         self.installEventFilter(self)
         
         self.view.verticalScrollBar().valueChanged.connect(self._on_vscroll_changed)
 
         self._bump_activity()
+
+        # Initial theme application
+        QTimer.singleShot(0, self.reapply_theme)
+
+    @pyqtProperty(QColor)
+    def bg_color(self) -> QColor:
+        return self._current_bg_color
+
+    @bg_color.setter
+    def bg_color(self, color: QColor):
+        self._current_bg_color = color
+        self._apply_background_style()
+
+    def _apply_background_style(self):
+        """Actually apply the color/gradient to the widget and view."""
+        color = self._current_bg_color
+        is_gradient = self._bg_mode == BackgroundMode.GRADIENT and hasattr(self, '_current_bg_gradient')
+        
+        if is_gradient:
+            grad = self._current_bg_gradient
+            # CSS doesn't easily support complex multi-way QGradients, 
+            # so we'll just use the view's background brush for the gradient.
+            self.view.setBackgroundBrush(QBrush(grad))
+            # Use top color for shell to prevent major contrast clash
+            bg_name = grad.stops()[0][1].name()
+            self.setStyleSheet(f"QWidget#reader_shell {{ background-color: {bg_name}; }}")
+        else:
+            self.view.setBackgroundBrush(QBrush(color))
+            self.setStyleSheet(f"QWidget#reader_shell {{ background-color: {color.name()}; }}")
+
+    def reapply_theme(self):
+        """Standardized reader theme application."""
+        theme = ThemeManager.get_current_theme_colors()
+        s = UIConstants.scale
+        
+        # 1. Main Background - Dynamic based on settings
+        self._update_background() # Ensure current color is computed
+        
+        # Use a specific ID to prevent CSS inheritance leakage into popups/menus
+        self.setObjectName("reader_shell")
+        self._apply_background_style()
+        
+        self.setStyleSheet(self.styleSheet() + f"""
+            /* Explicitly force the menu to follow the global theme, 
+               overriding the reader's shell inheritance. */
+            QMenu {{
+                background-color: {theme['bg_header']};
+                color: {theme['content_primary']};
+                border: {max(1, s(1))}px solid {theme['layout_divider']};
+            }}
+            QMenu::item:selected {{
+                background-color: {theme['bg_item_hover']};
+                color: {theme['content_primary']};
+            }}
+            QMenu::separator {{
+                background-color: {theme['layout_divider']};
+            }}
+        """)
+        
+        # 2. Overlays (Header/Footer) - Always dark/translucent in reader
+        overlay_qss = "background-color: rgba(0, 0, 0, 160); border: none;"
+        self.header.setStyleSheet(overlay_qss)
+        self.footer.setStyleSheet(overlay_qss)
+        
+        # 3. Text and Icons on Overlays - Must stay text_on_accent to contrast with dark overlay
+        self.title_label.setStyleSheet(f"color: white; background: transparent; font-weight: bold; font-size: {s(15)}px;")
+        self.counter_label.setStyleSheet(f"color: white; background: transparent; font-size: {UIConstants.READER_FONT_COUNTER}px; font-weight: bold;")
+        self.zoom_label.setStyleSheet(f"color: white; background: transparent; font-size: {s(12)}px; font-weight: bold;")
+
+        # Use pure white for reader overlays since they are hardcoded dark
+        self.btn_back.setIcon(ThemeManager.get_icon("back", "#ffffff"))
+        self.btn_settings.setIcon(ThemeManager.get_icon("menu", "#ffffff"))
+        
+        # 4. Sub-Popovers - These DO follow the global theme
+        if hasattr(self, 'meta_popover'):
+            self.meta_popover.reapply_theme()
+        if hasattr(self, 'help_popover'):
+            self.help_popover.reapply_theme()
+        if hasattr(self, 'adjacent_popover'):
+            self.adjacent_popover.reapply_theme()
+            
+        # 5. Menu - Follows theme
+        self._update_settings_menu()
+
+    def _update_background(self, pixmap: QPixmap = None):
+        """Recompute the effective background color based on current mode and optionally a pixmap."""
+        old_color = self._current_bg_color
+        new_color = QColor(Qt.GlobalColor.black)
+
+        # Force static black for dynamic modes in continuous flow, but allow White/Custom
+        effective_mode = self._bg_mode
+        if self._page_layout == PageLayout.CONTINUOUS and effective_mode not in (BackgroundMode.BLACK, BackgroundMode.WHITE, BackgroundMode.CUSTOM):
+            effective_mode = BackgroundMode.BLACK
+
+        if effective_mode == BackgroundMode.BLACK:
+            new_color = QColor(Qt.GlobalColor.black)
+        elif effective_mode == BackgroundMode.WHITE:
+            new_color = QColor(Qt.GlobalColor.white)
+        elif effective_mode == BackgroundMode.CUSTOM:
+            new_color = self._custom_bg_color
+        elif effective_mode in (
+            BackgroundMode.MEAN, BackgroundMode.MEDIAN, BackgroundMode.MODE,
+            BackgroundMode.MODE_MEAN, BackgroundMode.VIBRANT, BackgroundMode.CONTRAST,
+            BackgroundMode.SMOOTH, BackgroundMode.GRADIENT, BackgroundMode.CLEAN
+        ):
+            target = pixmap
+            if target is None or target.isNull():
+                if self._page_layout == PageLayout.CONTINUOUS and self._continuous_items:
+                    # Try to sample current index
+                    if self._index in self._continuous_items:
+                        target = self._continuous_items[self._index].pixmap()
+                    else:
+                        # Fallback to first available
+                        first_idx = min(self._continuous_items.keys())
+                        target = self._continuous_items[first_idx].pixmap()
+                else:
+                    target = self.pixmap_item.pixmap()
+                
+            if target and not target.isNull():
+                new_color = self._get_edge_color(target)
+            else:
+                new_color = QColor(Qt.GlobalColor.black)
+        
+        if self._bg_mode == BackgroundMode.SMOOTH:
+            self._bg_anim.stop()
+            self._bg_anim.setStartValue(old_color)
+            self._bg_anim.setEndValue(new_color)
+            self._bg_anim.start()
+        else:
+            self.bg_color = new_color # Uses setter for immediate apply
+
+    def _get_edge_color(self, pixmap: QPixmap) -> QColor:
+        """Sample edge pixels and compute mean, median, or mode."""
+        image = pixmap.toImage()
+        w, h = image.width(), image.height()
+        if w < 2 or h < 2:
+            return QColor(Qt.GlobalColor.black)
+            
+        pixels = []
+        # Sample points around the perimeter
+        step_x = max(1, w // 25)
+        step_y = max(1, h // 25)
+        
+        for x in range(0, w, step_x):
+            pixels.append(image.pixelColor(x, 0))
+            pixels.append(image.pixelColor(x, h - 1))
+        for y in range(step_y, h - step_y, step_y):
+            pixels.append(image.pixelColor(0, y))
+            pixels.append(image.pixelColor(w - 1, y))
+            
+        if not pixels:
+            return QColor(Qt.GlobalColor.black)
+            
+        if self._bg_mode == BackgroundMode.MEAN:
+            r = sum(p.red() for p in pixels) // len(pixels)
+            g = sum(p.green() for p in pixels) // len(pixels)
+            b = sum(p.blue() for p in pixels) // len(pixels)
+            return QColor(r, g, b)
+            
+        elif self._bg_mode == BackgroundMode.MEDIAN:
+            rs = sorted(p.red() for p in pixels)
+            gs = sorted(p.green() for p in pixels)
+            bs = sorted(p.blue() for p in pixels)
+            mid = len(pixels) // 2
+            return QColor(rs[mid], gs[mid], bs[mid])
+            
+        elif self._bg_mode == BackgroundMode.MODE:
+            from collections import Counter
+            counts = Counter((p.red(), p.green(), p.blue()) for p in pixels)
+            most_common = counts.most_common(1)[0][0]
+            return QColor(*most_common)
+            
+        elif self._bg_mode == BackgroundMode.MODE_MEAN:
+            # Bin colors to group similar shades, then take the mean of the largest bin
+            from collections import defaultdict
+            bins = defaultdict(list)
+            STEP = 24 # 256 / 24 = ~10 bins per channel
+            
+            for p in pixels:
+                # Simple quantization binning
+                bin_key = (p.red() // STEP, p.green() // STEP, p.blue() // STEP)
+                bins[bin_key].append(p)
+            
+            # Find the bin with the most pixels
+            target_bin = max(bins.values(), key=len)
+            
+            r = sum(p.red() for p in target_bin) // len(target_bin)
+            g = sum(p.green() for p in target_bin) // len(target_bin)
+            b = sum(p.blue() for p in target_bin) // len(target_bin)
+            return QColor(r, g, b)
+
+        elif self._bg_mode == BackgroundMode.VIBRANT:
+            # Weight average by saturation
+            r_sum = g_sum = b_sum = weight_sum = 0
+            for p in pixels:
+                s = p.saturation() + 1 # Avoid zero weight
+                # Square weight to favor vibrancy more heavily
+                weight = s * s
+                r_sum += p.red() * weight
+                g_sum += p.green() * weight
+                b_sum += p.blue() * weight
+                weight_sum += weight
+            return QColor(int(r_sum / weight_sum), int(g_sum / weight_sum), int(b_sum / weight_sum))
+
+        elif self._bg_mode == BackgroundMode.CONTRAST:
+            # Get mode, then shift luminance to opposite pole
+            from collections import Counter
+            counts = Counter((p.red(), p.green(), p.blue()) for p in pixels)
+            most_common = counts.most_common(1)[0][0]
+            c = QColor(*most_common)
+            # If it's light, make it darker; if dark, make it lighter (offset)
+            lum = c.lightness()
+            shift = -30 if lum > 128 else 30
+            return QColor.fromHsl(c.hslHue(), c.hslSaturation(), max(0, min(255, lum + shift)))
+
+        elif self._bg_mode == BackgroundMode.CLEAN:
+            # Mean with outlier removal (brightness)
+            sorted_px = sorted(pixels, key=lambda p: p.lightness())
+            margin = len(sorted_px) // 10
+            # Trim 10% brightest and 10% darkest
+            cleaned = sorted_px[margin:-margin]
+            if not cleaned: cleaned = pixels
+            r = sum(p.red() for p in cleaned) // len(cleaned)
+            g = sum(p.green() for p in cleaned) // len(cleaned)
+            b = sum(p.blue() for p in cleaned) // len(cleaned)
+            return QColor(r, g, b)
+
+        elif self._bg_mode == BackgroundMode.SMOOTH:
+            # Just use Mean for the target, transition is handled in _update_background
+            r = sum(p.red() for p in pixels) // len(pixels)
+            g = sum(p.green() for p in pixels) // len(pixels)
+            b = sum(p.blue() for p in pixels) // len(pixels)
+            return QColor(r, g, b)
+
+        elif self._bg_mode == BackgroundMode.GRADIENT:
+            # Sample 4 sides separately with higher density
+            POINTS = 40
+            t_px = [image.pixelColor(x, 0) for x in range(0, w, max(1, w // POINTS))]
+            b_px = [image.pixelColor(x, h - 1) for x in range(0, w, max(1, w // POINTS))]
+            l_px = [image.pixelColor(0, y) for y in range(0, h, max(1, h // POINTS))]
+            r_px = [image.pixelColor(w - 1, y) for y in range(0, h, max(1, h // POINTS))]
+            
+            def mean_c(plist):
+                if not plist: return QColor(0, 0, 0)
+                return QColor(sum(p.red() for p in plist) // len(plist),
+                              sum(p.green() for p in plist) // len(plist),
+                              sum(p.blue() for p in plist) // len(plist))
+            
+            c_top, c_bot = mean_c(t_px), mean_c(b_px)
+            
+            # Use top/bottom for a vertical gradient. 
+            # In ObjectBoundingMode, 0.0 is top, 1.0 is bottom.
+            grad = QLinearGradient(0, 0, 0, 1)
+            grad.setCoordinateMode(QLinearGradient.CoordinateMode.ObjectBoundingMode)
+            grad.setColorAt(0, c_top)
+            grad.setColorAt(1, c_bot)
+            self._current_bg_gradient = grad
+            
+            # Return overall average for contrast calculations
+            all_px = t_px + b_px + l_px + r_px
+            return mean_c(all_px)
+            
+        return QColor(Qt.GlobalColor.black)
 
     # ------------------------------------------------------------------ #
     # Subclass contract                                                    #
@@ -894,6 +1290,7 @@ class BaseReaderView(QWidget):
                     self.adjacent_popover.set_arrow("left")
                 y = (self.height() - self.adjacent_popover.height()) // 2
             
+            self._bump_activity()
             self.adjacent_popover.show_at(self.mapToGlobal(QPoint(x, y)))
             
         except Exception as e:
@@ -914,7 +1311,39 @@ class BaseReaderView(QWidget):
     # Activity / overlay visibility                                        #
     # ------------------------------------------------------------------ #
 
+    def _on_scroller_state_changed(self, state):
+        if state == QScroller.State.Dragging:
+            self.view.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            self._bump_activity(ensure_overlays=False) # Keep cursor visible while dragging
+        elif state == QScroller.State.Scrolling:
+            self.view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+            self._bump_activity(ensure_overlays=False) # Keep cursor visible while coasting
+        elif state == QScroller.State.Inactive:
+            self._update_reader_cursor()
+
+    def _update_reader_cursor(self):
+        # If we are in "hidden" state, don't change anything, _hide_cursor handles it
+        if self.cursor().shape() == Qt.CursorShape.BlankCursor:
+            return
+
+        h_scrollable = self.view.horizontalScrollBar().maximum() > 0
+        v_scrollable = self.view.verticalScrollBar().maximum() > 0
+        
+        if h_scrollable or v_scrollable:
+            self.view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+        else:
+            self.view.viewport().unsetCursor()
+
     def _hide_cursor(self):
+        # Do not hide if any menus or popovers are active
+        if (self.settings_menu.isVisible() or 
+            self.help_popover.isVisible() or 
+            self.meta_popover.isVisible() or 
+            self.adjacent_popover.isVisible() or
+            self.thumb_slider._popup.isVisible()):
+            self._cursor_timer.start() # Check again later
+            return
+
         self.setCursor(Qt.CursorShape.BlankCursor)
         self.view.setCursor(Qt.CursorShape.BlankCursor)
         self.view.viewport().setCursor(Qt.CursorShape.BlankCursor)
@@ -930,13 +1359,15 @@ class BaseReaderView(QWidget):
             # Restore cursors for buttons/interactive elements
             for child in self.findChildren(QWidget):
                 child.unsetCursor()
+                
+            self._update_reader_cursor()
         self._cursor_timer.start()
 
-    def _bump_activity(self, show_cursor: bool = True):
+    def _bump_activity(self, show_cursor: bool = True, ensure_overlays: bool = True):
         if show_cursor:
             self._bump_cursor()
             
-        if not self._overlays_visible:
+        if ensure_overlays and not self._overlays_visible:
             self._show_overlays()
 
         if self._auto_hide_controls:
@@ -955,10 +1386,11 @@ class BaseReaderView(QWidget):
             self.on_title_clicked()
 
     def _toggle_help(self):
+        self._bump_activity()
         if self.help_popover.isVisible():
             self.help_popover.hide()
         else:
-            self.help_popover.show_at_center(self.rect())
+            self.help_popover.show_at_center(self)
 
     def _toggle_auto_hide(self):
         self._auto_hide_controls = not self._auto_hide_controls
@@ -992,6 +1424,37 @@ class BaseReaderView(QWidget):
         t = event.type()
         vp = self.view.viewport()
 
+        if t == QEvent.Type.ContextMenu:
+            self._bump_activity(ensure_overlays=False)
+            self._update_settings_menu()
+            self.settings_menu.exec(event.globalPos())
+            return True
+
+        if t == QEvent.Type.NativeGesture and source is vp:
+            g_type = event.gestureType()
+            val = event.value()
+            input_logger.debug(f"GESTURE: type={g_type.name} val={val:.4f} locked={self._swipe_locked}")
+
+            # Engage the navigation lock for ALL gestures. 
+            # A pinch-zoom often starts as a small Pan or Rotate.
+            self._horizontal_swipe_accumulator = 0
+            self._scroll_accumulator = 0
+            self._swipe_locked = True
+            self._swipe_lock_timer.start()
+
+            if g_type == Qt.NativeGestureType.ZoomNativeGesture:
+
+                # value() is the scale factor (e.g. 1.05 for zooming in 5%)
+                # Some Linux drivers send it as a delta (0.05), so we add 1.0
+                # but most modern ones (libinput) send it as 1.0 + delta.
+                # Heuristic: if it's very small, it's a delta.
+                val = event.value()
+                if abs(val) < 0.5:
+                    self._zoom(1.0 + val)
+                else:
+                    self._zoom(val)
+                return True
+
         if t == QEvent.Type.MouseMove:
             self._bump_cursor() # Just show cursor, don't show overlays
 
@@ -1000,22 +1463,29 @@ class BaseReaderView(QWidget):
                 self._apply_fit()
 
         if t == QEvent.Type.MouseButtonPress and source is vp:
-            self._mouse_press_pos = event.position()
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._mouse_press_pos = event.position()
+            else:
+                self._mouse_press_pos = None
             return False # Let QGraphicsView start drag
 
         if t == QEvent.Type.MouseButtonDblClick and source is vp:
+            if event.button() != Qt.MouseButton.LeftButton:
+                return False
+
             w = vp.width()
             x = event.position().x()
             
-            # 1. In navigation zones: Stop the pending single click and do NOTHING.
+            # Stop any pending single click (UI toggle or page turn)
+            self._click_timer.stop()
+            self._pending_click_pos = None
+            self._ignore_next_release = True # Swallow the second release too
+
+            # 1. In navigation zones: do NOTHING else (already stopped the timer).
             if x < w * self.CLICK_ZONE_PCT or x > w * (1 - self.CLICK_ZONE_PCT):
-                self._click_timer.stop()
-                self._pending_click_pos = None
-                self._ignore_next_release = True # Swallow the second release too
                 return True 
             
-            # 2. In center: Cycle zoom and ignore the final release to prevent overlay flicker.
-            self._ignore_next_release = True
+            # 2. In center: Cycle zoom.
             self._cycle_zoom()
             return True
 
@@ -1025,7 +1495,13 @@ class BaseReaderView(QWidget):
                 self._mouse_press_pos = None
                 return True
 
-            if self._mouse_press_pos:
+            # Ignore release if QScroller is actively handling a gesture
+            scroller = QScroller.scroller(vp)
+            if scroller.state() in (QScroller.State.Dragging, QScroller.State.Scrolling):
+                self._mouse_press_pos = None
+                return True
+
+            if self._mouse_press_pos and event.button() == Qt.MouseButton.LeftButton:
                 diff = event.position() - self._mouse_press_pos
                 if diff.manhattanLength() < 5:
                     self._handle_click(event)
@@ -1037,19 +1513,104 @@ class BaseReaderView(QWidget):
             return True # Consume key
 
         if t == QEvent.Type.Wheel and source is vp:
-            # Ctrl+Wheel for zooming
+            # Detect and handle touchpad phases and velocity
+            now = time.time()
+            phase = event.phase()
+            dx = event.angleDelta().x()
+            dy = event.angleDelta().y()
+            px = event.pixelDelta()
+            
+            # Inclusive Touchpad Detection:
+            # On Windows, pixelDelta is often null. We check for horizontal data (dx) 
+            # or Phase data, which standard mouse wheels do not provide.
+            is_tp = not px.isNull() or phase != Qt.ScrollPhase.NoScrollPhase or dx != 0
+
+            input_logger.debug(
+                f"WHEEL: phase={phase.name} dx={dx} dy={dy} pixel={px.x()},{px.y()} "
+                f"is_tp={is_tp} locked={self._swipe_locked}"
+            )
+
+            # Calculate Velocity (units per second) for notched scrolling
+            # Use max(abs(dx), abs(dy)) for 2D awareness
+            dt = now - self._last_wheel_event_time
+            velocity = max(abs(dx), abs(dy)) / dt if dt > 0 else 0
+            self._last_wheel_event_time = now
+            
+            # 1. Ignore Momentum (Inertia) for discrete page turns
+            if phase == Qt.ScrollPhase.ScrollMomentum:
+                # Always block if not in continuous mode
+                if self._page_layout != PageLayout.CONTINUOUS:
+                    input_logger.debug(" >> BLOCKED (Momentum in Discrete Mode)")
+                    return True
+                # In continuous mode, block only at boundaries
+                vbar = self.view.verticalScrollBar()
+                if vbar.value() >= vbar.maximum() or vbar.value() <= vbar.minimum():
+                    input_logger.debug(" >> BLOCKED (Momentum at Boundary)")
+                    return True
+            
+            # 2. Reset accumulators when a fresh physical gesture begins
+            if phase == Qt.ScrollPhase.ScrollBegin:
+                input_logger.debug(" >> RESET (Gesture Begin)")
+                self._scroll_accumulator = 0
+                self._horizontal_swipe_accumulator = 0
+                self._swipe_locked = False
+
+            # 3. Ctrl+Wheel for zooming (Always High Priority)
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                if event.angleDelta().y() > 0:
+                input_logger.debug(f" >> ZOOM: dy={dy}")
+                # Suppress swipes while zooming to avoid accidental page turns
+                self._horizontal_swipe_accumulator = 0
+                self._swipe_locked = True
+                self._swipe_lock_timer.start()
+
+                if dy > 0:
                     self._zoom(self.ZOOM_STEP_IN)
-                else:
+                elif dy < 0:
                     self._zoom(self.ZOOM_STEP_OUT)
                 return True
 
-            # Use pixelDelta to detect high-precision (touchpad) devices.
-            is_touchpad = not event.pixelDelta().isNull()
-            dy = event.angleDelta().y()
-            
-            if is_touchpad:
+            # 4. Handle Unlock (Notch mechanism)
+            # If we are locked, we only unlock if the movement slows down significantly 
+            # or the gesture officially ends.
+            if self._swipe_locked:
+                if velocity < self.TOUCHPAD_VELOCITY_THRESHOLD or phase == Qt.ScrollPhase.ScrollEnd:
+                    input_logger.debug(f" >> UNLOCKED: vel={velocity:.1f}")
+                    self._swipe_locked = False
+                else:
+                    return True # Still moving too fast from the first notch
+
+            if is_tp:
+                # 1. Handle Horizontal Swipes (Page Turns)
+                # Ignore horizontal swipes in Continuous mode as lateral paging is 
+                # logically inconsistent with the vertical strip interaction model.
+                if dx != 0 and self._page_layout != PageLayout.CONTINUOUS:
+                    # Hardened: Ignore tiny horizontal jitter (less than 40 units)
+                    # to prevent accidental page turns during zooming or slow scrolls.
+                    if abs(dx) < 40:
+                        self._horizontal_swipe_accumulator = 0
+                        return True
+                        
+                    self._horizontal_swipe_accumulator += dx
+                    if abs(self._horizontal_swipe_accumulator) >= self.TOUCHPAD_SCROLL_THRESHOLD:
+                        is_swipe_right = self._horizontal_swipe_accumulator > 0
+                        input_logger.debug(f" >> SWIPE: direction={'RIGHT' if is_swipe_right else 'LEFT'} acc={self._horizontal_swipe_accumulator}")
+                        self._horizontal_swipe_accumulator = 0
+                        self._swipe_locked = True
+                        self._swipe_lock_timer.start()
+                        
+                        # In LtR: Right-swipe is Prev, Left-swipe is Next
+                        # In RtL: Right-swipe is Next, Left-swipe is Prev
+                        if not self._rtl:
+                            if is_swipe_right: self._prev()
+                            else: self._next()
+                        else:
+                            if is_swipe_right: self._next()
+                            else: self._prev()
+                        return True
+                else:
+                    self._horizontal_swipe_accumulator = 0
+
+                # 2. Handle Vertical Scrolling
                 self._scroll_accumulator += dy
                 
                 # Continuous Vertical mode needs smooth scrolling passthrough 
@@ -1060,28 +1621,52 @@ class BaseReaderView(QWidget):
                                   (dy > 0 and vbar.value() <= vbar.minimum())
                     
                     if at_boundary:
+                        # Use threshold to slow down book transitions
                         if abs(self._scroll_accumulator) >= self.TOUCHPAD_SCROLL_THRESHOLD:
-                            step_dy = self.DISCRETE_SCROLL_STEP if self._scroll_accumulator > 0 else -self.DISCRETE_SCROLL_STEP
+                            input_logger.debug(f" >> BOUNDARY TRANSITION: acc={self._scroll_accumulator}")
                             self._scroll_accumulator = 0
+                            self._swipe_locked = True
+                            self._swipe_lock_timer.start()
+                            # Book transition counts as 120 units
+                            step_dy = 120 if dy > 0 else -120
                             return self._smart_scroll(step_dy)
                         else:
                             return True # Swallow events until threshold met
                     else:
                         self._scroll_accumulator = 0 # Moving smoothly, clear threshold
+                        # Pass through original 'dy' at full strength for smooth panning
                         return self._smart_scroll(dy)
 
                 # Discrete page modes: accumulate until threshold reached
                 if abs(self._scroll_accumulator) >= self.TOUCHPAD_SCROLL_THRESHOLD:
-                    step_dy = self.DISCRETE_SCROLL_STEP if self._scroll_accumulator > 0 else -self.DISCRETE_SCROLL_STEP
+                    input_logger.debug(f" >> PAGE TURN: dy={dy} acc={self._scroll_accumulator}")
                     self._scroll_accumulator = 0
+                    self._swipe_locked = True
+                    self._swipe_lock_timer.start()
+                    # A notch is reached: trigger one smart scroll step
+                    step_dy = 120 if dy > 0 else -120
                     return self._smart_scroll(step_dy)
                 else:
                     return True # Swallow intermediate high-res events
-
-            self._scroll_accumulator = 0 # Discrete mouse wheel reset
-            return self._smart_scroll(dy)
+            else:
+                # 3. Handle Standard Mouse Wheel (Discrete clicks)
+                # Hardened: Ignore tiny values (like -1 or -8) often sent by 
+                # touchpads emulating mouse wheels, which cause runaway paging.
+                if abs(dy) < 60:
+                    input_logger.debug(f" >> FILTERED (Noise): dy={dy}")
+                    return True
+                    
+                input_logger.debug(f" >> MOUSE WHEEL: dy={dy}")
+                self._scroll_accumulator = 0 # Discrete mouse wheel reset
+                self._horizontal_swipe_accumulator = 0
+                return self._smart_scroll(dy)
 
         return super().eventFilter(source, event)
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.Type.WindowStateChange:
+            self._update_settings_menu()
+        super().changeEvent(event)
 
     def _smart_scroll(self, dy: int) -> bool:
         """Shared logic for mouse wheel and Space/Shift+Space 'smart' navigation."""
@@ -1170,23 +1755,18 @@ class BaseReaderView(QWidget):
             self._pending_click_pos = None
             self._execute_click(pos)
 
+    def _unlock_swipe(self):
+        self._swipe_locked = False
+
     def _handle_click(self, event):
         self._bump_cursor() # Restore cursor on any click
         w = self.view.viewport().width()
         pos = event.position()
-        x = pos.x()
         
-        zone_w = w * self.CLICK_ZONE_PCT
-        is_side = x < zone_w or x > w - zone_w
-        
-        if is_side:
-            # For side zones, we wait to ensure it's not a double-click
-            self._pending_click_pos = pos
-            # Use snappier guard interval
-            self._click_timer.start(self.CLICK_GUARD_MS)
-        else:
-            # Center click is immediate
-            self._execute_click(pos)
+        # Always use the click timer to distinguish single vs double clicks.
+        # This prevents the UI from toggling when the user intends to double-click zoom.
+        self._pending_click_pos = pos
+        self._click_timer.start(self.CLICK_GUARD_MS)
 
     def _execute_click(self, pos):
         w = self.view.viewport().width()
@@ -1334,6 +1914,26 @@ class BaseReaderView(QWidget):
             self._cycle_fit()
         elif key == Qt.Key.Key_H:
             self._toggle_help()
+        elif key == Qt.Key.Key_I:
+            # Show overlays and metadata
+            self._bump_activity()
+            if self.on_title_clicked:
+                self.on_title_clicked()
+        elif key == Qt.Key.Key_M:
+            self._bump_activity(ensure_overlays=False)
+            self._update_settings_menu()
+            self.settings_menu.adjustSize()
+            
+            # Center of reader window
+            center = self.rect().center()
+            global_center = self.mapToGlobal(center)
+            
+            # Adjust so the menu center is at the reader center
+            pos = QPoint(
+                global_center.x() - self.settings_menu.width() // 2,
+                global_center.y() - self.settings_menu.height() // 2
+            )
+            self.settings_menu.exec(pos)
         elif key == Qt.Key.Key_R:
             # Cycle through Reading Flows: LtR -> RtL -> Continuous
             if not self._rtl and self._page_layout != PageLayout.CONTINUOUS:
@@ -1384,19 +1984,12 @@ class BaseReaderView(QWidget):
             else:
                 win.showFullScreen()
 
-        # Update reader's local button icon state
-        if win.isFullScreen():
-            self.btn_fullscreen.setIcon(ThemeManager.get_icon("minimize", "white"))
-            self.btn_fullscreen.setToolTip("Exit fullscreen  [F11]")
-        else:
-            self.btn_fullscreen.setIcon(ThemeManager.get_icon("fullscreen", "white"))
-            self.btn_fullscreen.setToolTip("Exit fullscreen  [F11]")
-
     # ------------------------------------------------------------------ #
     # Navigation                                                           #
     # ------------------------------------------------------------------ #
 
     def _prev(self):
+        input_logger.debug(" >> EXECUTE: _prev()")
         logger.debug(f"Reader _prev called. index={self._index}, total={self._total}")
         if self._index > 0:
             step = 2 if self._effective_layout() == PageLayout.DOUBLE else 1
@@ -1406,6 +1999,7 @@ class BaseReaderView(QWidget):
             asyncio.create_task(self._handle_boundary(-1))
 
     def _next(self):
+        input_logger.debug(" >> EXECUTE: _next()")
         logger.debug(f"Reader _next called. index={self._index}, total={self._total}")
         if self._index < self._total - 1:
             step = 2 if self._effective_layout() == PageLayout.DOUBLE else 1
@@ -1429,9 +2023,13 @@ class BaseReaderView(QWidget):
         self._go_to(self.thumb_slider.slider.value())
 
     def _on_slider_value_changed(self, value: int):
-        # While dragging: update counter only, no page load
+        # While dragging: update counter only, no page load to avoid lag
         if self._slider_dragging:
             self.counter_label.setText(f"{value + 1} / {self._total}")
+        else:
+            # Not dragging: This is a single-click jump or a programmatic change.
+            # Trigger the page load immediately.
+            self._go_to(value)
 
     # ------------------------------------------------------------------ #
     # Settings Menu                                                        #
@@ -1441,97 +2039,162 @@ class BaseReaderView(QWidget):
         if not hasattr(self, 'settings_menu'): return
         self.settings_menu.clear()
         
-        # 1. Image Scaling Quality
-        header_scaling_q = self.settings_menu.addAction("RENDERING QUALITY")
-        header_scaling_q.setEnabled(False)
+        # 1. Commands (Top Priority)
+        is_fs = self.window().isFullScreen()
+        fs_label = "Exit Full Screen (F11)" if is_fs else "Enter Full Screen (F11)"
+        fs_icon = "minimize" if is_fs else "fullscreen"
         
-        scale_group = QActionGroup(self)
-        
-        fast_action = QAction("Fast", self)
-        fast_action.setCheckable(True)
-        fast_action.setChecked(self.config_manager.get_reader_scaling_mode() == "fast")
-        fast_action.triggered.connect(lambda: self._set_scaling_quality("fast"))
-        scale_group.addAction(fast_action)
-        self.settings_menu.addAction(fast_action)
+        # Main menu items use standard icons (content_primary)
+        fullscreen_action = QAction(fs_label, self)
+        fullscreen_action.setIcon(ThemeManager.get_icon(fs_icon, "content_primary"))
+        fullscreen_action.triggered.connect(self._toggle_fullscreen)
+        self.settings_menu.addAction(fullscreen_action)
 
-        smooth_action = QAction("Smooth", self)
-        smooth_action.setCheckable(True)
-        smooth_action.setChecked(self.config_manager.get_reader_scaling_mode() == "smooth")
-        smooth_action.triggered.connect(lambda: self._set_scaling_quality("smooth"))
-        scale_group.addAction(smooth_action)
-        self.settings_menu.addAction(smooth_action)
-            
+        exit_action = QAction("Exit Reader (Esc)", self)
+        exit_action.setIcon(ThemeManager.get_icon("back", "content_primary"))
+        exit_action.triggered.connect(self._do_exit)
+        self.settings_menu.addAction(exit_action)
+
+        help_action = QAction("Show Help (H)", self)
+        help_action.setIcon(ThemeManager.get_icon("help", "content_primary"))
+        help_action.triggered.connect(self._toggle_help)
+        self.settings_menu.addAction(help_action)
+
         self.settings_menu.addSeparator()
 
-        # 2. Image Scaling (Fit Modes)
-        header_scaling = self.settings_menu.addAction("IMAGE SCALING")
-        header_scaling.setEnabled(False)
+        # 2. Page Quality
+        current_q = self.config_manager.get_reader_scaling_mode() if self.config_manager else "smooth"
+        q_icons = {"fast": "quality_fast", "smooth": "quality_smooth"}
+        
+        scaling_q_menu = self.settings_menu.addMenu("Page Quality")
+        # Main menu category icons use standard content_primary color
+        scaling_q_menu.setIcon(ThemeManager.get_icon(q_icons.get(current_q, "quality_smooth"), "content_primary"))
+        
+        scale_group = QActionGroup(self)
+        for q_mode, label in [("fast", "Fast"), ("smooth", "Smooth")]:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            is_sel = current_q == q_mode
+            action.setChecked(is_sel)
+            icon_name = q_icons[q_mode]
+            # Submenu child actions KEEP the pill style
+            action.setIcon(ThemeManager.get_icon(icon_name, pill=True))
+            action.triggered.connect(lambda _, m=q_mode: self._set_scaling_quality(m))
+            scale_group.addAction(action)
+            scaling_q_menu.addAction(action)
+            
+        # 3. Page Scaling (Fit Modes)
+        fit_icons = {
+            FitMode.FIT_PAGE: "fit_page", 
+            FitMode.FIT_WIDTH: "fit_width", 
+            FitMode.FIT_HEIGHT: "fit_height", 
+            FitMode.ORIGINAL: "fit_original",
+            FitMode.CUSTOM: "settings"
+        }
+        scaling_menu = self.settings_menu.addMenu("Page Scaling")
+        scaling_menu.setIcon(ThemeManager.get_icon(fit_icons.get(self._fit_mode, "fit_page"), "content_primary"))
         
         fit_group = QActionGroup(self)
         for mode in _FIT_CYCLE:
             label = _FIT_LABELS[mode]
             action = QAction(label, self)
             action.setCheckable(True)
-            action.setChecked(self._fit_mode == mode)
+            is_sel = self._fit_mode == mode
+            action.setChecked(is_sel)
+            action.setIcon(ThemeManager.get_icon(fit_icons[mode], pill=True))
             action.triggered.connect(lambda _, m=mode: self._set_fit_mode(m))
             fit_group.addAction(action)
-            self.settings_menu.addAction(action)
+            scaling_menu.addAction(action)
             
-        self.settings_menu.addSeparator()
-        
-        # 3. Page Layout
-        header_view = self.settings_menu.addAction("DISPLAY MODE")
-        header_view.setEnabled(False)
-        
-        # We show the saved preference here, so it's always clear what the 
-        # fallback layout is even if currently in Continuous mode.
-        pref_layout = self.config_manager.get_reader_layout() if self.config_manager else "single"
+        # 4. Display Mode (Layout)
+        pref_layout_val = self.config_manager.get_reader_layout() if self.config_manager else "single"
+        pref_layout = PageLayout(pref_layout_val)
+        layout_icons = {
+            PageLayout.SINGLE: "layout_single",
+            PageLayout.DOUBLE: "layout_double",
+            PageLayout.AUTO: "layout_auto"
+        }
+        layout_menu = self.settings_menu.addMenu("Display Mode")
+        layout_menu.setIcon(ThemeManager.get_icon(layout_icons.get(pref_layout, "layout_single"), "content_primary"))
         
         layout_group = QActionGroup(self)
         for layout in [PageLayout.SINGLE, PageLayout.DOUBLE, PageLayout.AUTO]:
             label = _LAYOUT_LABELS[layout]
             action = QAction(label, self)
             action.setCheckable(True)
-            action.setChecked(pref_layout == layout.value)
+            is_sel = pref_layout == layout
+            action.setChecked(is_sel)
+            action.setIcon(ThemeManager.get_icon(layout_icons[layout], pill=True))
             action.triggered.connect(lambda _, l=layout: self._set_page_layout(l))
             layout_group.addAction(action)
-            self.settings_menu.addAction(action)
+            layout_menu.addAction(action)
             
-        self.settings_menu.addSeparator()
-        
-        # 4. Reading Flow (Mutually Exclusive: LtR, RtL, Continuous)
-        header_flow = self.settings_menu.addAction("READING FLOW")
-        header_flow.setEnabled(False)
+        # 5. Reading Flow
+        current_flow = "ltr"
+        if self._page_layout == PageLayout.CONTINUOUS:
+            current_flow = "continuous"
+        elif self._rtl:
+            current_flow = "rtl"
+            
+        flow_icons = {
+            "ltr": "flow_ltr",
+            "rtl": "flow_rtl",
+            "continuous": "flow_continuous"
+        }
+        flow_menu = self.settings_menu.addMenu("Reading Flow")
+        flow_menu.setIcon(ThemeManager.get_icon(flow_icons.get(current_flow, "flow_ltr"), "content_primary"))
         
         flow_group = QActionGroup(self)
-        
-        ltr_action = QAction("Left to Right (LtR)", self)
-        ltr_action.setCheckable(True)
-        ltr_action.setChecked(not self._rtl and self._page_layout != PageLayout.CONTINUOUS)
-        ltr_action.triggered.connect(lambda: self._set_reading_flow("ltr"))
-        flow_group.addAction(ltr_action)
-        self.settings_menu.addAction(ltr_action)
-        
-        rtl_action = QAction("Right to Left (RtL)", self)
-        rtl_action.setCheckable(True)
-        rtl_action.setChecked(self._rtl and self._page_layout != PageLayout.CONTINUOUS)
-        rtl_action.triggered.connect(lambda: self._set_reading_flow("rtl"))
-        flow_group.addAction(rtl_action)
-        self.settings_menu.addAction(rtl_action)
+        flow_options = [
+            ("ltr", "Left to Right (LtR)"),
+            ("rtl", "Right to Left (RtL)"),
+            ("continuous", "Continuous Vertical")
+        ]
+        for f_mode, label in flow_options:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            is_sel = current_flow == f_mode
+            action.setChecked(is_sel)
+            action.setIcon(ThemeManager.get_icon(flow_icons[f_mode], pill=True))
+            action.triggered.connect(lambda _, m=f_mode: self._set_reading_flow(m))
+            flow_group.addAction(action)
+            flow_menu.addAction(action)
 
-        cont_action = QAction("Continuous Vertical", self)
-        cont_action.setCheckable(True)
-        cont_action.setChecked(self._page_layout == PageLayout.CONTINUOUS)
-        cont_action.triggered.connect(lambda: self._set_reading_flow("continuous"))
-        flow_group.addAction(cont_action)
-        self.settings_menu.addAction(cont_action)
+        # 6. Background Color
+        bg_menu = self.settings_menu.addMenu("Background Color")
+        bg_icons = {
+            BackgroundMode.BLACK: "fit_original",
+            BackgroundMode.WHITE: "fit_page",
+            BackgroundMode.CUSTOM: "settings",
+            BackgroundMode.MEAN: "quality_smooth",
+            BackgroundMode.MEDIAN: "quality_smooth",
+            BackgroundMode.MODE: "quality_smooth",
+            BackgroundMode.MODE_MEAN: "quality_smooth",
+            BackgroundMode.VIBRANT: "quality_smooth",
+            BackgroundMode.CONTRAST: "quality_smooth",
+            BackgroundMode.SMOOTH: "quality_smooth",
+            BackgroundMode.GRADIENT: "quality_smooth",
+            BackgroundMode.CLEAN: "quality_smooth"
+        }
+        bg_menu.setIcon(ThemeManager.get_icon(bg_icons.get(self._bg_mode, "moon"), "content_primary"))
         
+        bg_group = QActionGroup(self)
+        for mode in BackgroundMode:
+            label = _BG_LABELS[mode]
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(self._bg_mode == mode)
+            action.setIcon(ThemeManager.get_icon(bg_icons[mode], pill=True))
+            if mode == BackgroundMode.CUSTOM:
+                action.triggered.connect(self._set_custom_bg_color)
+            else:
+                action.triggered.connect(lambda _, m=mode: self._set_bg_mode(m))
+            bg_group.addAction(action)
+            bg_menu.addAction(action)
+
         self.settings_menu.addSeparator()
         
-        # 5. Interface
-        header_ui = self.settings_menu.addAction("INTERFACE")
-        header_ui.setEnabled(False)
-        
+        # 6. Interface
         autohide_action = QAction("Auto-Hide Controls", self)
         autohide_action.setCheckable(True)
         autohide_action.setChecked(self._auto_hide_controls)
@@ -1563,30 +2226,42 @@ class BaseReaderView(QWidget):
         else:
             if self.pixmap_item.pixmap().isNull(): return
             
+        self._bump_activity(ensure_overlays=False) # Show zoom level label
+        
         if self._fit_mode != FitMode.CUSTOM:
             self._fit_mode = FitMode.CUSTOM
             self._update_settings_menu()
-            self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            if self._page_layout == PageLayout.CONTINUOUS:
+                self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            else:
+                self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         self.view.scale(factor, factor)
         
         # Calculate minimum scale
         vp = self.view.viewport()
-        
+
         # Use first available page as a reference for min_scale
         if self._page_layout == PageLayout.CONTINUOUS:
-            sample_item = next(iter(self._continuous_items.values()))
+            min_scale_w = vp.width() / max(1, self._continuous_strip_width)
+            # Allow zooming out to see ~2.5 pages
+            target_h = self._continuous_strip_width * 1.5 * 2.5
+            min_scale_h = vp.height() / max(1, target_h)
+            min_scale = min(min_scale_w, min_scale_h)
         else:
             sample_item = self.pixmap_item
+            min_scale_w = vp.width() / max(1, sample_item.base_width)
+            min_scale_h = vp.height() / max(1, sample_item.base_height)
+            min_scale = min(min_scale_w, min_scale_h)
 
-        min_scale_w = vp.width() / max(1, sample_item.base_width)
-        min_scale_h = vp.height() / max(1, sample_item.base_height)
-        min_scale = min(min_scale_w, min_scale_h)
-        
         # Current scale
         current_scale = self.view.transform().m11()
-        
+
+        if self._page_layout == PageLayout.CONTINUOUS:
+            cont_logger.debug(f"Continuous Zoom: factor={factor:.2f}, current_scale={current_scale:.3f}, min_scale={min_scale:.3f}")
+
         if current_scale < min_scale:
             self._set_fit_mode(FitMode.FIT_PAGE)
         else:
@@ -1596,6 +2271,8 @@ class BaseReaderView(QWidget):
         if self.pixmap_item.pixmap().isNull():
             return
 
+        self._bump_activity(ensure_overlays=False) # Show zoom level label
+        
         # 4 Levels (Multipliers of Fit Page scale)
         levels = [1.0, 1.5, 2.5, 4.0]
         self._zoom_cycle_idx = (self._zoom_cycle_idx + 1) % len(levels)
@@ -1616,8 +2293,12 @@ class BaseReaderView(QWidget):
             self._set_fit_mode(FitMode.CUSTOM)
             self.view.resetTransform()
             self.view.scale(target_total_scale, target_total_scale)
-            self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            if self._page_layout == PageLayout.CONTINUOUS:
+                self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            else:
+                self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             self._update_mipmap_levels()
 
     def _cycle_fit(self):
@@ -1630,101 +2311,120 @@ class BaseReaderView(QWidget):
         self._set_fit_mode(next_mode)
 
     def _apply_fit(self):
-        vp  = self.view.viewport()
-        off = Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        on  = Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        # Programmatic fit should always center, not follow the mouse
+        old_anchor = self.view.transformationAnchor()
+        self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        
+        try:
+            vp  = self.view.viewport()
+            off = Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            on  = Qt.ScrollBarPolicy.ScrollBarAsNeeded
 
-        # Apply scaling mode from comiccatcher.config
-        mode = self.config_manager.get_reader_scaling_mode() if self.config_manager else "smooth"
-        is_fast = (mode == "fast")
-        logger.debug(f"Reader: Applying {mode} scaling (is_fast={is_fast})")
-        
-        t_mode = Qt.TransformationMode.FastTransformation if is_fast else Qt.TransformationMode.SmoothTransformation
-        
-        # Be very aggressive with render hints
-        self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, not is_fast)
-        self.view.setRenderHint(QPainter.RenderHint.Antialiasing, not is_fast)
-        
-        # Apply to main page
-        if not self.pixmap_item.pixmap().isNull():
-            self.pixmap_item.setTransformationMode(t_mode)
+            # Apply scaling mode from comiccatcher.config
+            mode = self.config_manager.get_reader_scaling_mode() if self.config_manager else "smooth"
+            is_fast = (mode == "fast")
+            logger.debug(f"Reader: Applying {mode} scaling (is_fast={is_fast})")
             
-        # Apply to all continuous pages
-        for it in self._continuous_items.values():
-            it.setTransformationMode(t_mode)
+            t_mode = Qt.TransformationMode.FastTransformation if is_fast else Qt.TransformationMode.SmoothTransformation
             
-        self.view.viewport().update()
+            # Be very aggressive with render hints
+            self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, not is_fast)
+            self.view.setRenderHint(QPainter.RenderHint.Antialiasing, not is_fast)
+            
+            # Apply to main page
+            if not self.pixmap_item.pixmap().isNull():
+                self.pixmap_item.setTransformationMode(t_mode)
+                
+            # Apply to all continuous pages
+            for it in self._continuous_items.values():
+                it.setTransformationMode(t_mode)
+                
+            self.view.viewport().update()
 
-        if self._page_layout == PageLayout.CONTINUOUS:
-            self.view.setHorizontalScrollBarPolicy(off)
-            self.view.setVerticalScrollBarPolicy(on)
-            
-            if not self._continuous_items:
+            if self._page_layout == PageLayout.CONTINUOUS:
+                self.view.setHorizontalScrollBarPolicy(off)
+                self.view.setVerticalScrollBarPolicy(off)
+                self.view.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+
+                if not self._continuous_items:
+                    return
+
+                if self._fit_mode == FitMode.CUSTOM:
+                    self._update_mipmap_levels()
+                    return
+
+                self.view.resetTransform()
+                if self._continuous_strip_width > 0:
+                    if self._fit_mode == FitMode.FIT_PAGE:
+                        # In continuous mode, "Fit Page" acts as a zoomed-out mode.
+                        # We target showing approximately 1.0 page's worth of height.
+                        # Assuming an average aspect ratio of 1.5 (height/width)
+                        target_h = self._continuous_strip_width * 1.5 * 1.0
+                        scale_h = vp.height() / target_h
+                        # Also ensure it doesn't overflow horizontally
+                        scale_w = vp.width() / self._continuous_strip_width
+                        scale = min(scale_h, scale_w)
+                        self.view.scale(scale, scale)
+                    elif self._fit_mode == FitMode.FIT_WIDTH:
+                        scale = vp.width() / self._continuous_strip_width
+                        self.view.scale(scale, scale)
+                    elif self._fit_mode == FitMode.ORIGINAL:
+                        pass # 1:1 scale
+
+                self._update_mipmap_levels()
                 return
-            
-            # In continuous mode
+
+            if self.pixmap_item.pixmap().isNull():
+                return
+            pm_item  = self.pixmap_item
+
             if self._fit_mode == FitMode.FIT_PAGE:
-                # Use first item to calculate page-fit scale
-                sample_item = next(iter(self._continuous_items.values()))
-                self.view.resetTransform()
-                if sample_item.base_width > 0 and sample_item.base_height > 0:
-                    scale_w = vp.width() / sample_item.base_width
-                    scale_h = vp.height() / sample_item.base_height
-                    scale = min(scale_w, scale_h)
-                    self.view.scale(scale, scale)
+                self.view.setHorizontalScrollBarPolicy(off)
+                self.view.setVerticalScrollBarPolicy(off)
+                self.view.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+
             elif self._fit_mode == FitMode.FIT_WIDTH:
-                max_w = max((it.base_width for it in self._continuous_items.values()), default=1)
-                self.view.resetTransform()
-                if max_w > 0:
-                    scale = vp.width() / max_w
-                    self.view.scale(scale, scale)
+                self.view.setHorizontalScrollBarPolicy(off)
+                self.view.setVerticalScrollBarPolicy(on)
+                if pm_item.base_width > 0:
+                    self.view.resetTransform()
+                    self.view.scale(vp.width() / pm_item.base_width, vp.width() / pm_item.base_width)
+
+            elif self._fit_mode == FitMode.FIT_HEIGHT:
+                self.view.setHorizontalScrollBarPolicy(on)
+                self.view.setVerticalScrollBarPolicy(off)
+                if pm_item.base_height > 0:
+                    self.view.resetTransform()
+                    self.view.scale(vp.height() / pm_item.base_height, vp.height() / pm_item.base_height)
+
             elif self._fit_mode == FitMode.ORIGINAL:
+                self.view.setHorizontalScrollBarPolicy(on)
+                self.view.setVerticalScrollBarPolicy(on)
                 self.view.resetTransform()
+
+            elif self._fit_mode == FitMode.CUSTOM:
+                self.view.setHorizontalScrollBarPolicy(on)
+                self.view.setVerticalScrollBarPolicy(on)
+
             self._update_mipmap_levels()
-            return
-
-        if self.pixmap_item.pixmap().isNull():
-            return
-        pm_item  = self.pixmap_item
-
-        if self._fit_mode == FitMode.FIT_PAGE:
-            self.view.setHorizontalScrollBarPolicy(off)
-            self.view.setVerticalScrollBarPolicy(off)
-            self.view.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
-
-        elif self._fit_mode == FitMode.FIT_WIDTH:
-            self.view.setHorizontalScrollBarPolicy(off)
-            self.view.setVerticalScrollBarPolicy(on)
-            if pm_item.base_width > 0:
-                self.view.resetTransform()
-                self.view.scale(vp.width() / pm_item.base_width, vp.width() / pm_item.base_width)
-
-        elif self._fit_mode == FitMode.FIT_HEIGHT:
-            self.view.setHorizontalScrollBarPolicy(on)
-            self.view.setVerticalScrollBarPolicy(off)
-            if pm_item.base_height > 0:
-                self.view.resetTransform()
-                self.view.scale(vp.height() / pm_item.base_height, vp.height() / pm_item.base_height)
-
-        elif self._fit_mode == FitMode.ORIGINAL:
-            self.view.setHorizontalScrollBarPolicy(on)
-            self.view.setVerticalScrollBarPolicy(on)
-            self.view.resetTransform()
-
-        elif self._fit_mode == FitMode.CUSTOM:
-            self.view.setHorizontalScrollBarPolicy(on)
-            self.view.setVerticalScrollBarPolicy(on)
-
-        self._update_mipmap_levels()
+        finally:
+            self.view.setTransformationAnchor(old_anchor)
 
     def _update_mipmap_levels(self):
         try:
             view_scale = self.view.transform().m11()
+            
+            # Update zoom label (e.g. 125%)
+            if hasattr(self, "zoom_label"):
+                self.zoom_label.setText(f"{int(view_scale * 100)}%")
+
             if hasattr(self.pixmap_item, 'update_mipmap_level') and not self.pixmap_item.pixmap().isNull():
                 self.pixmap_item.update_mipmap_level(view_scale)
             for it in self._continuous_items.values():
                 if hasattr(it, 'update_mipmap_level') and not it.pixmap().isNull():
                     it.update_mipmap_level(view_scale)
+
+            self._update_reader_cursor()
         except Exception as e:
             logger.error(f"Error updating mipmaps: {e}")
 
@@ -1747,6 +2447,8 @@ class BaseReaderView(QWidget):
             
         if self.config_manager:
             self.config_manager.set_reader_layout(layout.value)
+            
+        self._update_slider_direction()
         self._update_settings_menu()
         asyncio.create_task(self._show_page())
 
@@ -1781,23 +2483,57 @@ class BaseReaderView(QWidget):
             self._rtl = False
             if self._page_layout == PageLayout.CONTINUOUS:
                 saved = self.config_manager.get_reader_layout() if self.config_manager else "single"
+                # If the saved value is also 'continuous', fallback to 'single' to avoid getting stuck
+                if saved == "continuous": saved = "single"
                 self._page_layout = PageLayout(saved)
         elif flow == "rtl":
             self._rtl = True
             if self._page_layout == PageLayout.CONTINUOUS:
                 saved = self.config_manager.get_reader_layout() if self.config_manager else "single"
+                if saved == "continuous": saved = "single"
                 self._page_layout = PageLayout(saved)
         elif flow == "continuous":
             self._page_layout = PageLayout.CONTINUOUS
             
-        # Update slider direction
-        self.thumb_slider.slider.setInvertedAppearance(self._rtl)
+        self._update_slider_direction()
 
         if self.config_manager:
             self.config_manager.set_reader_flow(flow)
+            # Update the layout in config as well so it matches our restored state
+            self.config_manager.set_reader_layout(self._page_layout.value)
             
         self._update_settings_menu()
         asyncio.create_task(self._show_page())
+
+    def _set_bg_mode(self, mode: BackgroundMode):
+        self._bg_mode = mode
+        if self.config_manager:
+            self.config_manager.set_reader_bg_mode(mode.value)
+        
+        self._update_background()
+        self.reapply_theme() # Full reapply to handle text contrast
+
+    def _update_slider_direction(self):
+        """Update the scrub bar's visual and logical direction."""
+        # Force LtR (Normal) direction for Continuous Vertical mode.
+        is_rtl_visual = self._rtl and self._page_layout != PageLayout.CONTINUOUS
+        
+        self.thumb_slider.slider.setInvertedAppearance(is_rtl_visual)
+        self.thumb_slider.slider.setProperty("rtl", is_rtl_visual)
+        self.thumb_slider.slider.style().unpolish(self.thumb_slider.slider)
+        self.thumb_slider.slider.style().polish(self.thumb_slider.slider)
+
+    def _set_custom_bg_color(self):
+        color = QColorDialog.getColor(self._custom_bg_color, self, "Select Background Color")
+        if color.isValid():
+            self._custom_bg_color = color
+            self._bg_mode = BackgroundMode.CUSTOM
+            if self.config_manager:
+                self.config_manager.set_reader_bg_mode("custom")
+                self.config_manager.set_reader_bg_color(color.name())
+            
+            self._update_background()
+            self.reapply_theme()
 
     # ------------------------------------------------------------------ #
     # Page display (called by subclasses after data is ready)             #
@@ -1805,9 +2541,25 @@ class BaseReaderView(QWidget):
 
     def clear_display(self):
         """Immediately blank the canvas and labels (prevents prior-comic flash)."""
+        self._is_closing = False
         self.pixmap_item.setPixmap(QPixmap())
+        
+        # Clear continuous items if any exist
+        if hasattr(self, '_continuous_items') and self._continuous_items:
+            for item in self._continuous_items.values():
+                try:
+                    self.scene.removeItem(item)
+                except Exception:
+                    pass
+            self._continuous_items.clear()
+            if hasattr(self, '_continuous_y_offsets'):
+                self._continuous_y_offsets.clear()
+            if hasattr(self, '_continuous_loading'):
+                self._continuous_loading.clear()
+                
         self.title_label.setText("")
         self.counter_label.setText("0 / 0")
+        self.thumb_slider.clear()
         self.thumb_slider.slider.setRange(0, 0)
         self.thumb_slider.slider.setValue(0)
 
@@ -1833,31 +2585,7 @@ class BaseReaderView(QWidget):
 
         layout = self._effective_layout()
         
-        if layout == PageLayout.CONTINUOUS:
-            self.pixmap_item.setVisible(False)
-            
-            # If jumping far away, clear scene
-            if idx not in self._continuous_items:
-                for item in self._continuous_items.values():
-                    self.scene.removeItem(item)
-                self._continuous_items.clear()
-            else:
-                # Scroll to it
-                item = self._continuous_items[idx]
-                self.view.ensureVisible(item, 0, 0)
-                return
-
-            asyncio.create_task(self._load_continuous_pages(idx))
-            return
-        
-        # Non-continuous mode: clean up continuous items if they exist
-        if self._continuous_items:
-            for item in self._continuous_items.values():
-                self.scene.removeItem(item)
-            self._continuous_items.clear()
-        
-        self.pixmap_item.setVisible(True)
-
+        # 1. Update UI Labels and Slider state for all modes
         double    = layout == PageLayout.DOUBLE
         idx2      = idx + 1 if double and idx + 1 < self._total else None
         page_desc = (f"{idx + 1}–{idx2 + 1}" if idx2 is not None else str(idx + 1))
@@ -1867,11 +2595,45 @@ class BaseReaderView(QWidget):
         self.thumb_slider.slider.setValue(idx)
         self.thumb_slider.slider.blockSignals(False)
 
+        # 2. Handle Continuous Vertical Layout
+        if layout == PageLayout.CONTINUOUS:
+            self.pixmap_item.setVisible(False)
+            
+            # If jumping far away, clear scene
+            if idx not in self._continuous_items:
+                for item in self._continuous_items.values():
+                    self.scene.removeItem(item)
+                self._continuous_items.clear()
+                self._continuous_y_offsets.clear()
+                asyncio.create_task(self._load_continuous_page_initial(idx))
+            else:
+                # Scroll to it
+                item = self._continuous_items[idx]
+                self.view.ensureVisible(item, 0, 0)
+
+            return
+        
+        # 3. Handle Paginated Layouts (Single/Double)
+        # Non-continuous mode: clean up continuous items if they exist
+        if self._continuous_items:
+            for item in self._continuous_items.values():
+                self.scene.removeItem(item)
+            self._continuous_items.clear()
+        
+        self.pixmap_item.setVisible(True)
+
         if idx2 is not None:
             pm1, pm2 = await asyncio.gather(
                 self._load_page_pixmap(idx),
                 self._load_page_pixmap(idx2),
             )
+            if self._is_closing: return
+            
+            # Check layout again after await - another mode might have taken over!
+            if self._effective_layout() == PageLayout.CONTINUOUS:
+                logger.debug("Reader _show_page: Discarding paginated spread as Continuous mode is now active.")
+                return
+
             if idx != self._index:
                 return
             if pm1 and pm2 and not pm1.isNull() and not pm2.isNull():
@@ -1884,6 +2646,13 @@ class BaseReaderView(QWidget):
                     self.thumb_slider.store_thumb(idx, pm1)
         else:
             pixmap = await self._load_page_pixmap(idx)
+            if self._is_closing: return
+            
+            # Check layout again after await
+            if self._effective_layout() == PageLayout.CONTINUOUS:
+                logger.debug("Reader _show_page: Discarding paginated page as Continuous mode is now active.")
+                return
+
             if idx != self._index:
                 return
             if pixmap and not pixmap.isNull():
@@ -1893,6 +2662,7 @@ class BaseReaderView(QWidget):
             self.pixmap_item.setPixmap(pixmap)
             self.scene.setSceneRect(self.pixmap_item.boundingRect())
             self._apply_fit()
+            self._update_background(pixmap)
             
             # Reset scroll position to appropriate corner
             vbar = self.view.verticalScrollBar()
@@ -1922,68 +2692,201 @@ class BaseReaderView(QWidget):
 
         self._on_page_changed(idx)
 
-    async def _load_continuous_pages(self, start_idx: int):
-        to_load = range(start_idx, min(self._total, start_idx + 3))
-        
-        for i in to_load:
-            if i in self._continuous_items:
-                continue
-            pm = await self._load_page_pixmap(i)
-            if not pm or pm.isNull(): continue
-            self.thumb_slider.store_thumb(i, pm)
+    async def _load_continuous_page_initial(self, start_idx: int):
+        async with self._continuous_task_lock:
+            self._continuous_session_id += 1
+            session_id = self._continuous_session_id
+            
+            # Clear everything again inside the lock to ensure consistency
+            for item in self._continuous_items.values():
+                try: self.scene.removeItem(item)
+                except: pass
+            self._continuous_items.clear()
+            self._continuous_y_offsets.clear()
+            self._continuous_loading.clear()
+            
+            cont_logger.debug(f"Continuous INITIAL (Session {session_id}): Requesting index {start_idx}")
+            pm = await self._load_page_pixmap(start_idx)
+            if self._is_closing: return
+            
+            # Check if session changed while we were awaiting
+            if session_id != self._continuous_session_id:
+                cont_logger.debug(f"Continuous INITIAL (Session {session_id}): Discarding stale session load.")
+                return
 
+            if not pm or pm.isNull():
+                cont_logger.warning(f"Continuous INITIAL: Failed to load index {start_idx}")
+                return
+            self.thumb_slider.store_thumb(start_idx, pm)
+
+            self._continuous_strip_width = pm.width() or 1000.0
+            cont_logger.debug(f"Continuous INITIAL: Base strip width set to {self._continuous_strip_width}")
+            
             item = MipmapPixmapItem(pm)
+            item.set_base_scale(1.0)
             self.scene.addItem(item)
-            self._continuous_items[i] = item            
-        if not self._continuous_items:
-            return
-
-        # 1. Calculate dimensions and vertical flow
-        max_w = max(it.pixmap().width() for it in self._continuous_items.values())
-        
-        # 2. Arrange pages: Center horizontally and stack vertically
-        current_y = 0
-        sorted_indices = sorted(self._continuous_items.keys())
-        for idx in sorted_indices:
-            item = self._continuous_items[idx]
-            pm_w = item.pixmap().width()
-            pm_h = item.pixmap().height()
+            self._continuous_items[start_idx] = item
             
-            offset_x = (max_w - pm_w) / 2
-            item.setPos(offset_x, current_y)
-            current_y += pm_h
-
-        # 3. Update scene rect safely without jumping
-        vbar = self.view.verticalScrollBar()
-        v_val = vbar.value()
-        
-        self.scene.setSceneRect(0, 0, max_w, current_y)
-        self._apply_fit()
-        
-        vbar.setValue(v_val)
-
-        if start_idx == min(self._continuous_items.keys()):
-            item = self._continuous_items[start_idx]
-            self.view.ensureVisible(item, 0, 0)
+            item.setPos(0, 0)
+            self._continuous_y_offsets[start_idx] = 0.0
+            self._continuous_min_y = 0.0
+            self._continuous_max_y = pm.height()
             
-        self._on_vscroll_changed(vbar.value())
+            self.scene.setSceneRect(0, 0, self._continuous_strip_width, self._continuous_max_y)
+            self._apply_fit()
+            self.view.verticalScrollBar().setValue(0)
+            self._update_background(pm)
+            
+            cont_logger.debug(f"Continuous INITIAL: Setup complete. sceneRect=(0, {self._continuous_min_y}, {self._continuous_strip_width}, {self._continuous_max_y})")
+
+        # Prefetch adjacent (outside the main session lock)
+        if start_idx + 1 < self._total:
+            asyncio.create_task(self._load_continuous_page_append(start_idx + 1, session_id))
+        if start_idx - 1 >= 0:
+            asyncio.create_task(self._load_continuous_page_prepend(start_idx - 1, session_id))
+
+    async def _load_continuous_page_append(self, idx: int, session_id: int):
+        if session_id != self._continuous_session_id: return
+        if idx >= self._total or idx in self._continuous_items: return
+        try:
+            cont_logger.debug(f"Continuous APPEND (Session {session_id}): Fetching index {idx}")
+            pm = await self._load_page_pixmap(idx)
+            if self._is_closing: return
+            
+            if session_id != self._continuous_session_id: return
+            if idx in self._continuous_items: return
+
+            if not pm or pm.isNull():
+                cont_logger.warning(f"Continuous APPEND: Failed to load index {idx}")
+                return
+            self.thumb_slider.store_thumb(idx, pm)
+            
+            item = MipmapPixmapItem(pm)
+            scale = self._continuous_strip_width / pm.width() if pm.width() else 1.0
+            item.set_base_scale(scale)
+            
+            # Position relative to immediate neighbor to ensure NO GAPS
+            if idx - 1 in self._continuous_items:
+                prev = self._continuous_items[idx - 1]
+                target_y = prev.pos().y() + (prev.base_height * prev._base_scale) - 1.0
+            elif idx + 1 in self._continuous_items:
+                nxt = self._continuous_items[idx + 1]
+                target_y = nxt.pos().y() - (pm.height() * scale) + 1.0
+            else:
+                target_y = self._continuous_max_y - 1.0
+
+            item.setPos(0, target_y)
+            self.scene.addItem(item)
+            self._continuous_items[idx] = item
+            self._continuous_y_offsets[idx] = target_y
+            
+            # Re-sync overall scene boundaries from all loaded items to prevent drift
+            all_ys = []
+            for it in self._continuous_items.values():
+                all_ys.append(it.pos().y())
+                all_ys.append(it.pos().y() + (it.base_height * it._base_scale))
+            
+            self._continuous_min_y = min(all_ys)
+            self._continuous_max_y = max(all_ys)
+            self.scene.setSceneRect(0, self._continuous_min_y, self._continuous_strip_width, self._continuous_max_y - self._continuous_min_y)
+            
+            cont_logger.debug(f"Continuous APPEND: Added {idx} at Y={target_y:.1f}, SceneRect={self.scene.sceneRect()}")
+        finally:
+            self._continuous_loading.discard(idx)
+
+    async def _load_continuous_page_prepend(self, idx: int, session_id: int):
+        if session_id != self._continuous_session_id: return
+        if idx < 0 or idx in self._continuous_items: return
+        try:
+            cont_logger.debug(f"Continuous PREPEND (Session {session_id}): Fetching index {idx}")
+            pm = await self._load_page_pixmap(idx)
+            if self._is_closing: return
+            
+            if session_id != self._continuous_session_id: return
+            if idx in self._continuous_items: return
+
+            if not pm or pm.isNull():
+                cont_logger.warning(f"Continuous PREPEND: Failed to load index {idx}")
+                return
+            self.thumb_slider.store_thumb(idx, pm)
+            
+            item = MipmapPixmapItem(pm)
+            scale = self._continuous_strip_width / pm.width() if pm.width() else 1.0
+            item.set_base_scale(scale)
+            
+            new_h = (pm.height() * scale) - 1.0
+            
+            # Position relative to immediate neighbor
+            if idx + 1 in self._continuous_items:
+                nxt = self._continuous_items[idx + 1]
+                target_y = nxt.pos().y() - new_h
+            elif idx - 1 in self._continuous_items:
+                prev = self._continuous_items[idx - 1]
+                target_y = prev.pos().y() + (prev.base_height * prev._base_scale) - 1.0
+            else:
+                target_y = self._continuous_min_y - new_h
+
+            item.setPos(0, target_y)
+            self.scene.addItem(item)
+            self._continuous_items[idx] = item
+            self._continuous_y_offsets[idx] = target_y
+            
+            # Re-sync overall boundaries
+            all_ys = []
+            for it in self._continuous_items.values():
+                all_ys.append(it.pos().y())
+                all_ys.append(it.pos().y() + (it.base_height * it._base_scale))
+            
+            self._continuous_min_y = min(all_ys)
+            self._continuous_max_y = max(all_ys)
+            self.scene.setSceneRect(0, self._continuous_min_y, self._continuous_strip_width, self._continuous_max_y - self._continuous_min_y)
+            
+            cont_logger.debug(f"Continuous PREPEND: Added {idx} at Y={target_y:.1f}, SceneRect={self.scene.sceneRect()}")
+        finally:
+            self._continuous_loading.discard(idx)
 
     def _on_vscroll_changed(self, value):
         if self._is_closing or self._page_layout != PageLayout.CONTINUOUS or not self._continuous_items:
             return
             
-        scene_y = self.view.mapToScene(0, 0).y()
-        visible_idx = self._index
+        vp = self.view.viewport()
+        vbar = self.view.verticalScrollBar()
+        if vbar.maximum() <= 0 and self._total > 1:
+            return
+
+        scene_top = self.view.mapToScene(0, 0).y()
+        scene_bottom = self.view.mapToScene(0, vp.height()).y()
+        scene_center = self.view.mapToScene(0, vp.height() // 2).y()
         
+        visible_idx = self._index
+        min_visible = float('inf')
+        max_visible = float('-inf')
+        
+        # Track items in viewport AND physical loaded bounds
+        loaded_min_y = float('inf')
+        loaded_max_y = float('-inf')
+
         for idx, item in self._continuous_items.items():
             try:
-                if item.pos().y() <= scene_y < item.pos().y() + item.base_height:
+                item_y = item.pos().y()
+                item_h = item.base_height * item._base_scale
+                
+                loaded_min_y = min(loaded_min_y, item_y)
+                loaded_max_y = max(loaded_max_y, item_y + item_h)
+
+                if item_y <= scene_center < item_y + item_h:
                     visible_idx = idx
-                    break
+                if item_y < scene_bottom and item_y + item_h > scene_top:
+                    min_visible = min(min_visible, idx)
+                    max_visible = max(max_visible, idx)
             except RuntimeError:
                 continue
                 
+        if min_visible == float('inf'):
+            min_visible = max_visible = visible_idx
+
         if visible_idx != self._index:
+            cont_logger.debug(f"Continuous Scroll: Viewport center crossed into index {visible_idx}")
             self._index = visible_idx
             try:
                 self.counter_label.setText(f"{visible_idx + 1} / {self._total}")
@@ -1991,14 +2894,87 @@ class BaseReaderView(QWidget):
                 self.thumb_slider.slider.setValue(visible_idx)
                 self.thumb_slider.slider.blockSignals(False)
                 self._on_page_changed(visible_idx)
+                self._update_background()
             except RuntimeError:
                 pass
             
         try:
-            vbar = self.view.verticalScrollBar()
-            if vbar.value() >= vbar.maximum() - self.view.viewport().height():
-                max_loaded = max(self._continuous_items.keys())
-                if max_loaded < self._total - 1:
-                    asyncio.create_task(self._load_continuous_pages(max_loaded + 1))
+            # Physical Virtualization: distance to the actual edges of loaded content
+            dist_to_top_edge = scene_top - loaded_min_y
+            dist_to_bottom_edge = loaded_max_y - scene_bottom
+            
+            # 1. UNLOAD pages physically far away (more than 4 viewports distance)
+            unload_threshold = vp.height() * 4.0
+            keep_range = range(min_visible - 6, max_visible + 7)
+            
+            keys_to_remove = []
+            for k, item in self._continuous_items.items():
+                if k in keep_range: continue
+                
+                item_y = item.pos().y()
+                item_h = item.base_height * item._base_scale
+                if item_y + item_h < scene_top - unload_threshold or item_y > scene_bottom + unload_threshold:
+                    keys_to_remove.append(k)
+
+            for k in keys_to_remove:
+                cont_logger.debug(f"Continuous Virtualization: Unloading offscreen index {k}")
+                item = self._continuous_items.pop(k)
+                self.scene.removeItem(item)
+                
+            # 2. LOAD more if we are within 1.5 viewports of a loaded edge
+            load_threshold = vp.height() * 1.5
+            
+            max_loaded_idx = max(self._continuous_items.keys(), default=visible_idx)
+            if max_loaded_idx < self._total - 1 and dist_to_bottom_edge < load_threshold:
+                next_idx = max_loaded_idx + 1
+                if next_idx not in self._continuous_loading:
+                    self._continuous_loading.add(next_idx)
+                    cont_logger.debug(f"Continuous Virtualization: dist_to_bottom={dist_to_bottom_edge:.1f}, loading APPEND {next_idx}")
+                    asyncio.create_task(self._load_continuous_page_append(next_idx, self._continuous_session_id))
+                
+            min_loaded_idx = min(self._continuous_items.keys(), default=visible_idx)
+            if min_loaded_idx > 0 and dist_to_top_edge < load_threshold:
+                prev_idx = min_loaded_idx - 1
+                if prev_idx not in self._continuous_loading:
+                    self._continuous_loading.add(prev_idx)
+                    cont_logger.debug(f"Continuous Virtualization: dist_to_top={dist_to_top_edge:.1f}, loading PREPEND {prev_idx}")
+                    asyncio.create_task(self._load_continuous_page_prepend(prev_idx, self._continuous_session_id))
+        except RuntimeError:
+            pass
+            
+        try:
+            # Physical Virtualization: check pixel distance to loaded edges
+            dist_to_top = scene_top - self._continuous_min_y
+            dist_to_bottom = self._continuous_max_y - scene_bottom
+            
+            # Unload pages far away (more than 3 viewports away)
+            keep_range = range(min_visible - 4, max_visible + 5)
+            keys_to_remove = [k for k in self._continuous_items.keys() if k not in keep_range]
+            # Safety: don't unload if we are physically near that page
+            keys_to_remove = [k for k in keys_to_remove if (k < min_visible and dist_to_top > 2000) or (k > max_visible and dist_to_bottom > 2000)]
+            
+            for k in keys_to_remove:
+                cont_logger.debug(f"Continuous Virtualization: Unloading offscreen index {k}")
+                item = self._continuous_items.pop(k)
+                self.scene.removeItem(item)
+                
+            # Load more if we are within 1.5 viewports of a boundary
+            load_threshold = vp.height() * 1.5
+            
+            max_loaded = max(self._continuous_items.keys(), default=visible_idx)
+            if max_loaded < self._total - 1 and (dist_to_bottom < load_threshold):
+                next_idx = max_loaded + 1
+                if next_idx not in self._continuous_loading:
+                    self._continuous_loading.add(next_idx)
+                    cont_logger.debug(f"Continuous Virtualization: dist_to_bottom={dist_to_bottom:.1f}, loading APPEND {next_idx}")
+                    asyncio.create_task(self._load_continuous_page_append(next_idx, self._continuous_session_id))
+                
+            min_loaded = min(self._continuous_items.keys(), default=visible_idx)
+            if min_loaded > 0 and (dist_to_top < load_threshold):
+                prev_idx = min_loaded - 1
+                if prev_idx not in self._continuous_loading:
+                    self._continuous_loading.add(prev_idx)
+                    cont_logger.debug(f"Continuous Virtualization: dist_to_top={dist_to_top:.1f}, loading PREPEND {prev_idx}")
+                    asyncio.create_task(self._load_continuous_page_prepend(prev_idx, self._continuous_session_id))
         except RuntimeError:
             pass

@@ -58,14 +58,14 @@ class SearchItemWidget(QWidget):
 
     def reapply_theme(self):
         theme = ThemeManager.get_current_theme_colors()
-        self.label.setStyleSheet(f"color: {theme['text_main']}; font-size: {UIConstants.FONT_SIZE_BADGE}px;")
+        self.label.setStyleSheet(f"color: {theme['content_primary']}; font-size: {UIConstants.FONT_SIZE_BADGE}px;")
         
         # Use theme star color via SVG icon for reliable coloring
-        self.btn_pin.setIcon(ThemeManager.get_icon("star", "star"))
+        self.btn_pin.setIcon(ThemeManager.get_icon("star", "status_favorite"))
         self.btn_pin.setStyleSheet("background: transparent; border: none;")
         
         # Ensure remove icon is colorized and visible
-        self.btn_remove.setIcon(ThemeManager.get_icon("close", theme['text_dim']))
+        self.btn_remove.setIcon(ThemeManager.get_icon("close", theme['content_secondary']))
         self.btn_remove.setStyleSheet("background: transparent; border: none;")
 
 class SearchRootView(BaseBrowserView):
@@ -93,7 +93,7 @@ class SearchRootView(BaseBrowserView):
         
         self.btn_search = QPushButton("Search")
         self.btn_search.setObjectName("primary_button")
-        self.btn_search.setIcon(ThemeManager.get_icon("search", "white"))
+        self.btn_search.setIcon(ThemeManager.get_icon("search", "text_on_accent"))
         self.btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_search.setMinimumHeight(45)
         self.btn_search.setFixedWidth(120)
@@ -158,19 +158,19 @@ class SearchRootView(BaseBrowserView):
         super().reapply_theme()
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
-        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SEARCH_TITLE}px; font-weight: bold; color: {theme['text_main']};")
+        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SEARCH_TITLE}px; font-weight: bold; color: {theme['content_primary']};")
         
         self.search_input.setStyleSheet(f"""
             QLineEdit {{
                 font-size: {UIConstants.FONT_SIZE_SEARCH_INPUT}px; 
                 border-radius: {s(6)}px; 
                 background-color: {theme['bg_sidebar']}; 
-                color: {theme['text_main']}; 
-                border: {max(1, s(1))}px solid {theme['border']}; 
+                color: {theme['content_primary']}; 
+                border: {max(1, s(1))}px solid {theme['layout_divider']}; 
                 padding-left: {s(10)}px;
             }}
             QLineEdit:focus {{
-                border: {max(2, s(2))}px solid {theme['accent']};
+                border: {max(2, s(2))}px solid {theme['brand_primary']};
             }}
         """)
 
@@ -178,18 +178,18 @@ class SearchRootView(BaseBrowserView):
         list_style = f"""
             QListWidget {{
                 background-color: {theme['bg_sidebar']};
-                border: {max(1, s(1))}px solid {theme['border']};
+                border: {max(1, s(1))}px solid {theme['layout_divider']};
                 border-radius: {s(8)}px;
                 padding: {s(5)}px;
-                color: {theme['text_main']};
+                color: {theme['content_primary']};
                 outline: none;
             }}
             QListWidget:focus {{
-                border: {max(2, s(2))}px solid {theme['accent']};
+                border: {max(2, s(2))}px solid {theme['brand_primary']};
             }}
             QListWidget::item {{
                 padding: 0px;
-                border-bottom: {max(1, s(1))}px solid {theme['border']};
+                border-bottom: {max(1, s(1))}px solid {theme['layout_divider']};
             }}
             QListWidget::item:selected {{
                 background-color: {theme['bg_item_selected']};
@@ -204,7 +204,7 @@ class SearchRootView(BaseBrowserView):
                 margin-top: {s(20)}px;
                 font-weight: bold;
                 font-size: {UIConstants.FONT_SIZE_BADGE}px;
-                color: {theme['text_dim']};
+                color: {theme['content_secondary']};
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -218,7 +218,7 @@ class SearchRootView(BaseBrowserView):
         # Primary button is mostly handled by global stylesheet, but we can refine font size here
         self.btn_search.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SEARCH_INPUT}px; border-radius: {s(6)}px; font-weight: bold;")
 
-        self.btn_clear.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_BADGE}px; text-align: right; color: {theme['accent']}; background: transparent; border: none;")
+        self.btn_clear.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_BADGE}px; text-align: right; color: {theme['brand_primary']}; background: transparent; border: none;")
         
         # Ensure the spacer matches the button height for symmetry
         self.favorites_spacer.setFixedHeight(self.btn_clear.sizeHint().height())

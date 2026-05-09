@@ -42,7 +42,7 @@ class FeedListView(BaseBrowserView):
         self.header.addStretch()
         
         self.btn_add = QPushButton("Add Feed")
-        self.btn_add.setIcon(ThemeManager.get_icon("plus", "white"))
+        self.btn_add.setIcon(ThemeManager.get_icon("plus", "text_on_accent"))
         s = UIConstants.scale
         self.btn_add.setIconSize(QSize(s(18), s(18)))
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -72,7 +72,7 @@ class FeedListView(BaseBrowserView):
             return
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
-        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_TITLE}px; font-weight: bold; color: {theme['text_main']};")
+        self.title_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_TITLE}px; font-weight: bold; color: {theme['content_primary']};")
         
         # Explicitly set the font for the list widget to ensure the text scales
         font = self.feeds_list.font()
@@ -84,16 +84,16 @@ class FeedListView(BaseBrowserView):
         self.feeds_list.setStyleSheet(f"""
             QListWidget {{
                 background-color: {theme['bg_sidebar']};
-                border: {max(1, s(1))}px solid {theme['border']};
+                border: {max(1, s(1))}px solid {theme['layout_divider']};
                 border-radius: {s(8)}px;
                 padding: {s(5)}px;
                 margin-top: {s(10)}px;
-                color: {theme['text_main']};
+                color: {theme['content_primary']};
             }}
             QListWidget::item {{
                 padding: 0px;
-                border-bottom: {max(1, s(1))}px solid {theme['border']};
-                color: {theme['text_main']};
+                border-bottom: {max(1, s(1))}px solid {theme['layout_divider']};
+                color: {theme['content_primary']};
             }}
             QListWidget::item:selected {{
                 background-color: {theme['bg_item_selected']};
@@ -114,7 +114,7 @@ class FeedListView(BaseBrowserView):
             # Use rich text to bump name font size
             name_fs = UIConstants.FONT_SIZE_FEED_NAME_LARGE
             url_fs = UIConstants.FONT_SIZE_FEED_URL_LARGE
-            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: {theme["text_dim"]};">{f.url}</span>'
+            rich_text = f'<b><span style="font-size: {name_fs}px;">{f.name}</span></b><br/><span style="font-size: {url_fs}px; color: {theme["content_secondary"]};">{f.url}</span>'
             
             item = QListWidgetItem()
             self.feeds_list.addItem(item)

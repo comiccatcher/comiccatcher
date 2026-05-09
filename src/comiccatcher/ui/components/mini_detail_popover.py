@@ -336,15 +336,15 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         s = UIConstants.scale
         
         if hasattr(self, 'spinner'):
-            self.spinner.set_color(QColor(self.theme['accent']))
+            self.spinner.set_color(QColor(self.theme['brand_primary']))
         
         # Stylesheet for internal widgets only. Container background handled in paintEvent.
         self.container.setStyleSheet(f"""
             QWidget {{ background-color: transparent; }}
-            QLabel {{ color: {self.theme['text_main']}; }}
-            QLabel#meta_label {{ font-size: {s(12)}px; color: {self.theme['text_dim']}; }}
-            QLabel#section_title {{ font-weight: bold; font-size: {s(16)}px; color: {self.theme['text_main']}; }}
-            QLabel#section_subtitle {{ font-style: italic; font-size: {s(14)}px; color: {self.theme['text_dim']}; }}
+            QLabel {{ color: {self.theme['content_primary']}; }}
+            QLabel#meta_label {{ font-size: {s(12)}px; color: {self.theme['content_secondary']}; }}
+            QLabel#section_title {{ font-weight: bold; font-size: {s(16)}px; color: {self.theme['content_primary']}; }}
+            QLabel#section_subtitle {{ font-style: italic; font-size: {s(14)}px; color: {self.theme['content_secondary']}; }}
             QScrollArea {{ border: none; background-color: transparent; }}
             QScrollBar:vertical {{
                 width: {max(2, s(4))}px;
@@ -352,7 +352,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
                 margin: 0px;
             }}
             QScrollBar::handle:vertical {{
-                background: {self.theme['border']};
+                background: {self.theme['layout_divider']};
                 border-radius: {max(1, s(2))}px;
                 min-height: {s(20)}px;
             }}
@@ -364,7 +364,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
             }}
         """)
         
-        self.cover_label.setStyleSheet(f"border: {max(1, s(1))}px solid {self.theme['border']}; background: {self.theme['bg_main']}; border-radius: {s(4)}px;")
+        self.cover_label.setStyleSheet(f"border: {max(1, s(1))}px solid {self.theme['layout_divider']}; background: {self.theme['bg_main']}; border-radius: {s(4)}px;")
         
         for i in range(self.actions_layout.count()):
             item = self.actions_layout.itemAt(i)
@@ -372,7 +372,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
                 btn = item.widget()
                 icon_name = btn.property("icon_name")
                 if icon_name:
-                    btn.setIcon(ThemeManager.get_icon(icon_name, "accent"))
+                    btn.setIcon(ThemeManager.get_icon(icon_name, "brand_primary"))
         
         self.update() # Trigger repaint for the bubble
 
@@ -402,7 +402,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         s = UIConstants.scale
         btn = QPushButton()
         btn.setProperty("icon_name", icon_name)
-        btn.setIcon(ThemeManager.get_icon(icon_name, "accent"))
+        btn.setIcon(ThemeManager.get_icon(icon_name, "brand_primary"))
         btn.setIconSize(QSize(UIConstants.ICON_SIZE_ACTION, UIConstants.ICON_SIZE_ACTION))
         btn.setToolTip(tooltip)
         btn.setFixedSize(s(32), s(32))
@@ -489,13 +489,13 @@ class MiniDetailPopover(QFrame, BubbleMixin):
             series = data.get("series")
             if series:
                 series_label = QLabel(series)
-                series_label.setStyleSheet(f"font-size: {s(13)}px; font-style: italic; color: {self.theme['text_main']}; margin-top: {s(1)}px;")
+                series_label.setStyleSheet(f"font-size: {s(13)}px; font-style: italic; color: {self.theme['content_primary']}; margin-top: {s(1)}px;")
                 series_label.setWordWrap(True)
                 text_stack.addWidget(series_label)
 
             if has_pub:
                 p_label = QLabel(" • ".join(pub_parts))
-                p_label.setStyleSheet(f"font-size: {s(12)}px; color: {self.theme['text_dim']}; margin-top: {s(1)}px;")
+                p_label.setStyleSheet(f"font-size: {s(12)}px; color: {self.theme['content_secondary']}; margin-top: {s(1)}px;")
                 text_stack.addWidget(p_label)
 
             # Pages and Size line
@@ -510,7 +510,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
                 
             if page_size_parts:
                 ps_label = QLabel(" • ".join(page_size_parts))
-                ps_label.setStyleSheet(f"font-size: {s(12)}px; color: {self.theme['text_dim']}; margin-top: {s(1)}px;")
+                ps_label.setStyleSheet(f"font-size: {s(12)}px; color: {self.theme['content_secondary']}; margin-top: {s(1)}px;")
                 text_stack.addWidget(ps_label)
                 
             header_layout.addLayout(text_stack, 1)
@@ -521,7 +521,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
                 logger.debug(f"MiniDetailPopover: Rendering web link button for: {target_url}")
                 btn_web = QPushButton()
                 btn_web.setObjectName("icon_button")
-                btn_web.setIcon(ThemeManager.get_icon("globe", "accent"))
+                btn_web.setIcon(ThemeManager.get_icon("globe", "brand_primary"))
                 btn_web.setIconSize(QSize(UIConstants.ICON_SIZE_SMALL, UIConstants.ICON_SIZE_SMALL))
                 btn_web.setToolTip(f"Open in browser: {target_url}")
                 btn_web.setFixedSize(s(24), s(24))
@@ -541,7 +541,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
         self.info_layout.addSpacing(4)
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet(f"background-color: {self.theme['border']}; min-height: 1px; max-height: 1px; border: none;")
+        line.setStyleSheet(f"background-color: {self.theme['layout_divider']}; min-height: 1px; max-height: 1px; border: none;")
         self.info_layout.addWidget(line)
         self.info_layout.addSpacing(4)
 
@@ -579,7 +579,7 @@ class MiniDetailPopover(QFrame, BubbleMixin):
                     role, names = cred_line.split(":", 1)
                     r_label = QLabel(role.strip() + ":")
                     r_label.setObjectName("meta_label")
-                    r_label.setStyleSheet(f"font-weight: bold; color: {self.theme['text_dim']};")
+                    r_label.setStyleSheet(f"font-weight: bold; color: {self.theme['content_secondary']};")
                     n_label = QLabel(names.strip())
                     n_label.setObjectName("meta_label")
                     n_label.setWordWrap(True)

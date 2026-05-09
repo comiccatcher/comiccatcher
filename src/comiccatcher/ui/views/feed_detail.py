@@ -25,7 +25,7 @@ from comiccatcher.ui.flow_layout import FlowLayout
 from comiccatcher.ui.components.badge import Badge
 from comiccatcher.ui.views.base_detail import BaseDetailView
 from comiccatcher.ui.view_helpers import ViewportHelper, HelpPopoverMixin
-from comiccatcher.ui.utils import format_artist_credits, format_publication_date, format_file_size, parse_opds_date
+from comiccatcher.ui.utils import format_artist_credits, format_publication_date, format_file_size, parse_opds_date, format_progression_status
 from comiccatcher.ui.components.base_ribbon import BaseCardRibbon, FeedCardRibbon
 from comiccatcher.ui.components.mini_detail_popover import MiniDetailPopover, format_opds_publication
 from comiccatcher.ui.components.feed_browser_model import FeedBrowserModel
@@ -117,22 +117,22 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
 
         for label in self.findChildren(QLabel):
             if label.objectName() == "carousel_header":
-                label.setStyleSheet(f"font-size: {s(18)}px; font-weight: bold; margin-top: {s(20)}px; color: {theme['text_main']};")
+                label.setStyleSheet(f"font-size: {s(18)}px; font-weight: bold; margin-top: {s(20)}px; color: {theme['content_primary']};")
             elif label.objectName() == "meta_label":
-                label.setStyleSheet(f"font-weight: bold; font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; margin-bottom: {UIConstants.scale(2)}px; color: {theme['text_dim']};")
+                label.setStyleSheet(f"font-weight: bold; font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; margin-bottom: {UIConstants.scale(2)}px; color: {theme['content_secondary']};")
             elif label.objectName() == "meta_status_hint":
-                label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_BADGE}px; color: {theme['text_dim']}; font-style: italic; margin-top: {UIConstants.scale(5)}px;")
+                label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_BADGE}px; color: {theme['content_secondary']}; font-style: italic; margin-top: {UIConstants.scale(5)}px;")
             else:
 
                 # Default for other dynamic labels like the credit values
                 if label.text() and not label.objectName():
-                     label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; color: {theme['text_main']};")
+                     label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_INFO}px; color: {theme['content_primary']};")
                 
         for btn in self.findChildren(QPushButton):
             if btn.objectName() == "link_button":
                 btn.setStyleSheet(f"""
-                    QPushButton {{ color: {theme['accent']}; font-size: {s(13)}px; text-align: left; background: transparent; border: none; }}
-                    QPushButton:disabled {{ color: {theme['text_dim']}; }}
+                    QPushButton {{ color: {theme['brand_primary']}; font-size: {s(13)}px; text-align: left; background: transparent; border: none; }}
+                    QPushButton:disabled {{ color: {theme['content_secondary']}; }}
                 """)
 
     def load_publication(self, pub: Publication, base_url: str, api_client, opds_client, image_manager, context_pubs=None, history=None, force_refresh: bool = False):
@@ -253,7 +253,7 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
                 total_pages = int(pub.metadata.numberOfPages)
             
             theme = ThemeManager.get_current_theme_colors()
-            dim_color = theme['text_dim']
+            dim_color = theme['content_secondary']
             
             if total_pages > 0:
                 if pos is not None and pos > 0:
@@ -263,11 +263,7 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
                 
                 current_page = min(current_page, total_pages)
                 
-                # Check for unread/started state
-                if current_page > 1 or pct > 0.01:
-                    prog_text = f"Page {current_page} of {total_pages} ({int(pct*100)}%)"
-                else:
-                    prog_text = f"{total_pages} Pages"
+                prog_text = format_progression_status(current_page, total_pages, pct)
                     
                 if self._file_size_str:
                     prog_text += f"&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;<span style='color: {dim_color};'>{self._file_size_str}</span>"
@@ -275,14 +271,14 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
                 self._update_cover_progress(current_page, total_pages)
                 
                 # Update button text
-                if current_page >= total_pages:
+                if current_page >= total_pages and total_pages > 1:
                     self.btn_read.setText("Read Again")
                 elif current_page > 1 or pct > 0.01: # Use a small epsilon
                     self.btn_read.setText("Resume")
                 else:
                     self.btn_read.setText("Read Now")
             else:
-                prog_text = f"Progress: {int(pct*100)}%"
+                prog_text = format_progression_status(0, 0, pct)
                 if self._file_size_str:
                     prog_text += f"&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;<span style='color: {dim_color};'>{self._file_size_str}</span>"
                 self.progression_label.setText(prog_text)
@@ -308,7 +304,7 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
                         self._file_size_str = format_size(size_bytes)
                         # Refresh label if already showing something
                         theme = ThemeManager.get_current_theme_colors()
-                        dim_color = theme['text_dim']
+                        dim_color = theme['content_secondary']
                         
                         txt = self.progression_label.text()
                         if txt:
@@ -371,7 +367,7 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
                     series_label = QLabel(f"{name_html}{pos_str}")
                     series_label.setTextFormat(Qt.TextFormat.RichText)
                     theme = ThemeManager.get_current_theme_colors()
-                    series_label.setStyleSheet(f"font-size: 16px; color: {theme['text_main']}; margin-top: 2px;")
+                    series_label.setStyleSheet(f"font-size: 16px; color: {theme['content_primary']}; margin-top: 2px;")
                     self.info_layout.addWidget(series_label)
 
             # Publisher and Pub Date line
@@ -404,12 +400,12 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
                     
                     if display_date:
                         sep = QLabel(" • ")
-                        sep.setStyleSheet(f"font-size: 14px; color: {theme['text_dim']};")
+                        sep.setStyleSheet(f"font-size: 14px; color: {theme['content_secondary']};")
                         line_layout.addWidget(sep)
 
                 if display_date:
                     date_label = QLabel(display_date)
-                    date_label.setStyleSheet(f"font-size: 14px; color: {theme['text_dim']};")
+                    date_label.setStyleSheet(f"font-size: 14px; color: {theme['content_secondary']};")
                     line_layout.addWidget(date_label)
 
                 self.info_layout.addLayout(line_layout)
@@ -442,6 +438,9 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
                 icon_name="download"
             )
             self.btn_download.setEnabled(download_url is not None)
+            
+            # Sync cover hover state with button state
+            self.update_cover_state()
             
             if not hasattr(self, 'actions_layout'):
                 self.actions_layout = QHBoxLayout()
@@ -495,7 +494,7 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
             
             if self._file_size_str:
                 theme = ThemeManager.get_current_theme_colors()
-                dim_color = theme['text_dim']
+                dim_color = theme['content_secondary']
                 prog_parts.append(f"<span style='color: {dim_color};'>{self._file_size_str}</span>")
 
             if prog_parts:
@@ -542,8 +541,8 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
             if pub.links:
                 for link in pub.links:
                     rels = [link.rel] if isinstance(link.rel, str) else (link.rel or [])
-                    # We look for alternate links or explicitly marked web links
-                    if "alternate" in rels or link.type == "text/html":
+                    # We want browser-friendly HTML links that are semantically alternate versions
+                    if ("alternate" in rels or "related" in rels) and link.type == "text/html":
                         alternate_links.append(link)
             
             if alternate_links:

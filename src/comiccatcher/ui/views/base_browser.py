@@ -188,22 +188,22 @@ class BaseBrowserView(QWidget, SectionControlMixin, HelpPopoverMixin):
                 }}
             """
 
-            self.status_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_STATUS}px; font-weight: bold; color: {theme['text_dim']};")
-            self.label_sel_count.setStyleSheet(f"font-weight: bold; font-size: {UIConstants.FONT_SIZE_STATUS}px; color: {theme['text_main']};")
-            self.status_area.setStyleSheet(f"QWidget#status_overlay {{ background-color: {theme['bg_sidebar']}; border-bottom: {max(1, UIConstants.scale(1))}px solid {theme['border']}; }}")
+            self.status_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_STATUS}px; font-weight: bold; color: {theme['content_secondary']};")
+            self.label_sel_count.setStyleSheet(f"font-weight: bold; font-size: {UIConstants.FONT_SIZE_STATUS}px; color: {theme['content_primary']};")
+            self.status_area.setStyleSheet(f"QWidget#status_overlay {{ background-color: {theme['bg_sidebar']}; border-bottom: {max(1, UIConstants.scale(1))}px solid {theme['layout_divider']}; }}")
 
             self.bottom_status_bar.setFixedHeight(UIConstants.BOTTOM_BAR_HEIGHT)
             self.bottom_status_bar.setStyleSheet(f"""
                 QFrame#bottom_status_bar {{ 
                     background-color: {theme['bg_sidebar']}; 
-                    border-top: {max(1, UIConstants.scale(1))}px solid {theme['border']};
+                    border-top: {max(1, UIConstants.scale(1))}px solid {theme['layout_divider']};
                 }}
             """)
             self.bottom_status_label.setStyleSheet(f"""
                 QLabel#bottom_status_label {{ 
                     font-size: {UIConstants.FONT_SIZE_BOTTOM_BAR}px; 
                     font-weight: bold; 
-                    color: {theme['text_dim']};
+                    color: {theme['content_secondary']};
                 }}
             """)
 
@@ -216,7 +216,7 @@ class BaseBrowserView(QWidget, SectionControlMixin, HelpPopoverMixin):
                     # In selection bar, use text_dim for inactive state visual if needed, 
                     # but for buttons with text #secondary_button styles it correctly.
                     # We just need to load the icon.
-                    btn.setIcon(ThemeManager.get_icon(icon_name, "text_dim" if not btn.isEnabled() else "accent"))
+                    btn.setIcon(ThemeManager.get_icon(icon_name, "content_secondary" if not btn.isEnabled() else "brand_primary"))
 
             self.header_widget.update()
             self.selection_bar.update()
@@ -254,7 +254,7 @@ class BaseBrowserView(QWidget, SectionControlMixin, HelpPopoverMixin):
         
         self._bulk_selection_buttons[btn] = icon_name
         
-        btn.setIcon(ThemeManager.get_icon(icon_name, "accent"))
+        btn.setIcon(ThemeManager.get_icon(icon_name, "brand_primary"))
         return btn
 
     def create_header_button(self, icon_name: str, tooltip: str, checkable: bool = False) -> QPushButton:

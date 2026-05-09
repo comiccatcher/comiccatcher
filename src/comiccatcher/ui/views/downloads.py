@@ -63,21 +63,21 @@ class DownloadTaskWidget(QFrame):
         self.setStyleSheet(f"""
             QFrame#download_task {{
                 background-color: {theme['bg_sidebar']}; 
-                border: {max(1, s(1))}px solid {theme['border']};
+                border: {max(1, s(1))}px solid {theme['layout_divider']};
                 border-radius: {s(4)}px; 
                 margin-bottom: {s(2)}px;
             }}
         """)
-        self.title_label.setStyleSheet(f"font-weight: bold; font-size: {s(12)}px; border: none; color: {theme['text_main']};")
-        self.btn_action.setStyleSheet(f"QPushButton {{ border: none; background: transparent; color: {theme['text_dim']}; font-size: {s(16)}px; }} QPushButton:hover {{ color: {theme['danger']}; }}")
-        self.status_label.setStyleSheet(f"font-size: {s(10)}px; border: none; color: {theme['text_dim']};")
-        self.pct_label.setStyleSheet(f"font-size: {s(10)}px; font-weight: bold; border: none; color: {theme['text_main']};")
+        self.title_label.setStyleSheet(f"font-weight: bold; font-size: {s(12)}px; border: none; color: {theme['content_primary']};")
+        self.btn_action.setStyleSheet(f"QPushButton {{ border: none; background: transparent; color: {theme['content_secondary']}; font-size: {s(16)}px; }} QPushButton:hover {{ color: {theme['status_danger']}; }}")
+        self.status_label.setStyleSheet(f"font-size: {s(10)}px; border: none; color: {theme['content_secondary']};")
+        self.pct_label.setStyleSheet(f"font-size: {s(10)}px; font-weight: bold; border: none; color: {theme['content_primary']};")
         
         # Progress bar colors are handled in update_ui based on task status, 
         # but we should ensure the base background is themed.
         self.progress_bar.setStyleSheet(f"""
             QProgressBar {{ height: {s(2)}px; border: none; background-color: {theme['bg_item_hover']}; border-radius: 0px; }}
-            QProgressBar::chunk {{ background-color: {theme['accent']}; border-radius: 0px; }}
+            QProgressBar::chunk {{ background-color: {theme['brand_primary']}; border-radius: 0px; }}
         """)
 
     def update_ui(self, task: DownloadTask):
@@ -103,12 +103,12 @@ class DownloadTaskWidget(QFrame):
             if task.status == "Completed":
                 self.progress_bar.setStyleSheet(f"""
                     QProgressBar {{ height: {s(2)}px; border: none; background-color: {theme['bg_item_hover']}; border-radius: 0px; }}
-                    QProgressBar::chunk {{ background-color: {theme['success']}; border-radius: 0px; }}
+                    QProgressBar::chunk {{ background-color: {theme['status_success']}; border-radius: 0px; }}
                 """)
             elif task.status == "Failed" or task.status == "Cancelled":
                 self.progress_bar.setStyleSheet(f"""
                     QProgressBar {{ height: {s(2)}px; border: none; background-color: {theme['bg_item_hover']}; border-radius: 0px; }}
-                    QProgressBar::chunk {{ background-color: {theme['danger']}; border-radius: 0px; }}
+                    QProgressBar::chunk {{ background-color: {theme['status_danger']}; border-radius: 0px; }}
                 """)
 
 class DownloadsView(QWidget):
@@ -163,23 +163,23 @@ class DownloadsView(QWidget):
     def reapply_theme(self):
         theme = ThemeManager.get_current_theme_colors()
         s = UIConstants.scale
-        self.title.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['text_main']};")
+        self.title.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_SECTION_HEADER}px; font-weight: bold; color: {theme['content_primary']};")
         self.btn_clear.setStyleSheet(f"""
             QPushButton {{ 
                 background: {theme['bg_sidebar']}; 
-                color: {theme['text_dim']};
+                color: {theme['content_secondary']};
                 font-size: {s(10)}px; 
-                border: {max(1, s(1))}px solid {theme['border']}; 
+                border: {max(1, s(1))}px solid {theme['layout_divider']}; 
                 padding: {s(2)}px {s(8)}px; 
                 border-radius: {s(4)}px; 
             }}
             QPushButton:hover {{
-                color: {theme['text_main']};
-                border-color: {theme['accent']};
+                color: {theme['content_primary']};
+                border-color: {theme['brand_primary']};
             }}
         """)
         self.container.setStyleSheet("background-color: transparent;")
-        self.empty_label.setStyleSheet(f"color: {theme['text_dim']}; font-style: italic;")
+        self.empty_label.setStyleSheet(f"color: {theme['content_secondary']}; font-style: italic;")
         
         for widget in self.widgets.values():
             widget.reapply_theme()
