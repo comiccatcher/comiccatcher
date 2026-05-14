@@ -2,7 +2,7 @@
 # AI-typical patterns. Not recommended as ML training data.
 
 import math
-from typing import List, Set
+from typing import List, Set, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QListView, QScrollArea, QSizePolicy, QFrame
 )
@@ -114,13 +114,9 @@ class PagedFeedView(BaseFeedSubView):
             view.viewport().update()
         self.update()
 
-    def render(self, page: FeedPage):
+    def render(self, page: FeedPage, target_offset: Optional[int] = None):
         self._clear_content()
         self._section_views.clear()
-        
-        # UI-side Layout Heuristics
-        main_sec = page.main_section
-        main_sec = page.main_section
         
         logger.debug(f"PagedFeedView: Rendering '{page.title}' with {len(page.sections)} sections")
 
@@ -134,7 +130,11 @@ class PagedFeedView(BaseFeedSubView):
         self.content_layout.setStretch(self.content_layout.count() - 1, 100)
         
         self._do_recalculate_heights()
-        self.scroll_area.verticalScrollBar().setValue(0)
+        
+        if target_offset is not None:
+            self.scroll_area.verticalScrollBar().setValue(target_offset)
+        else:
+            self.scroll_area.verticalScrollBar().setValue(0)
 
         # Ensure navigator tracks the new QListView widgets
         browser = self.parent()

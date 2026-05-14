@@ -397,7 +397,12 @@ class FeedBrowser(BaseBrowserView):
             self.paged_view.toggle_bulk_selection(enabled)
         self.refresh_keyboard_navigation()
 
-    async def load_url(self, url: str, force_refresh: bool = False, is_paging: bool = False):
+    def get_scroll_offset(self) -> int:
+        """Returns the scroll offset of the active subview."""
+        subview = self.scrolled_view if self._paging_mode == "scrolled" else self.paged_view
+        return subview.get_scroll_offset()
+
+    async def load_url(self, url: str, force_refresh: bool = False, is_paging: bool = False, target_offset: Optional[int] = None):
         # Prevent redundant reloads if we are already showing this URL in this feed context.
         # This preserves scroll position when returning from Detail views or switching tabs.
         is_same_url = (url == self._last_loaded_url)
@@ -414,8 +419,7 @@ class FeedBrowser(BaseBrowserView):
         ctx_id = self._current_context_id
         
         # Capture scroll position if we are doing a manual refresh of the SAME URL
-        target_offset = None
-        if force_refresh and is_same_url and self._paging_mode == "scrolled":
+        if force_refresh and is_same_url and self._paging_mode == "scrolled" and target_offset is None:
             target_offset = self.scrolled_view._scroll_offset
 
         self._last_loaded_url = url
@@ -533,7 +537,7 @@ class FeedBrowser(BaseBrowserView):
         
         if mode == "paged":
             self.stack.setCurrentWidget(self.paged_view)
-            self.paged_view.render(page)
+            self.paged_view.render(page, target_offset=target_offset)
             # Sync status label
             self._refresh_status_label()
             

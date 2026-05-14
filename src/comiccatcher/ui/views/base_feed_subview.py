@@ -84,6 +84,17 @@ class BaseFeedSubView(QWidget, SectionControlMixin):
         # IMPORTANT: Do NOT swallow KeyPress events; let them bubble to KeyboardBrowserNavigator
         return super().eventFilter(source, event)
 
+    def get_scroll_offset(self) -> int:
+        """Returns the current vertical scroll position."""
+        sb = self._get_target_scrollbar()
+        return sb.value() if sb else 0
+
+    def set_scroll_offset(self, value: int):
+        """Sets the vertical scroll position."""
+        sb = self._get_target_scrollbar()
+        if sb:
+            sb.setValue(value)
+
     def _get_target_scrollbar(self):
         """Returns the vertical scrollbar that should handle global scrolling."""
         # For ScrolledFeedView
