@@ -10,7 +10,7 @@
 **ComicCatcher** is a desktop OPDS (v2.0 and v1.2) browser and comic reader. It's been mostly tested with self-hosted comic servers like [**Codex**](https://github.com/ajslater/codex), [**Komga**](https://komga.org), [**Stump**](https://stumpapp.dev), [**Kavita**](https://www.kavitareader.com/), and [**Ubooquity**](https://vaemendis.net/ubooquity/), but should work with any server that supports similar features. Comics can be streamed page-by-page, or downloaded and read offline.  Written in Python and runs on Linux, Windows, and macOS.  ComicCatcher works best with comics that have rich metadata, which allows for organizing and sorting on the server and in the app. OPDS v2.0 servers provide a better experience.
 
 
-🚨 **NOTE** 🚨 This is still an early phase and the app is not yet heavily tested (especially on macOS), but hopefully it'll work for you, even so! 🙈 
+🚨 **NOTE** 🚨 This is still an early phase and the app is not yet heavily tested (especially on macOS). If you encounter issues, or something doesn't make sense, please don't hesitate to report it. 🙈 
 
 
 ---
@@ -34,6 +34,8 @@
 
 ### 🛸 Other
 * **Advanced Keyboard Support** Highly controllable with keyboard only.
+* **Trackpad and Touchscreen Support** Comic reader supports pinch-zoom on trackpad and touchscreen, and panning with trackpad.
+* **Traditional Paged and Infinite Canvas (Continuous Vertical) Comic Modes** 
 
 ---
 

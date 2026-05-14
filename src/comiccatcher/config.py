@@ -59,6 +59,7 @@ class ConfigManager:
             "reader_thumbs_visible": True,
             "reader_bg_mode": "black", # "black", "white", "custom", "mean", "median", "mode"
             "reader_bg_color": "#000000",
+            "reader_trackpad_mode": "2d_panning",
             "ui_scale": 1.0,
         }
         self._ensure_dirs()
@@ -208,6 +209,20 @@ class ConfigManager:
 
     def set_reader_bg_color(self, color_hex: str):
         self.settings["reader_bg_color"] = color_hex
+        self.save_settings()
+
+    def get_reader_trackpad_mode(self) -> str:
+        return self.settings.get("reader_trackpad_mode", "2d_panning")
+
+    def set_reader_trackpad_mode(self, mode: str):
+        self.settings["reader_trackpad_mode"] = mode
+        self.save_settings()
+
+    def get_reader_trackpad_momentum(self) -> bool:
+        return self.settings.get("reader_trackpad_momentum", False)
+
+    def set_reader_trackpad_momentum(self, enabled: bool):
+        self.settings["reader_trackpad_momentum"] = enabled
         self.save_settings()
 
     def get_ui_scale(self) -> float:

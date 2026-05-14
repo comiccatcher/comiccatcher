@@ -1138,7 +1138,7 @@ class MainWindow(QMainWindow):
             entry = hist[idx]
             if entry["type"] == "browser":
                 self.content_stack.setCurrentIndex(ViewIndex.FEED_BROWSER)
-                asyncio.create_task(self.feed_browser.load_url(entry["url"]))
+                asyncio.create_task(self.feed_browser.load_url(entry["url"], target_offset=entry.get("offset")))
                 self.feed_browser.setFocus()
             elif entry["type"] == "detail":
                 self.feed_detail_view.load_publication(entry["pub"], entry["url"], self.api_client, self.opds_client, self.image_manager)
@@ -1466,6 +1466,11 @@ class MainWindow(QMainWindow):
 
     def on_navigate_to_url(self, url, title="Loading...", replace=False, icon=None, keep_title=False, feed_id=None, force_refresh=False):
         hist, idx = self.get_current_history()
+        
+        # Capture current scroll position into the history entry we are leaving
+        if idx >= 0 and self.content_stack.currentIndex() == ViewIndex.FEED_BROWSER:
+            hist[idx]["offset"] = self.feed_browser.get_scroll_offset()
+
         if replace and idx >= 0:
             hist[idx]["url"] = url
             # Update icon if provided
@@ -1505,6 +1510,11 @@ class MainWindow(QMainWindow):
 
     def on_open_detail(self, pub, self_url, context_pubs=None):
         hist, idx = self.get_current_history()
+
+        # Capture current scroll position into the history entry we are leaving
+        if idx >= 0 and self.content_stack.currentIndex() == ViewIndex.FEED_BROWSER:
+            hist[idx]["offset"] = self.feed_browser.get_scroll_offset()
+
         if idx < len(hist) - 1:
             hist = hist[:idx + 1]
         hist.append({
@@ -1544,7 +1554,7 @@ class MainWindow(QMainWindow):
         self.update_header()
         
         if entry["type"] == "browser":
-            asyncio.create_task(self.feed_browser.load_url(entry["url"], force_refresh=force_refresh))
+            asyncio.create_task(self.feed_browser.load_url(entry["url"], force_refresh=force_refresh, target_offset=entry.get("offset")))
             self.feed_browser.setFocus()
         elif entry["type"] == "search_root":
             if self.api_client:
