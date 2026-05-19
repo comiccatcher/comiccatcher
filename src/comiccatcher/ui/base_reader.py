@@ -22,13 +22,17 @@ import asyncio
 import enum
 from typing import Optional, Callable, Any
 
-from PyQt6.QtCore import Qt, QEvent, QPoint, QTimer, QSize, QRectF, QPropertyAnimation, pyqtProperty
-from PyQt6.QtGui import QKeyEvent, QPainter, QPixmap, QAction, QActionGroup, QColor, QCloseEvent, QLinearGradient, QBrush
+from PyQt6.QtCore import (
+    Qt, QEvent, QPoint, QTimer, QSize, QRectF, QPropertyAnimation, 
+    pyqtProperty, QVariantAnimation, QEasingCurve, QPointF, QAbstractAnimation,
+    QParallelAnimationGroup
+)
+from PyQt6.QtGui import QKeyEvent, QPainter, QPixmap, QAction, QActionGroup, QColor, QCloseEvent, QLinearGradient, QBrush, QTransform, QPen
 from PyQt6.QtWidgets import (
     QFrame, QGraphicsPixmapItem, QGraphicsScene, QGraphicsView,
     QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget, QMenu,
-    QGraphicsDropShadowEffect, QApplication, QScroller, QScrollerProperties,
-    QColorDialog, QPinchGesture, QGestureEvent
+    QGraphicsDropShadowEffect, QApplication, 
+    QColorDialog, QPinchGesture, QGestureEvent, QGraphicsRectItem
 )
 
 import sys
@@ -38,12 +42,14 @@ from comiccatcher.logger import get_logger
 from comiccatcher.api.image_manager import ImageManager
 from comiccatcher.ui.theme_manager import ThemeManager, UIConstants, THEMES
 from comiccatcher.ui.components.mini_detail_popover import MiniDetailPopover
+from comiccatcher.ui.components.nav_indicator import NavIndicator
 from comiccatcher.ui.components.popover_mixin import BubbleMixin
 from comiccatcher.ui.win_utils import apply_windows_popover_fix
 
 logger = get_logger("ui.base_reader")
 input_logger = get_logger("input")
 cont_logger = get_logger("cont")
+phys_logger = get_logger("phys")
 
 # ---------------------------------------------------------------------------
 
@@ -92,12 +98,8 @@ _LAYOUT_CYCLE = [PageLayout.SINGLE, PageLayout.DOUBLE, PageLayout.AUTO]
 # ---------------------------------------------------------------------------
 
 class TrackpadConstants:
-    PAGE_TURN_THRESHOLD = 320       # Angle delta units required to turn page
-    GESTURE_ANTICIPATION_MS = 100   # ms to block scrolls at start to detect pinch
     PINCH_COOLDOWN_MS = 250         # ms to ignore wheel events after a pinch ends
-    
-    STEP_REPEAT_MS = 250            # Min time between smart-scroll steps (mimics key repeat)
-    SWIPE_THRESHOLD = 180           # Threshold for horizontal page turns (suppresses diagonal noise)
+    GESTURE_RESET_MS = 300          # ms of inactivity to assume a new gesture started
     
     INCREMENTAL_SENSITIVITY = 0.8   # Zoom multiplier for incremental delta systems
     INCREMENTAL_DEADZONE = 0.001    # Min delta to trigger incremental zoom
@@ -114,13 +116,26 @@ class TrackpadConstants:
 
 
 class KineticConstants:
-    DECAY_FACTOR = 0.85             # Velocity multiplier per tick
-    MIN_VELOCITY = 0.1              # Velocity below which we stop the timer
-    PULL_THRESHOLD = 30.0           # Pixels/tick required to trigger comic transition
-    TRACKPAD_VEL_WEIGHT = 0.6       # Weight of newest trackpad sample (0.0 - 1.0)
+    # PPS (Pixels Per Second) Model
+    DECAY_FACTOR = 0.96             # Velocity multiplier per 16ms tick
+    MIN_VELOCITY_PPS = 50.0         # Pixels per second below which we stop
+    TRACKPAD_VEL_WEIGHT = 0.4       # Weight of newest sample (lower = smoother/heavier)
     TICK_MS = 16                    # ~60 FPS update interval
     CLICK_DEADZONE = 5              # Manhattan length to distinguish click vs drag
     WHEEL_STEP_MULTIPLIER = 0.8     # Sensitivity for non-pixel-based wheels
+    MOUSE_DRAG_BOOST = 1.0          # 1:1 physical tracking
+    VELOCITY_STALE_MS = 100         # Time after which velocity is considered zero if no movement
+    MIN_DRAG_DT = 0.008             # Min time delta in seconds to guard mouse velocity calculations
+
+
+class OverscrollConstants:
+    MAX_LOGICAL_STRETCH = 250       # Max pixels to buffer past the edge
+    PULL_DAMPING = 0.35             # Multiplier for input movement while overscrolled
+    VISUAL_DAMPING = 0.35           # Multiplier for the final scene translation
+    MOMENTUM_FRICTION = 0.80         # Decay factor while overscrolled (applied every tick)
+    SNAP_BACK_MS = 250              # Duration of the snap-back animation
+    SNAP_EASING = QEasingCurve.Type.OutQuad
+    PULL_THRESHOLD = 150            # Distance past edge to trigger a page turn
 
 
 # Background mode
@@ -130,30 +145,30 @@ class BackgroundMode(enum.Enum):
     BLACK   = "black"
     WHITE   = "white"
     CUSTOM  = "custom"
-    MEAN    = "mean"
     MEDIAN  = "median"
-    MODE    = "mode"
-    MODE_MEAN = "mode_mean"
     VIBRANT   = "vibrant"
     CONTRAST  = "contrast"
     SMOOTH    = "smooth"
     GRADIENT  = "gradient"
     CLEAN     = "clean"
+    VIBE      = "vibe"
+    VIBE_GRADIENT = "vibe_gradient"
+    TEMPORAL_VIBE = "temporal_vibe"
 
 
 _BG_LABELS = {
     BackgroundMode.BLACK: "Black",
     BackgroundMode.WHITE: "White",
     BackgroundMode.CUSTOM: "Custom Color...",
-    BackgroundMode.MEAN: "Sampling: Mean (Exp)",
-    BackgroundMode.MEDIAN: "Sampling: Median (Exp)",
-    BackgroundMode.MODE: "Sampling: Mode (Exp)",
-    BackgroundMode.MODE_MEAN: "Sampling: Mode Mean (Exp)",
-    BackgroundMode.VIBRANT: "Sampling: Most Vibrant (Exp)",
-    BackgroundMode.CONTRAST: "Sampling: Contrast Frame (Exp)",
-    BackgroundMode.SMOOTH: "Sampling: Temporal Mean (Exp)",
-    BackgroundMode.GRADIENT: "Sampling: 4-Way Gradient (Exp)",
-    BackgroundMode.CLEAN: "Sampling: Clean Margin (Exp)",
+    BackgroundMode.MEDIAN: "Sampling: Edge Median",
+    BackgroundMode.VIBRANT: "Sampling: Edge Vibrant",
+    BackgroundMode.CONTRAST: "Sampling: Edge Contrast Frame",
+    BackgroundMode.SMOOTH: "Sampling: Edge Temporal Mean",
+    BackgroundMode.GRADIENT: "Sampling: Edge 4-Way Gradient",
+    BackgroundMode.CLEAN: "Sampling: Edge Clean Margin",
+    BackgroundMode.VIBE: "Sampling: Vibe Solid",
+    BackgroundMode.VIBE_GRADIENT: "Sampling: Vibe Gradient",
+    BackgroundMode.TEMPORAL_VIBE: "Sampling: Temporal Vibe",
 }
 
 
@@ -834,28 +849,22 @@ class BaseReaderView(QWidget):
         self._is_closing       = False
         self._ignore_next_release = False # Suppress click handling after a double-click
         
+        # Image Filters (Session only)
+        self._filter_deyellow = False
+        
         self._click_timer = QTimer(self)
         self._click_timer.setSingleShot(True)
         self._click_timer.timeout.connect(self._on_click_timer_timeout)
         self._pending_click_pos = None
 
-        # Trackpad / Gesture state
-        self._trackpad_acc_x = 0
-        self._trackpad_acc_y = 0
-        self._trackpad_locked = False
+        # Gesture / Pinch state
         self._is_pinching = False
         self._last_pinch_val = 0.0
-        self._last_step_time = 0
         self._last_wheel_time = 0
+        self._last_trackpad_time = 0
         self._pinch_cooldown_timer = QTimer(self)
         self._pinch_cooldown_timer.setSingleShot(True)
         self._pinch_cooldown_timer.timeout.connect(self._clear_pinching)
-        
-        # Gesture anticipation: block scrolls immediately after ScrollBegin to see if a gesture follows
-        self._gesture_anticipation_timer = QTimer(self)
-        self._gesture_anticipation_timer.setSingleShot(True)
-        self._is_anticipating_gesture = False
-        self._gesture_anticipation_timer.timeout.connect(self._stop_anticipation)
 
         # Custom kinetic scroller for continuous mode
         self._custom_scroll_velocity_y = 0.0
@@ -898,28 +907,40 @@ class BaseReaderView(QWidget):
         self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self._is_transforming = False
+        self._overscroll_x = 0.0
+        self._overscroll_y = 0.0
+        self._snap_anim = None
+
+        # --- Graphics view (fills the whole widget) ---
+        self.scene = QGraphicsScene()
+        
+        # content_container holds all pages to allow for visual overscroll translation
+        self.content_container = QGraphicsRectItem()
+        self.content_container.setPen(QPen(Qt.PenStyle.NoPen))
+        self.scene.addItem(self.content_container)
+
+        self.view  = QGraphicsView(self.scene)
+        self.view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.view.setFrameShape(QFrame.Shape.NoFrame)
+        self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        self.view.setStyleSheet("border: none; background-color: transparent;")
+        
+        # Scrollbars are permanently hidden for a native feel; range is still tracked internally.
+        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        
+        self.view.setMouseTracking(True)
+        self.view.viewport().setMouseTracking(True)
+        self.view.viewport().setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._mouse_press_pos = None
         self._zoom_cycle_idx = 0
 
-        # Kinetic scrolling (momentum)
-        QScroller.grabGesture(self.view.viewport(), QScroller.ScrollerGestureType.LeftMouseButtonGesture)
-        scroller = QScroller.scroller(self.view.viewport())
-        props = scroller.scrollerProperties()
-        # Ensure it feels responsive and "flickable"
-        props.setScrollMetric(QScrollerProperties.ScrollMetric.DragVelocitySmoothingFactor, 0.5)
-        props.setScrollMetric(QScrollerProperties.ScrollMetric.MinimumVelocity, 0.0)
-        props.setScrollMetric(QScrollerProperties.ScrollMetric.MaximumVelocity, 0.8)
-        props.setScrollMetric(QScrollerProperties.ScrollMetric.DecelerationFactor, 0.15)
-        # Bouncing at edges can be annoying for comics, disable overshoot by default
-        props.setScrollMetric(QScrollerProperties.ScrollMetric.HorizontalOvershootPolicy, QScrollerProperties.OvershootPolicy.OvershootAlwaysOff)
-        props.setScrollMetric(QScrollerProperties.ScrollMetric.VerticalOvershootPolicy, QScrollerProperties.OvershootPolicy.OvershootAlwaysOff)
-        scroller.setScrollerProperties(props)
-        scroller.stateChanged.connect(self._on_scroller_state_changed)
-
         self.pixmap_item = MipmapPixmapItem()
-        self.scene.addItem(self.pixmap_item)
-
-        self._is_transforming = False
+        self.pixmap_item.setParentItem(self.content_container)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1025,8 +1046,14 @@ class BaseReaderView(QWidget):
         self.installEventFilter(self)
         
         self.view.verticalScrollBar().valueChanged.connect(self._on_vscroll_changed)
+        self.view.horizontalScrollBar().valueChanged.connect(self._on_hscroll_changed)
 
-        self._sync_scroller_mode()
+        self._nav_pull_x = 0.0
+        self.nav_left = NavIndicator(self.view, direction="left")
+        self.nav_right = NavIndicator(self.view, direction="right")
+        self.nav_left.raise_()
+        self.nav_right.raise_()
+
         self._bump_activity()
 
         # Initial theme application
@@ -1043,8 +1070,16 @@ class BaseReaderView(QWidget):
 
     def _apply_background_style(self):
         """Actually apply the color/gradient to the widget and view."""
+        if not self._current_bg_color:
+            return
+        
         color = self._current_bg_color
-        is_gradient = self._bg_mode == BackgroundMode.GRADIENT and hasattr(self, '_current_bg_gradient')
+        
+        effective_mode = self._bg_mode
+        if self._page_layout == PageLayout.CONTINUOUS and effective_mode not in (BackgroundMode.BLACK, BackgroundMode.WHITE, BackgroundMode.CUSTOM):
+            effective_mode = BackgroundMode.BLACK
+            
+        is_gradient = effective_mode in (BackgroundMode.GRADIENT, BackgroundMode.VIBE_GRADIENT) and hasattr(self, '_current_bg_gradient')
         
         if is_gradient:
             grad = self._current_bg_gradient
@@ -1144,9 +1179,9 @@ class BaseReaderView(QWidget):
         elif effective_mode == BackgroundMode.CUSTOM:
             new_color = self._custom_bg_color
         elif effective_mode in (
-            BackgroundMode.MEAN, BackgroundMode.MEDIAN, BackgroundMode.MODE,
-            BackgroundMode.MODE_MEAN, BackgroundMode.VIBRANT, BackgroundMode.CONTRAST,
-            BackgroundMode.SMOOTH, BackgroundMode.GRADIENT, BackgroundMode.CLEAN
+            BackgroundMode.MEDIAN, BackgroundMode.VIBRANT, BackgroundMode.CONTRAST,
+            BackgroundMode.SMOOTH, BackgroundMode.GRADIENT, BackgroundMode.CLEAN,
+            BackgroundMode.VIBE, BackgroundMode.VIBE_GRADIENT, BackgroundMode.TEMPORAL_VIBE
         ):
             target = pixmap
             if target is None or target.isNull():
@@ -1162,17 +1197,83 @@ class BaseReaderView(QWidget):
                     target = self.pixmap_item.pixmap()
                 
             if target and not target.isNull():
-                new_color = self._get_edge_color(target)
+                if effective_mode in (BackgroundMode.VIBE, BackgroundMode.VIBE_GRADIENT, BackgroundMode.TEMPORAL_VIBE):
+                    new_color = self._get_vibe_color(target, gradient=(effective_mode == BackgroundMode.VIBE_GRADIENT))
+                else:
+                    new_color = self._get_edge_color(target)
             else:
                 new_color = QColor(Qt.GlobalColor.black)
         
-        if self._bg_mode == BackgroundMode.SMOOTH:
+        if self._bg_mode in (BackgroundMode.SMOOTH, BackgroundMode.TEMPORAL_VIBE):
             self._bg_anim.stop()
             self._bg_anim.setStartValue(old_color)
             self._bg_anim.setEndValue(new_color)
             self._bg_anim.start()
         else:
             self.bg_color = new_color # Uses setter for immediate apply
+
+    def _get_vibe_color(self, pixmap: QPixmap, gradient: bool = False) -> QColor:
+        """Sample the interior of the image to find the dominant vibrant color (the 'vibe')."""
+        if pixmap.isNull():
+            return QColor(Qt.GlobalColor.black)
+
+        # Fast downsample to a tiny thumbnail (lightning fast in C++)
+        thumb = pixmap.scaled(64, 64, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation)
+        image = thumb.toImage()
+
+        def extract_vibe(startY, endY):
+            bins = {}
+            noise_lightness_sum = 0
+            noise_count = 0
+
+            for y in range(startY, endY):
+                for x in range(64):
+                    c = image.pixelColor(x, y)
+                    h, s, v = c.hsvHue(), c.hsvSaturation(), c.value()
+                    l = c.lightness()
+                    
+                    # Filter out noise (blacks, whites, grays)
+                    if s < 30 or v < 30 or v > 225 or l < 30 or l > 225:
+                        noise_lightness_sum += l
+                        noise_count += 1
+                        continue
+                    
+                    # Put into 12 hue bins (360/30 = 12)
+                    hue_bin = (h // 30) * 30
+                    if hue_bin not in bins:
+                        bins[hue_bin] = []
+                    bins[hue_bin].append(c)
+            
+            if not bins:
+                # Snap to black or white based on overall image lightness
+                avg_l = (noise_lightness_sum // noise_count) if noise_count > 0 else 0
+                return QColor(Qt.GlobalColor.white) if avg_l > 128 else QColor(Qt.GlobalColor.black)
+            
+            # Find the bin with the most pixels
+            biggest_bin = max(bins.values(), key=len)
+            
+            # Average the colors in the biggest bin
+            r = sum(c.red() for c in biggest_bin) // len(biggest_bin)
+            g = sum(c.green() for c in biggest_bin) // len(biggest_bin)
+            b = sum(c.blue() for c in biggest_bin) // len(biggest_bin)
+            return QColor(r, g, b)
+
+        if gradient:
+            c_top = extract_vibe(0, 32)
+            c_bot = extract_vibe(32, 64)
+            
+            grad = QLinearGradient(0, 0, 0, 1)
+            grad.setCoordinateMode(QLinearGradient.CoordinateMode.ObjectBoundingMode)
+            grad.setColorAt(0, c_top)
+            grad.setColorAt(1, c_bot)
+            self._current_bg_gradient = grad
+            
+            # Return overall average for contrast calculations
+            return QColor((c_top.red() + c_bot.red()) // 2,
+                          (c_top.green() + c_bot.green()) // 2,
+                          (c_top.blue() + c_bot.blue()) // 2)
+        else:
+            return extract_vibe(0, 64)
 
     def _get_edge_color(self, pixmap: QPixmap) -> QColor:
         """Sample edge pixels and compute mean, median, or mode."""
@@ -1196,43 +1297,12 @@ class BaseReaderView(QWidget):
         if not pixels:
             return QColor(Qt.GlobalColor.black)
             
-        if self._bg_mode == BackgroundMode.MEAN:
-            r = sum(p.red() for p in pixels) // len(pixels)
-            g = sum(p.green() for p in pixels) // len(pixels)
-            b = sum(p.blue() for p in pixels) // len(pixels)
-            return QColor(r, g, b)
-            
-        elif self._bg_mode == BackgroundMode.MEDIAN:
+        if self._bg_mode == BackgroundMode.MEDIAN:
             rs = sorted(p.red() for p in pixels)
             gs = sorted(p.green() for p in pixels)
             bs = sorted(p.blue() for p in pixels)
             mid = len(pixels) // 2
             return QColor(rs[mid], gs[mid], bs[mid])
-            
-        elif self._bg_mode == BackgroundMode.MODE:
-            from collections import Counter
-            counts = Counter((p.red(), p.green(), p.blue()) for p in pixels)
-            most_common = counts.most_common(1)[0][0]
-            return QColor(*most_common)
-            
-        elif self._bg_mode == BackgroundMode.MODE_MEAN:
-            # Bin colors to group similar shades, then take the mean of the largest bin
-            from collections import defaultdict
-            bins = defaultdict(list)
-            STEP = 24 # 256 / 24 = ~10 bins per channel
-            
-            for p in pixels:
-                # Simple quantization binning
-                bin_key = (p.red() // STEP, p.green() // STEP, p.blue() // STEP)
-                bins[bin_key].append(p)
-            
-            # Find the bin with the most pixels
-            target_bin = max(bins.values(), key=len)
-            
-            r = sum(p.red() for p in target_bin) // len(target_bin)
-            g = sum(p.green() for p in target_bin) // len(target_bin)
-            b = sum(p.blue() for p in target_bin) // len(target_bin)
-            return QColor(r, g, b)
 
         elif self._bg_mode == BackgroundMode.VIBRANT:
             # Weight average by saturation
@@ -1343,6 +1413,10 @@ class BaseReaderView(QWidget):
     async def _handle_boundary(self, direction: int):
         """Called when trying to go past first/last page."""
         logger.debug(f"Reader _handle_boundary: direction={direction}")
+        
+        # Reset pull visuals even if we don't have an adjacent book
+        self._reset_navigation_state()
+
         if not self.on_get_adjacent: 
             logger.debug("Reader: No on_get_adjacent callback registered")
             return
@@ -1411,16 +1485,6 @@ class BaseReaderView(QWidget):
     # ------------------------------------------------------------------ #
     # Activity / overlay visibility                                        #
     # ------------------------------------------------------------------ #
-
-    def _on_scroller_state_changed(self, state):
-        if state == QScroller.State.Dragging:
-            self.view.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
-            self._bump_activity(ensure_overlays=False) # Keep cursor visible while dragging
-        elif state == QScroller.State.Scrolling:
-            self.view.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
-            self._bump_activity(ensure_overlays=False) # Keep cursor visible while coasting
-        elif state == QScroller.State.Inactive:
-            self._update_reader_cursor()
 
     def _update_reader_cursor(self):
         # If we are in "hidden" state, don't change anything, _hide_cursor handles it
@@ -1559,15 +1623,9 @@ class BaseReaderView(QWidget):
             return True
 
         if t == QEvent.Type.NativeGesture and source is vp:
-            # OS confirmed a gesture, stop anticipating and lock wheel events
+            # OS confirmed a gesture, block normal wheel events and stop cooldown timer
             self._is_pinching = True
-            self._is_anticipating_gesture = False
-            self._gesture_anticipation_timer.stop()
             self._pinch_cooldown_timer.stop()
-            
-            # Clear scroll trackers to ensure the gesture initiation didn't trigger a turn
-            self._trackpad_acc_x = 0
-            self._trackpad_acc_y = 0
             
             g_type = event.gestureType()
             val = event.value()
@@ -1607,7 +1665,7 @@ class BaseReaderView(QWidget):
             dy = event.angleDelta().y()
             dx = event.angleDelta().x()
             phase = event.phase()
-            input_logger.debug(f"WHEEL RAW: dy={dy} dx={dx} phase={phase.name} pinching={self._is_pinching} anticipating={self._is_anticipating_gesture} locked={self._trackpad_locked}")
+            input_logger.debug(f"WHEEL RAW: dy={dy} dx={dx} phase={phase.name} pinching={self._is_pinching}")
 
             if self._is_pinching:
                 return True
@@ -1620,151 +1678,93 @@ class BaseReaderView(QWidget):
                     self._zoom(self.ZOOM_STEP_OUT)
                 return True
 
-            # Detect high-res trackpad (pixel delta, scroll phase, horizontal movement, or high-res vertical)
+            # Detect high-res trackpad vs standard mouse wheel
             phase = event.phase()
-            has_pixel = not event.pixelDelta().isNull()
-            is_trackpad = has_pixel or phase != Qt.ScrollPhase.NoScrollPhase or dx != 0 or (dy != 0 and dy % 120 != 0)
+            
+            # Qt6 often synthesizes pixelDelta for standard mouse wheels. 
+            # A true standard mouse wheel scroll event has NoScrollPhase, dx=0, and dy as a multiple of 120.
+            is_standard_wheel = (phase == Qt.ScrollPhase.NoScrollPhase) and (dx == 0) and (dy != 0 and dy % 120 == 0)
+            
+            now_sec = time.time()
+            # Sticky trackpad check: if we saw a definitive trackpad event in the last 300ms, 
+            # ignore the 120-notch rule to prevent glitches mid-swipe.
+            if is_standard_wheel and (now_sec - getattr(self, '_last_trackpad_time', 0) < 0.3):
+                is_standard_wheel = False
+
+            is_trackpad = not is_standard_wheel
             
             if is_trackpad:
+                self._last_trackpad_time = now_sec
+                has_pixel = not event.pixelDelta().isNull()
                 vbar = self.view.verticalScrollBar()
                 hbar = self.view.horizontalScrollBar()
-                now = time.time() * 1000
 
-                # Temporal Reset: If more than 300ms passed, assume a new gesture started.
-                # This fixes "forever locked" trackpads that don't send Phase data.
-                is_new_gesture = phase == Qt.ScrollPhase.ScrollBegin or (now - self._last_wheel_time > 300)
-                
-                if is_new_gesture:
-                    self._trackpad_acc_x = 0
-                    self._trackpad_acc_y = 0
-                    self._trackpad_locked = False
-                    
-                    # Start anticipation window to see if this turns into a pinch
-                    # EXCEPT in Continuous mode or 2D Panning mode, where we want immediate feedback
-                    trackpad_mode = self.config_manager.get_reader_trackpad_mode() if self.config_manager else "2d_panning"
-                    if self._page_layout != PageLayout.CONTINUOUS and trackpad_mode != "2d_panning":
-                        self._is_anticipating_gesture = True
-                        self._gesture_anticipation_timer.start(TrackpadConstants.GESTURE_ANTICIPATION_MS)
-                    else:
-                        self._is_anticipating_gesture = False
-                
-                self._last_wheel_time = now
-
-                if self._trackpad_locked:
-                    if phase == Qt.ScrollPhase.ScrollEnd:
+                if getattr(self, '_trackpad_locked', False):
+                    if phase in (Qt.ScrollPhase.ScrollBegin, Qt.ScrollPhase.NoScrollPhase):
                         self._trackpad_locked = False
-                    return True # Block momentum/continued scroll after page turn
+                    else:
+                        return True
 
-                # Accumulate movement
-                self._trackpad_acc_y += dy
-                self._trackpad_acc_x += dx
+                is_new_gesture = phase == Qt.ScrollPhase.ScrollBegin
                 
-                limit = TrackpadConstants.PAGE_TURN_THRESHOLD
-                swipe_limit = TrackpadConstants.SWIPE_THRESHOLD
-                old_idx = self._index
-                now = time.time() * 1000
+                if is_new_gesture or not self._last_wheel_time:
+                    dt = KineticConstants.TICK_MS / 1000.0  # Default ~16ms tick interval
+                else:
+                    dt = now_sec - self._last_wheel_time
+                    if dt <= 0.001:
+                        dt = KineticConstants.TICK_MS / 1000.0
                 
-                if not self._is_anticipating_gesture:
-                    trackpad_mode = self.config_manager.get_reader_trackpad_mode() if self.config_manager else "2d_panning"
+                self._last_wheel_time = now_sec
 
-                    # 1. Continuous Vertical Mode: Smooth Pan
-                    if self._page_layout == PageLayout.CONTINUOUS or trackpad_mode == "2d_panning":
-                        # (Continuous logic remains same)
-                        if phase == Qt.ScrollPhase.ScrollBegin:
-                            self._kinetic_timer.stop()
-                            self._custom_scroll_velocity_y = 0.0
-                            self._custom_scroll_velocity_x = 0.0
-                            # Sync logical to physical
-                            self._custom_scroll_y = float(vbar.value())
-                            self._custom_scroll_x = float(hbar.value())
-                        
-                        px_y, px_x = 0, 0
-                        if has_pixel:
-                            px = event.pixelDelta()
-                            px_y, px_x = px.y(), px.x()
-                        else:
-                            px_y, px_x = int(dy * KineticConstants.WHEEL_STEP_MULTIPLIER), int(dx * KineticConstants.WHEEL_STEP_MULTIPLIER)
+                if phase == Qt.ScrollPhase.ScrollBegin:
+                    self._kinetic_timer.stop()
+                    self._custom_scroll_velocity_y = 0.0
+                    self._custom_scroll_velocity_x = 0.0
+                    self._custom_scroll_y = float(vbar.value())
+                    self._custom_scroll_x = float(hbar.value())
+                
+                px_y, px_x = 0, 0
+                if has_pixel:
+                    px = event.pixelDelta()
+                    px_y, px_x = px.y(), px.x()
+                else:
+                    px_y, px_x = int(dy * KineticConstants.WHEEL_STEP_MULTIPLIER), int(dx * KineticConstants.WHEEL_STEP_MULTIPLIER)
 
-                        # Update logical position
-                        self._custom_scroll_y -= px_y
-                        self._custom_scroll_x -= px_x
+                inst_vel_y = -px_y / dt
+                inst_vel_x = -px_x / dt
 
-                        if vbar.maximum() > 0:
-                            vbar.setValue(int(self._custom_scroll_y))
-                        if hbar.maximum() > 0:
-                            hbar.setValue(int(self._custom_scroll_x))
+                basic_emulation = self.config_manager.get_reader_trackpad_basic_emulation() if self.config_manager else False
+                self._add_scroll_delta(px_x, px_y, allow_overscroll=not basic_emulation)
 
-                        # Sync back for clamping
-                        self._custom_scroll_y = float(vbar.value())
-                        self._custom_scroll_x = float(hbar.value())
+                if self._page_layout == PageLayout.CONTINUOUS:
+                    if (px_y > 0 and self._custom_scroll_y < vbar.minimum()) or (px_y < 0 and self._custom_scroll_y > vbar.maximum()):
+                        self._check_continuous_virtualization()
 
-                        # Force virtualization check if beyond physical boundaries
-                        if self._page_layout == PageLayout.CONTINUOUS:
-                            if (px_y > 0 and self._custom_scroll_y < vbar.minimum()) or (px_y < 0 and self._custom_scroll_y > vbar.maximum()):
-                                self._check_continuous_virtualization()
+                weight = KineticConstants.TRACKPAD_VEL_WEIGHT
+                self._custom_scroll_velocity_y = (self._custom_scroll_velocity_y * (1.0 - weight)) + (inst_vel_y * weight)
+                self._custom_scroll_velocity_x = (self._custom_scroll_velocity_x * (1.0 - weight)) + (inst_vel_x * weight)
 
-                        # Estimate trackpad velocity for flick (weighted average for smoothness)
-                        # Inverted for intuitive drag direction vs viewport movement
-                        tick_sec = KineticConstants.TICK_MS / 1000.0
-                        inst_vel_y = -px_y / tick_sec
-                        inst_vel_x = -px_x / tick_sec
-                        
-                        weight = KineticConstants.TRACKPAD_VEL_WEIGHT
-                        self._custom_scroll_velocity_y = (self._custom_scroll_velocity_y * (1.0 - weight)) + (inst_vel_y * weight)
-                        self._custom_scroll_velocity_x = (self._custom_scroll_velocity_x * (1.0 - weight)) + (inst_vel_x * weight)
-                        
-                        momentum_enabled = self.config_manager.get_reader_trackpad_momentum() if self.config_manager else False
-                        if momentum_enabled:
-                            if phase in (Qt.ScrollPhase.ScrollEnd, Qt.ScrollPhase.ScrollMomentum):
-                                if abs(self._custom_scroll_velocity_y) > KineticConstants.MIN_VELOCITY or abs(self._custom_scroll_velocity_x) > KineticConstants.MIN_VELOCITY:
-                                    self._kinetic_timer.start()
+                momentum_enabled = self.config_manager.get_reader_trackpad_momentum() if self.config_manager else False
+                if momentum_enabled:
+                    if phase in (Qt.ScrollPhase.ScrollEnd, Qt.ScrollPhase.ScrollMomentum):
+                        if abs(self._custom_scroll_velocity_y) > KineticConstants.MIN_VELOCITY_PPS or abs(self._custom_scroll_velocity_x) > KineticConstants.MIN_VELOCITY_PPS:
+                            phys_logger.debug(f"KINETIC: Starting trackpad momentum. VelY={self._custom_scroll_velocity_y:.1f} VelX={self._custom_scroll_velocity_x:.1f}")
+                            self._kinetic_timer.start()
 
-                        return True
-
-                    # 2. Page-Based Modes: Stepped Smart Scroll (with Axis Dominance)
-                    # Determine axis dominance to prevent diagonal drift turns
-                    limit = TrackpadConstants.PAGE_TURN_THRESHOLD
-                    swipe_limit = TrackpadConstants.SWIPE_THRESHOLD
-                    use_vertical = abs(self._trackpad_acc_y) >= limit and abs(self._trackpad_acc_y) > abs(self._trackpad_acc_x)
-                    use_horizontal = not use_vertical and abs(self._trackpad_acc_x) >= swipe_limit
-
-                    if use_vertical and not self._trackpad_locked:
-                        # Detection for "Flick Inertia" on phaseless devices (dy > 2x limit)
-                        is_burst = abs(dy) > (limit * 2) and phase == Qt.ScrollPhase.NoScrollPhase
-                        
-                        while abs(self._trackpad_acc_y) >= limit:
-                            direction_val = limit if self._trackpad_acc_y > 0 else -limit
-                            input_logger.debug(f"WHEEL: Vertical step ({direction_val}) AccY={self._trackpad_acc_y} burst={is_burst}")
-                            
-                            self._smart_scroll(direction_val)
-                            self._trackpad_acc_y -= direction_val
-                            self._last_step_time = now
-
-                            if is_burst:
-                                # Stop and lock immediately if this was a synthetic inertia burst
-                                input_logger.debug("WHEEL: Inertia burst detected - locking trackpad")
-                                self._trackpad_locked = True
-                                self._trackpad_acc_y = 0
-                                break
-                            
-                        return True
-
-                    elif use_horizontal and not self._trackpad_locked:
-                        # Horizontal Page Turn (Swipe Left/Right)
-                        is_visual_left = self._trackpad_acc_x > 0
-                        input_logger.debug(f"WHEEL: Triggering horizontal turn (visual_left={is_visual_left}) AccX={self._trackpad_acc_x}")
-                        if is_visual_left:
-                            if self._rtl: self._next()
-                            else: self._prev()
-                        else:
-                            if self._rtl: self._prev()
-                            else: self._next()
-
-                        # Horizontal always locks (Symmetrical page turn behavior)
-                        self._trackpad_locked = True
-                        self._trackpad_acc_x = 0
-                        self._trackpad_acc_y = 0
-                        return True
+                if phase == Qt.ScrollPhase.ScrollEnd:
+                    threshold = UIConstants.scale(OverscrollConstants.PULL_THRESHOLD)
+                    basic_emulation = self.config_manager.get_reader_trackpad_basic_emulation() if self.config_manager else False
+                    can_pull = not basic_emulation
+                    if can_pull and self._effective_layout() != PageLayout.CONTINUOUS:
+                        if self._overscroll_x <= -threshold:
+                            self._prev()
+                            return True
+                        elif self._overscroll_x >= threshold:
+                            self._next()
+                            return True
+                    
+                    if not self._kinetic_timer.isActive():
+                        self._start_snap_back()
 
                 return True
 
@@ -1774,39 +1774,29 @@ class BaseReaderView(QWidget):
         if t == QEvent.Type.MouseMove:
             self._bump_cursor() # Just show cursor, don't show overlays
             
-            trackpad_mode = self.config_manager.get_reader_trackpad_mode() if self.config_manager else "2d_panning"
-            if source is vp and (self._page_layout == PageLayout.CONTINUOUS or trackpad_mode == "2d_panning") and self._last_drag_y is not None:
+            if source is vp and self._last_drag_y is not None:
                 # Custom drag scrolling
                 pos = event.position()
                 dy = pos.y() - self._last_drag_y
                 dx = pos.x() - self._last_drag_x
                 
-                vbar = self.view.verticalScrollBar()
-                hbar = self.view.horizontalScrollBar()
+                self._add_scroll_delta(dx, dy)
                 
-                # Update logical position (inverted for drag feeling)
-                self._custom_scroll_y -= dy
-                self._custom_scroll_x -= dx
-                
-                # Apply to physical scrollbar (clamped by Qt automatically)
-                vbar.setValue(int(self._custom_scroll_y))
-                hbar.setValue(int(self._custom_scroll_x))
-
-                # Sync logical position back to what actually happened (handles clamping)
-                self._custom_scroll_y = float(vbar.value())
-                self._custom_scroll_x = float(hbar.value())
-
-                # Force virtualization check if logical position is beyond physical boundaries
-                if (dy > 0 and self._custom_scroll_y < vbar.minimum()) or (dy < 0 and self._custom_scroll_y > vbar.maximum()):
-                    self._check_continuous_virtualization()
-                
-                # Calculate instantaneous velocity for release
+                # Estimate mouse drag velocity using weighted average (unify with trackpad feel)
                 now = time.time()
                 dt = now - self._last_drag_time
                 if dt > 0:
-                    tick_sec = KineticConstants.TICK_MS / 1000.0
-                    self._custom_scroll_velocity_y = -dy / dt * tick_sec
-                    self._custom_scroll_velocity_x = -dx / dt * tick_sec
+                    dt_clamped = max(dt, KineticConstants.MIN_DRAG_DT)
+                    # Logic: Estimate mouse drag velocity in pixels per second (PPS)
+                    # to match the physics loop unit and trackpad velocity tracking.
+                    inst_vel_y = (-dy / dt_clamped) * KineticConstants.MOUSE_DRAG_BOOST
+                    inst_vel_x = (-dx / dt_clamped) * KineticConstants.MOUSE_DRAG_BOOST
+                    
+                    weight = KineticConstants.TRACKPAD_VEL_WEIGHT
+                    self._custom_scroll_velocity_y = (self._custom_scroll_velocity_y * (1.0 - weight)) + (inst_vel_y * weight)
+                    self._custom_scroll_velocity_x = (self._custom_scroll_velocity_x * (1.0 - weight)) + (inst_vel_x * weight)
+                    
+                    input_logger.debug(f"MOUSE DRAG: dy={dy:.1f}, dt={dt:.4f}, inst_v={inst_vel_y:.1f}, avg_v={self._custom_scroll_velocity_y:.1f}")
                 
                 self._last_drag_y = pos.y()
                 self._last_drag_x = pos.x()
@@ -1816,27 +1806,31 @@ class BaseReaderView(QWidget):
         if t == QEvent.Type.Resize and source is vp:
             if self._fit_mode != FitMode.CUSTOM:
                 self._apply_fit()
+            if hasattr(self, 'nav_left'):
+                self.nav_left.update_position()
+                self.nav_right.update_position()
 
         if t == QEvent.Type.MouseButtonPress and source is vp:
             if event.button() == Qt.MouseButton.LeftButton:
+                if hasattr(self, '_snap_anim') and self._snap_anim and self._snap_anim.state() == QAbstractAnimation.State.Running:
+                    self._snap_anim.stop()
+
                 self._mouse_press_pos = event.position()
                 
-                trackpad_mode = self.config_manager.get_reader_trackpad_mode() if self.config_manager else "2d_panning"
-                if self._page_layout == PageLayout.CONTINUOUS or trackpad_mode == "2d_panning":
-                    self._kinetic_timer.stop()
-                    self._custom_scroll_velocity_y = 0.0
-                    self._custom_scroll_velocity_x = 0.0
-                    self._last_drag_y = event.position().y()
-                    self._last_drag_x = event.position().x()
-                    self._last_drag_time = time.time()
-                    
-                    # Sync logical position to physical
-                    vbar = self.view.verticalScrollBar()
-                    hbar = self.view.horizontalScrollBar()
-                    self._custom_scroll_y = float(vbar.value())
-                    self._custom_scroll_x = float(hbar.value())
-                    
-                    return True # Claim event for custom drag
+                self._kinetic_timer.stop()
+                self._custom_scroll_velocity_y = 0.0
+                self._custom_scroll_velocity_x = 0.0
+                self._last_drag_y = event.position().y()
+                self._last_drag_x = event.position().x()
+                self._last_drag_time = time.time()
+                
+                # Sync logical position to physical
+                vbar = self.view.verticalScrollBar()
+                hbar = self.view.horizontalScrollBar()
+                self._custom_scroll_y = float(vbar.value())
+                self._custom_scroll_x = float(hbar.value())
+                
+                return True # Claim event for custom drag
             else:
                 self._mouse_press_pos = None
                 self._last_drag_y = None
@@ -1871,27 +1865,47 @@ class BaseReaderView(QWidget):
                 self._last_drag_x = None
                 return True
 
-            trackpad_mode = self.config_manager.get_reader_trackpad_mode() if self.config_manager else "2d_panning"
-            if self._page_layout == PageLayout.CONTINUOUS or trackpad_mode == "2d_panning":
-                # Start momentum
-                if self._last_drag_y is not None:
-                    self._kinetic_timer.start()
+            if self._last_drag_y is not None:
+                # Check for velocity staleness (pausing before release kills momentum)
+                now = time.time()
+                if (now - self._last_drag_time) > (KineticConstants.VELOCITY_STALE_MS / 1000.0):
+                    self._custom_scroll_velocity_y = 0
+                    self._custom_scroll_velocity_x = 0
+
+                # Trigger Page Turn if Pull Threshold Reached (Hybrid Model)
+                threshold = UIConstants.scale(OverscrollConstants.PULL_THRESHOLD)
+                if self._effective_layout() != PageLayout.CONTINUOUS and self._overscroll_x <= -threshold: # Pull from Left
+                    self._prev()
+                    self._last_drag_y = None
+                    self._last_drag_x = None
+                    self._mouse_press_pos = None
+                    return True
+                elif self._effective_layout() != PageLayout.CONTINUOUS and self._overscroll_x >= threshold: # Pull from Right
+                    self._next()
+                    self._last_drag_y = None
+                    self._last_drag_x = None
+                    self._mouse_press_pos = None
+                    return True
+                else:
+                    # Start momentum if either axis has sufficient velocity
+                    if abs(self._custom_scroll_velocity_y) > KineticConstants.MIN_VELOCITY_PPS or \
+                       abs(self._custom_scroll_velocity_x) > KineticConstants.MIN_VELOCITY_PPS:
+                        phys_logger.debug(f"KINETIC: Starting mouse momentum. VelY={self._custom_scroll_velocity_y:.1f} VelX={self._custom_scroll_velocity_x:.1f}")
+                        self._kinetic_timer.start()
+                    else:
+                        self._start_snap_back()
+
                 self._last_drag_y = None
                 self._last_drag_x = None
+                
                 # If we moved significantly, ignore click
-                if self._mouse_press_pos and (event.position() - self._mouse_press_pos).manhattanLength() >= 5:
+                if self._mouse_press_pos and (event.position() - self._mouse_press_pos).manhattanLength() >= KineticConstants.CLICK_DEADZONE:
                     self._mouse_press_pos = None
                     return True
 
-            # Ignore release if QScroller is actively handling a gesture
-            scroller = QScroller.scroller(vp)
-            if scroller.state() in (QScroller.State.Dragging, QScroller.State.Scrolling):
-                self._mouse_press_pos = None
-                return True
-
             if self._mouse_press_pos and event.button() == Qt.MouseButton.LeftButton:
                 diff = event.position() - self._mouse_press_pos
-                if diff.manhattanLength() < 5:
+                if diff.manhattanLength() < KineticConstants.CLICK_DEADZONE:
                     self._handle_click(event)
             self._mouse_press_pos = None
             return False
@@ -1911,41 +1925,240 @@ class BaseReaderView(QWidget):
         vbar = self.view.verticalScrollBar()
         hbar = self.view.horizontalScrollBar()
         
-        # Apply velocity to logical position
-        if abs(self._custom_scroll_velocity_y) > KineticConstants.MIN_VELOCITY:
-            self._custom_scroll_y += self._custom_scroll_velocity_y
-            vbar.setValue(int(self._custom_scroll_y))
-        else:
-            self._custom_scroll_velocity_y = 0
+        tick_sec = KineticConstants.TICK_MS / 1000.0
+        
+        # Apply velocity (PPS) to logical position
+        move_y = self._custom_scroll_velocity_y * tick_sec
+        move_x = self._custom_scroll_velocity_x * tick_sec
+        self._custom_scroll_y += move_y
+        self._custom_scroll_x += move_x
+        
+        min_y, max_y = vbar.minimum(), vbar.maximum()
+        min_x, max_x = hbar.minimum(), hbar.maximum()
 
-        if abs(self._custom_scroll_velocity_x) > KineticConstants.MIN_VELOCITY:
-            self._custom_scroll_x += self._custom_scroll_velocity_x
-            hbar.setValue(int(self._custom_scroll_x))
-        else:
+        # Hard limit for overscroll logical buffering
+        max_logical = UIConstants.scale(OverscrollConstants.MAX_LOGICAL_STRETCH)
+        
+        # Clamp logical positions and kill velocity if hitting hard limits
+        hit_limit = False
+        if self._custom_scroll_y < min_y - max_logical:
+            self._custom_scroll_y = min_y - max_logical
+            self._custom_scroll_velocity_y = 0
+            hit_limit = True
+        elif self._custom_scroll_y > max_y + max_logical:
+            self._custom_scroll_y = max_y + max_logical
+            self._custom_scroll_velocity_y = 0
+            hit_limit = True
+            
+        if self._custom_scroll_x < min_x - max_logical:
+            self._custom_scroll_x = min_x - max_logical
             self._custom_scroll_velocity_x = 0
+            hit_limit = True
+        elif self._custom_scroll_x > max_x + max_logical:
+            self._custom_scroll_x = max_x + max_logical
+            self._custom_scroll_velocity_x = 0
+            hit_limit = True
+        
+        # Calculate overshoot
+        clamped_y = max(min_y, min(max_y, self._custom_scroll_y))
+        clamped_x = max(min_x, min(max_x, self._custom_scroll_x))
+        
+        self._overscroll_y = self._custom_scroll_y - clamped_y
+        self._overscroll_x = self._custom_scroll_x - clamped_x
+        
+        # Update physical scrollbars
+        vbar.setValue(int(clamped_y))
+        hbar.setValue(int(clamped_x))
+        self._apply_overscroll()
+        
+        # Decay (Friction) per axis
+        fric_y = OverscrollConstants.MOMENTUM_FRICTION if abs(self._overscroll_y) > 1.0 else KineticConstants.DECAY_FACTOR
+        fric_x = OverscrollConstants.MOMENTUM_FRICTION if abs(self._overscroll_x) > 1.0 else KineticConstants.DECAY_FACTOR
+        
+        self._custom_scroll_velocity_y *= fric_y
+        self._custom_scroll_velocity_x *= fric_x
+        
+        phys_logger.debug(f"KINETIC TICK: v_y={self._custom_scroll_velocity_y:.1f} v_x={self._custom_scroll_velocity_x:.1f} "
+                          f"move=[{move_x:.1f},{move_y:.1f}] over=[{self._overscroll_x:.1f},{self._overscroll_y:.1f}] "
+                          f"fric_x={fric_x:.2f} fric_y={fric_y:.2f} {'LIMIT' if hit_limit else ''}")
 
-        # Virtualization Check (crucial for momentum to trigger loads)
-        self._check_continuous_virtualization()
-
-        # Pull-to-transition
-        if vbar.value() <= vbar.minimum() and self._custom_scroll_velocity_y < -KineticConstants.PULL_THRESHOLD:
+        # Stop if slow
+        if abs(self._custom_scroll_velocity_y) < KineticConstants.MIN_VELOCITY_PPS and \
+           abs(self._custom_scroll_velocity_x) < KineticConstants.MIN_VELOCITY_PPS:
+            phys_logger.debug(f"KINETIC: Velocity threshold reached. Stopping. OverX={self._overscroll_x:.1f} OverY={self._overscroll_y:.1f}")
+            self._kinetic_timer.stop()
             self._custom_scroll_velocity_y = 0
-            self._kinetic_timer.stop()
-            if self._index == 0:
-                asyncio.create_task(self._handle_boundary(-1))
-        elif vbar.value() >= vbar.maximum() and self._custom_scroll_velocity_y > KineticConstants.PULL_THRESHOLD:
-            self._custom_scroll_velocity_y = 0
-            self._kinetic_timer.stop()
-            if self._index == self._total - 1:
-                asyncio.create_task(self._handle_boundary(1))
+            self._custom_scroll_velocity_x = 0
+            if self._overscroll_y != 0 or self._overscroll_x != 0:
+                self._start_snap_back()
 
-        # Decay (Friction)
-        # 0.85 provides a more grounded, controlled stop than 0.90
-        self._custom_scroll_velocity_y *= KineticConstants.DECAY_FACTOR
-        self._custom_scroll_velocity_x *= KineticConstants.DECAY_FACTOR
+    def _add_scroll_delta(self, dx, dy, allow_overscroll=True):
+        """Standardized scroll/panning logic with elastic edge bounce."""
+        if hasattr(self, '_snap_group') and self._snap_group and self._snap_group.state() == QAbstractAnimation.State.Running:
+            self._snap_group.stop()
+        elif hasattr(self, '_snap_anim') and self._snap_anim and self._snap_anim.state() == QAbstractAnimation.State.Running:
+            self._snap_anim.stop()
 
-        if self._custom_scroll_velocity_y == 0 and self._custom_scroll_velocity_x == 0:
-            self._kinetic_timer.stop()
+        vbar = self.view.verticalScrollBar()
+        hbar = self.view.horizontalScrollBar()
+        
+        min_y, max_y = vbar.minimum(), vbar.maximum()
+        min_x, max_x = hbar.minimum(), hbar.maximum()
+
+        # Physical pull limit (clamping the logical buffer)
+        max_logical = UIConstants.scale(OverscrollConstants.MAX_LOGICAL_STRETCH)
+        
+        # Y-axis: Only allow overscroll if there's a range to scroll through
+        if max_y > min_y:
+            delta_y = dy
+            if allow_overscroll:
+                if self._custom_scroll_y < min_y and dy > 0: 
+                    delta_y = dy * OverscrollConstants.PULL_DAMPING
+                elif self._custom_scroll_y > max_y and dy < 0:
+                    delta_y = dy * OverscrollConstants.PULL_DAMPING
+            
+            self._custom_scroll_y -= delta_y
+            if allow_overscroll:
+                self._custom_scroll_y = max(min_y - max_logical, min(max_y + max_logical, self._custom_scroll_y))
+            else:
+                self._custom_scroll_y = max(min_y, min(max_y, self._custom_scroll_y))
+        else:
+            self._custom_scroll_y = min_y
+            
+        # X-axis damping
+        delta_x = dx
+        if allow_overscroll:
+            if self._custom_scroll_x < min_x and dx > 0:
+                delta_x = dx * OverscrollConstants.PULL_DAMPING
+            elif self._custom_scroll_x > max_x and dx < 0:
+                delta_x = dx * OverscrollConstants.PULL_DAMPING
+
+        self._custom_scroll_x -= delta_x
+        if allow_overscroll:
+            self._custom_scroll_x = max(min_x - max_logical, min(max_x + max_logical, self._custom_scroll_x))
+        else:
+            self._custom_scroll_x = max(min_x, min(max_x, self._custom_scroll_x))
+
+        clamped_y = max(min_y, min(max_y, self._custom_scroll_y))
+        clamped_x = max(min_x, min(max_x, self._custom_scroll_x))
+
+        self._overscroll_y = self._custom_scroll_y - clamped_y
+        self._overscroll_x = self._custom_scroll_x - clamped_x
+
+        vbar.setValue(int(clamped_y))
+        hbar.setValue(int(clamped_x))
+        self._apply_overscroll()
+
+    def _apply_overscroll(self):
+        """Visually translates content and updates nav indicators based on overscroll deficit."""
+        if not hasattr(self, "content_container"): return
+        
+        scale_x = self.view.transform().m11()
+        scale_y = self.view.transform().m22()
+
+        # 1. Hybrid Visual Stretch
+        dx = 0
+        hbar = self.view.horizontalScrollBar()
+        if hbar.maximum() > hbar.minimum():
+            dx = -(self._overscroll_x * OverscrollConstants.VISUAL_DAMPING) / scale_x if scale_x else 0
+            
+        dy = -(self._overscroll_y * OverscrollConstants.VISUAL_DAMPING) / scale_y if scale_y else 0
+        self.content_container.setPos(dx, dy)
+        
+        # 2. Update Nav Indicators
+        is_mouse_drag = self._last_drag_x is not None
+        basic_emulation = self.config_manager.get_reader_trackpad_basic_emulation() if self.config_manager else False
+        can_pull = is_mouse_drag or not basic_emulation
+        if can_pull and self._effective_layout() != PageLayout.CONTINUOUS and hasattr(self, 'nav_left') and self.nav_left:
+            if self._overscroll_x < 0:
+                self.nav_left.pull_distance = abs(self._overscroll_x)
+                self.nav_right.pull_distance = 0
+            elif self._overscroll_x > 0:
+                self.nav_right.pull_distance = abs(self._overscroll_x)
+                self.nav_left.pull_distance = 0
+            else:
+                self.nav_left.pull_distance = 0
+                self.nav_right.pull_distance = 0
+        elif hasattr(self, 'nav_left') and self.nav_left:
+            self.nav_left.pull_distance = 0
+            self.nav_right.pull_distance = 0
+
+    def _start_snap_back(self):
+        """Animates logical scroll positions and nav pull back to physical limits."""
+        if hasattr(self, '_snap_group') and self._snap_group and self._snap_group.state() == QAbstractAnimation.State.Running:
+            self._snap_group.stop()
+
+        if self._overscroll_x == 0 and self._overscroll_y == 0 and self._nav_pull_x == 0:
+            return
+
+        phys_logger.debug(f"SNAP BACK: Starting animation. OverX={self._overscroll_x:.1f} OverY={self._overscroll_y:.1f}")
+
+        vbar = self.view.verticalScrollBar()
+        hbar = self.view.horizontalScrollBar()
+
+        target_y = max(vbar.minimum(), min(vbar.maximum(), self._custom_scroll_y))
+        target_x = max(hbar.minimum(), min(hbar.maximum(), self._custom_scroll_x))
+
+        # Use a group to animate both physical overscroll and nav pull
+        self._snap_group = QParallelAnimationGroup(self)
+
+        # 1. Physical Snap Animation
+        self._snap_anim = QVariantAnimation(self)
+        self._snap_anim.setDuration(OverscrollConstants.SNAP_BACK_MS)
+        self._snap_anim.setEasingCurve(OverscrollConstants.SNAP_EASING)
+        self._snap_anim.setStartValue(QPointF(self._custom_scroll_x, self._custom_scroll_y))
+        self._snap_anim.setEndValue(QPointF(target_x, target_y))
+
+        def on_physical_step(val):
+            self._custom_scroll_x = val.x()
+            self._custom_scroll_y = val.y()
+            cvbar = self.view.verticalScrollBar()
+            chbar = self.view.horizontalScrollBar()
+            self._overscroll_x = self._custom_scroll_x - max(chbar.minimum(), min(chbar.maximum(), self._custom_scroll_x))
+            self._overscroll_y = self._custom_scroll_y - max(cvbar.minimum(), min(cvbar.maximum(), self._custom_scroll_y))
+            self._apply_overscroll()
+
+        self._snap_anim.valueChanged.connect(on_physical_step)
+        self._snap_group.addAnimation(self._snap_anim)
+
+        self._snap_group.start()
+
+    def _reset_navigation_state(self):
+        """Clears overscroll, pull-to-turn indicators, and kills kinetic momentum."""
+        self._kinetic_timer.stop()
+        self._custom_scroll_velocity_y = 0.0
+        self._custom_scroll_velocity_x = 0.0
+        
+        self._overscroll_x = 0.0
+        self._overscroll_y = 0.0
+        self._nav_pull_x = 0.0
+        
+        # Sync logical position to physical to prevent "jumps" on the next input
+        hbar = self.view.horizontalScrollBar()
+        vbar = self.view.verticalScrollBar()
+        self._custom_scroll_x = float(hbar.value())
+        self._custom_scroll_y = float(vbar.value())
+        
+        # Reset trackpad state
+        self._trackpad_acc_x = 0
+        self._trackpad_acc_y = 0
+        self._trackpad_locked = True # Block further movement until next gesture
+        
+        if hasattr(self, 'nav_left') and self.nav_left:
+            self.nav_left.pull_distance = 0
+            self.nav_left.hide()
+        if hasattr(self, 'nav_right') and self.nav_right:
+            self.nav_right.pull_distance = 0
+            self.nav_right.hide()
+            
+        if hasattr(self, 'content_container') and self.content_container:
+            self.content_container.setPos(0, 0)
+            
+        # Stop any active snap-back animations
+        if hasattr(self, '_snap_group') and self._snap_group and self._snap_group.state() == QAbstractAnimation.State.Running:
+            self._snap_group.stop()
+        if hasattr(self, '_snap_anim') and self._snap_anim and self._snap_anim.state() == QAbstractAnimation.State.Running:
+            self._snap_anim.stop()
 
     def _smart_scroll(self, dy: int) -> bool:
         """Shared logic for mouse wheel and Space/Shift+Space 'smart' navigation."""
@@ -2043,85 +2256,7 @@ class BaseReaderView(QWidget):
     def _clear_pinching(self):
         self._is_pinching = False
         
-    def _stop_anticipation(self):
-        if not self._is_anticipating_gesture:
-            return
-            
-        self._is_anticipating_gesture = False
-        input_logger.debug(f"WHEEL: Anticipation ended. AccY={self._trackpad_acc_y} AccX={self._trackpad_acc_x}")
-        
-        # Process buffered movement
-        if not self._trackpad_locked:
-            now = time.time() * 1000
-            limit = TrackpadConstants.PAGE_TURN_THRESHOLD
-            swipe_limit = TrackpadConstants.SWIPE_THRESHOLD
-            old_idx = self._index
-            trackpad_mode = self.config_manager.get_reader_trackpad_mode() if self.config_manager else "2d_panning"
 
-            # 1. Continuous Vertical Mode: Smooth Pan
-            if self._page_layout == PageLayout.CONTINUOUS or trackpad_mode == "2d_panning":
-                vbar = self.view.verticalScrollBar()
-                hbar = self.view.horizontalScrollBar()
-                # Approximate pixels from angle delta (0.8 scale)
-                if vbar.maximum() > 0:
-                    vbar.setValue(vbar.value() - int(self._trackpad_acc_y * 0.8))
-                if hbar.maximum() > 0:
-                    hbar.setValue(hbar.value() - int(self._trackpad_acc_x * 0.8))
-                
-                # Check if we hit edge during anticipation
-                if self._page_layout == PageLayout.CONTINUOUS:
-                    if (self._trackpad_acc_y < 0 and vbar.value() >= vbar.maximum()) or \
-                       (self._trackpad_acc_y > 0 and vbar.value() <= vbar.minimum()):
-                        if abs(self._trackpad_acc_y) >= limit:
-                            if self._trackpad_acc_y > 0: self._prev()
-                            else: self._next()
-                
-                self._trackpad_acc_y = 0
-                self._trackpad_acc_x = 0
-                return
-            
-            # 2. Page-Based Modes: Stepped Smart Scroll
-            # Determine axis dominance
-            use_vertical = abs(self._trackpad_acc_y) >= limit and abs(self._trackpad_acc_y) > abs(self._trackpad_acc_x)
-            use_horizontal = not use_vertical and abs(self._trackpad_acc_x) >= swipe_limit
-
-            if use_vertical:
-                while abs(self._trackpad_acc_y) >= limit:
-                    if now - self._last_step_time < TrackpadConstants.STEP_REPEAT_MS:
-                        break
-                    
-                    direction_val = limit if self._trackpad_acc_y > 0 else -limit
-                    input_logger.debug(f"WHEEL: Triggering buffered smart-scroll step ({direction_val})")
-                    self._smart_scroll(direction_val)
-                    self._trackpad_acc_y -= direction_val
-                    self._last_step_time = now
-                    
-                    if self._index != old_idx:
-                        input_logger.debug("WHEEL: Page changed (continuing scroll)")
-                        old_idx = self._index
-
-            # 3. Horizontal (Hard Page Turn)
-            elif use_horizontal:
-                # Inverting direction as requested by user
-                # Swipe Left (dx < 0) -> Move Visually Right (Next in LTR)
-                # Swipe Right (dx > 0) -> Move Visually Left (Prev in LTR)
-                is_visual_left = self._trackpad_acc_x > 0
-                input_logger.debug(f"WHEEL: Triggering buffered horizontal turn (visual_left={is_visual_left})")
-                if is_visual_left:
-                    if self._rtl: self._next()
-                    else: self._prev()
-                else:
-                    if self._rtl: self._prev()
-                    else: self._next()
-                
-                # Align new page to top-start corner
-                hbar = self.view.horizontalScrollBar()
-                vbar = self.view.verticalScrollBar()
-                vbar.setValue(vbar.minimum())
-                hbar.setValue(hbar.maximum() if self._rtl else hbar.minimum())
-
-                self._trackpad_locked = True
-                self._trackpad_acc_x = 0
 
     def _on_click_timer_timeout(self):
         if self._pending_click_pos:
@@ -2383,6 +2518,10 @@ class BaseReaderView(QWidget):
         self._index = idx
         self._bumper_key = None
         self.adjacent_popover.hide()
+        
+        # Reset overscroll/pull on page change
+        self._reset_navigation_state()
+        
         asyncio.create_task(self._show_page(is_back=is_back))
 
     def _on_slider_pressed(self):
@@ -2536,15 +2675,15 @@ class BaseReaderView(QWidget):
             BackgroundMode.BLACK: "fit_original",
             BackgroundMode.WHITE: "fit_page",
             BackgroundMode.CUSTOM: "settings",
-            BackgroundMode.MEAN: "quality_smooth",
             BackgroundMode.MEDIAN: "quality_smooth",
-            BackgroundMode.MODE: "quality_smooth",
-            BackgroundMode.MODE_MEAN: "quality_smooth",
             BackgroundMode.VIBRANT: "quality_smooth",
             BackgroundMode.CONTRAST: "quality_smooth",
             BackgroundMode.SMOOTH: "quality_smooth",
             BackgroundMode.GRADIENT: "quality_smooth",
-            BackgroundMode.CLEAN: "quality_smooth"
+            BackgroundMode.CLEAN: "quality_smooth",
+            BackgroundMode.VIBE: "quality_smooth",
+            BackgroundMode.VIBE_GRADIENT: "quality_smooth",
+            BackgroundMode.TEMPORAL_VIBE: "quality_smooth"
         }
         bg_menu.setIcon(ThemeManager.get_icon(bg_icons.get(self._bg_mode, "moon"), "content_primary"))
         
@@ -2562,44 +2701,51 @@ class BaseReaderView(QWidget):
             bg_group.addAction(action)
             bg_menu.addAction(action)
 
-        self.settings_menu.addSeparator()
-        
-        # 7. Trackpad Behavior
-        trackpad_mode = self.config_manager.get_reader_trackpad_mode() if self.config_manager else "2d_panning"
-        trackpad_menu = self.settings_menu.addMenu("Paged Mode Trackpad Behavior")
-        trackpad_icon = "trackpad_2d" if trackpad_mode == "2d_panning" else "trackpad_smart"
-        trackpad_menu.setIcon(ThemeManager.get_icon(trackpad_icon, "content_primary"))
-
-        trackpad_group = QActionGroup(self)
-        
-        tp_options = [
-            ("2d_panning", "2D Panning", "trackpad_2d"),
-            ("smart_scroll", "Smart Scroll and Page Swipes (experimental)", "trackpad_smart")
-        ]
-        for mode, label, icon_name in tp_options:
-            action = QAction(label, self)
-            action.setCheckable(True)
-            action.setChecked(trackpad_mode == mode)
-            action.setIcon(ThemeManager.get_icon(icon_name, pill=True))
-            action.triggered.connect(lambda _, m=mode: self._set_trackpad_mode(m))
-            trackpad_group.addAction(action)
-            trackpad_menu.addAction(action)
-
-        self.settings_menu.addSeparator()
-
-        # 8. Interface
-        autohide_action = QAction("Auto-Hide Controls", self)
-        autohide_action.setCheckable(True)
-        autohide_action.setChecked(self._auto_hide_controls)
-        autohide_action.triggered.connect(self._toggle_auto_hide)
-        self.settings_menu.addAction(autohide_action)
+        # 7. Trackpad
+        trackpad_menu = self.settings_menu.addMenu("Trackpad Settings")
+        trackpad_menu.setIcon(ThemeManager.get_icon("trackpad", "content_primary"))
 
         momentum_enabled = self.config_manager.get_reader_trackpad_momentum() if self.config_manager else False
         mom_action = QAction("Add Trackpad 2D Panning Momentum", self)
         mom_action.setCheckable(True)
         mom_action.setChecked(momentum_enabled)
         mom_action.triggered.connect(self._toggle_trackpad_momentum)
-        self.settings_menu.addAction(mom_action)
+        trackpad_menu.addAction(mom_action)
+
+
+        
+        basic_emu_enabled = self.config_manager.get_reader_trackpad_basic_emulation() if self.config_manager else False
+        basic_emu_action = QAction("Trackpad Uses Basic Emulation", self)
+        basic_emu_action.setCheckable(True)
+        basic_emu_action.setChecked(basic_emu_enabled)
+        basic_emu_action.triggered.connect(self._toggle_trackpad_basic_emulation)
+        trackpad_menu.addAction(basic_emu_action)
+
+        trackpad_menu.addSeparator()
+        wizard_action = QAction("Trackpad Setup Wizard...", self)
+        wizard_action.triggered.connect(self._run_trackpad_wizard)
+        trackpad_menu.addAction(wizard_action)
+
+        self.settings_menu.addSeparator()
+
+        # 8. Image Filters
+        filter_menu = self.settings_menu.addMenu("Image Filters")
+        filter_menu.setIcon(ThemeManager.get_icon("filter", "content_primary"))
+        
+        deyellow_action = QAction("De-Yellow (Auto Contrast)", self)
+        deyellow_action.setCheckable(True)
+        deyellow_action.setChecked(self._filter_deyellow)
+        deyellow_action.triggered.connect(self._toggle_deyellow)
+        filter_menu.addAction(deyellow_action)
+
+        self.settings_menu.addSeparator()
+
+        # 9. Interface
+        autohide_action = QAction("Auto-Hide Controls", self)
+        autohide_action.setCheckable(True)
+        autohide_action.setChecked(self._auto_hide_controls)
+        autohide_action.triggered.connect(self._toggle_auto_hide)
+        self.settings_menu.addAction(autohide_action)
 
     # ------------------------------------------------------------------ #
     # Fit mode                                                             #
@@ -2619,15 +2765,64 @@ class BaseReaderView(QWidget):
         # Trigger an immediate refresh of the current page to apply high-quality scaling
         asyncio.create_task(self._show_page())
 
-    def _set_trackpad_mode(self, mode: str):
-        if self.config_manager:
-            self.config_manager.set_reader_trackpad_mode(mode)
-        self._update_settings_menu()
-
     def _toggle_trackpad_momentum(self, enabled: bool):
         if self.config_manager:
             self.config_manager.set_reader_trackpad_momentum(enabled)
         self._update_settings_menu()
+
+
+
+    def _toggle_trackpad_basic_emulation(self, enabled: bool):
+        if self.config_manager:
+            self.config_manager.set_reader_trackpad_basic_emulation(enabled)
+        self._update_settings_menu()
+
+    def _run_trackpad_wizard(self):
+        try:
+            from .components.trackpad_wizard import TrackpadWizardDialog
+            dialog = TrackpadWizardDialog(self.config_manager, self.window())
+            dialog.exec()
+            self._update_settings_menu()
+        except Exception as e:
+            input_logger.error(f"Failed to run trackpad wizard: {e}")
+
+    def _toggle_deyellow(self, checked):
+        self._filter_deyellow = checked
+        if self._page_layout == PageLayout.CONTINUOUS:
+            self.clear_display()
+            self._load_continuous_layout(center_idx=self._index)
+        else:
+            asyncio.create_task(self._show_page())
+
+    async def _apply_image_filters_async(self, cache_path: Path) -> Optional[bytes]:
+        if not self._filter_deyellow:
+            return None
+            
+        def _process():
+            try:
+                from PIL import Image, ImageOps
+                import io
+                img = Image.open(str(cache_path))
+                if img.mode not in ("RGB", "RGBA"):
+                    img = img.convert("RGB")
+                img = ImageOps.autocontrast(img, cutoff=1)
+                
+                if img.mode == "RGBA":
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    background.paste(img, mask=img.split()[3])
+                    img = background
+                    
+                out = io.BytesIO()
+                img.save(out, format="JPEG", quality=90)
+                return out.getvalue()
+            except Exception as e:
+                logger.error(f"Filter error on {cache_path}: {e}")
+                return None
+                
+        import asyncio
+        return await asyncio.to_thread(_process)
+
+    # ------------------------------------------------------------------ #
 
     def _get_min_scale(self) -> float:
         """Calculate the scale factor that would fit the page to the window."""
@@ -2685,6 +2880,8 @@ class BaseReaderView(QWidget):
                 self._update_mipmap_levels()
         finally:
             self._is_transforming = False
+            self._custom_scroll_y = float(self.view.verticalScrollBar().value())
+            self._custom_scroll_x = float(self.view.horizontalScrollBar().value())
             if self._effective_layout() == PageLayout.CONTINUOUS:
                 self._check_continuous_virtualization()
 
@@ -2726,15 +2923,11 @@ class BaseReaderView(QWidget):
                 if prev_center:
                     self.view.centerOn(prev_center)
 
-                if self._effective_layout() == PageLayout.CONTINUOUS:
-                    self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-                    self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-                else:
-                    self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-                    self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
                 self._update_mipmap_levels()
         finally:
             self._is_transforming = False
+            self._custom_scroll_y = float(self.view.verticalScrollBar().value())
+            self._custom_scroll_x = float(self.view.horizontalScrollBar().value())
             if self._effective_layout() == PageLayout.CONTINUOUS:
                 self._check_continuous_virtualization()
 
@@ -2785,9 +2978,6 @@ class BaseReaderView(QWidget):
             self.view.viewport().update()
 
             if self._effective_layout() == PageLayout.CONTINUOUS:
-                self.view.setHorizontalScrollBarPolicy(off)
-                self.view.setVerticalScrollBarPolicy(off)
-
                 if not self._continuous_items:
                     return
 
@@ -2826,37 +3016,30 @@ class BaseReaderView(QWidget):
             pm_item  = self.pixmap_item
 
             if self._fit_mode == FitMode.FIT_PAGE:
-                self.view.setHorizontalScrollBarPolicy(off)
-                self.view.setVerticalScrollBarPolicy(off)
                 self.view.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
             elif self._fit_mode == FitMode.FIT_WIDTH:
-                self.view.setHorizontalScrollBarPolicy(off)
-                self.view.setVerticalScrollBarPolicy(on)
                 if pm_item.base_width > 0:
                     self.view.resetTransform()
                     self.view.scale(vp.width() / pm_item.base_width, vp.width() / pm_item.base_width)
 
             elif self._fit_mode == FitMode.FIT_HEIGHT:
-                self.view.setHorizontalScrollBarPolicy(on)
-                self.view.setVerticalScrollBarPolicy(off)
                 if pm_item.base_height > 0:
                     self.view.resetTransform()
                     self.view.scale(vp.height() / pm_item.base_height, vp.height() / pm_item.base_height)
 
             elif self._fit_mode == FitMode.ORIGINAL:
-                self.view.setHorizontalScrollBarPolicy(on)
-                self.view.setVerticalScrollBarPolicy(on)
                 self.view.resetTransform()
 
             elif self._fit_mode == FitMode.CUSTOM:
-                self.view.setHorizontalScrollBarPolicy(on)
-                self.view.setVerticalScrollBarPolicy(on)
+                pass
 
             self._update_mipmap_levels()
         finally:
             self.view.setTransformationAnchor(old_anchor)
             self._is_transforming = False
+            self._custom_scroll_y = float(self.view.verticalScrollBar().value())
+            self._custom_scroll_x = float(self.view.horizontalScrollBar().value())
             # Trigger one final sync virtualization after everything is stable
             if self._effective_layout() == PageLayout.CONTINUOUS:
                 self._check_continuous_virtualization()
@@ -2894,9 +3077,9 @@ class BaseReaderView(QWidget):
         """Resets all state related to Continuous mode."""
         self._continuous_session_id += 1
         
-        # Remove all items from scene EXCEPT the master pixmap_item
+        # Remove all items from scene EXCEPT the master pixmap_item and the container
         for item in self.scene.items():
-            if item is self.pixmap_item:
+            if item is self.pixmap_item or item is self.content_container:
                 continue
             try:
                 self.scene.removeItem(item)
@@ -2927,20 +3110,6 @@ class BaseReaderView(QWidget):
         
         self.scene.setSceneRect(0, self._continuous_min_y, self._continuous_strip_width, self._continuous_max_y - self._continuous_min_y)
 
-    def _sync_scroller_mode(self):
-        vp = self.view.viewport()
-        if self._page_layout == PageLayout.CONTINUOUS:
-            QScroller.ungrabGesture(vp)
-            # Center alignment is better for manual scrolling to prevent jitter at extremes
-            self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            # Reset custom kinetic state
-            self._custom_scroll_velocity_x = 0
-            self._custom_scroll_velocity_y = 0
-            self._kinetic_timer.stop()
-        else:
-            QScroller.grabGesture(vp, QScroller.ScrollerGestureType.LeftMouseButtonGesture)
-            self.view.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-
     def _set_page_layout(self, layout: PageLayout):
         self._page_layout = layout
         # If we selected a standard layout, ensure we aren't in continuous flow anymore
@@ -2952,7 +3121,6 @@ class BaseReaderView(QWidget):
 
         self._update_slider_direction()
         self._update_settings_menu()
-        self._sync_scroller_mode()
         asyncio.create_task(self._show_page())
     def _cycle_layout(self):
         i = _LAYOUT_CYCLE.index(self._page_layout)
@@ -3005,7 +3173,6 @@ class BaseReaderView(QWidget):
             self.config_manager.set_reader_layout(self._page_layout.value)
             
         self._update_settings_menu()
-        self._sync_scroller_mode()
         asyncio.create_task(self._show_page())
 
     def _set_bg_mode(self, mode: BackgroundMode):
@@ -3212,7 +3379,7 @@ class BaseReaderView(QWidget):
             
             item = MipmapPixmapItem(pm)
             item.set_base_scale(1.0)
-            self.scene.addItem(item)
+            item.setParentItem(self.content_container)
             self._continuous_items[start_idx] = item
             
             item.setPos(0, 0)
@@ -3263,8 +3430,8 @@ class BaseReaderView(QWidget):
             else:
                 target_y = self._continuous_max_y - 1.0
 
+            item.setParentItem(self.content_container)
             item.setPos(0, target_y)
-            self.scene.addItem(item)
             self._continuous_items[idx] = item
             self._continuous_y_offsets[idx] = target_y
             
@@ -3310,8 +3477,8 @@ class BaseReaderView(QWidget):
             else:
                 target_y = self._continuous_min_y - new_h
 
+            item.setParentItem(self.content_container)
             item.setPos(0, target_y)
-            self.scene.addItem(item)
             self._continuous_items[idx] = item
             self._continuous_y_offsets[idx] = target_y
             
@@ -3334,6 +3501,14 @@ class BaseReaderView(QWidget):
             self._custom_scroll_y = float(value)
             
         self._check_continuous_virtualization()
+            
+    def _on_hscroll_changed(self, value):
+        if self._is_transforming:
+            return
+            
+        # Sync logical position if not dragging (e.g. keyboard/wheel scroll)
+        if self._last_drag_x is None and not self._kinetic_timer.isActive():
+            self._custom_scroll_x = float(value)
 
     def _check_continuous_virtualization(self):
         if self._is_closing or self._page_layout != PageLayout.CONTINUOUS or not self._continuous_items:
@@ -3358,11 +3533,14 @@ class BaseReaderView(QWidget):
 
         for idx, item in self._continuous_items.items():
             try:
-                item_y = item.pos().y()
+                # Use scenePos() to account for visual overscroll translation
+                item_y = item.scenePos().y()
                 item_h = item.base_height * item._base_scale
                 
-                loaded_min_y = min(loaded_min_y, item_y)
-                loaded_max_y = max(loaded_max_y, item_y + item_h)
+                # Base loaded bounds ignore the overscroll offset for logic consistency
+                base_y = item.pos().y()
+                loaded_min_y = min(loaded_min_y, base_y)
+                loaded_max_y = max(loaded_max_y, base_y + item_h)
 
                 if item_y <= scene_center < item_y + item_h:
                     visible_idx = idx
@@ -3434,3 +3612,4 @@ class BaseReaderView(QWidget):
                     asyncio.create_task(self._load_continuous_page_prepend(prev_idx, self._continuous_session_id))
         except (RuntimeError, ValueError):
             pass
+        pass

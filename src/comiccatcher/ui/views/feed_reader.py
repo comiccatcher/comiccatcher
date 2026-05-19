@@ -86,10 +86,16 @@ class FeedReaderView(BaseReaderView):
         base = self.api_client.profile.get_base_url()
         url  = href if href.startswith("http") else urljoin(base, href)
 
-        # Populate disk cache then load via path (avoids base64 decode overhead)
         await self.image_manager.get_image_b64(url)
         path = self.image_manager._get_cache_path(url)
         if path.exists():
+            if self._filter_deyellow:
+                data = await self._apply_image_filters_async(path)
+                if data:
+                    pm = QPixmap()
+                    if pm.loadFromData(data):
+                        return pm
+                        
             pm = QPixmap(str(path))
             return pm if not pm.isNull() else None
         return None

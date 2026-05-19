@@ -2,7 +2,7 @@
 # AI-typical patterns. Not recommended as ML training data.
 
 from typing import List, Optional, Dict, Any, Union
-from pydantic import BaseModel, Field, HttpUrl, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, Field, HttpUrl, ConfigDict, field_validator, model_validator, AliasChoices
 
 class Link(BaseModel):
     model_config = ConfigDict(extra='allow')
@@ -78,9 +78,10 @@ class Metadata(BaseModel):
     translator: Optional[List[Contributor]] = None
     editor: Optional[List[Contributor]] = None
     artist: Optional[List[Contributor]] = None
+    coverArtist: Optional[List[Contributor]] = Field(None, validation_alias=AliasChoices("coverArtist", "cover_artist"))
     illustrator: Optional[List[Contributor]] = None
     letterer: Optional[List[Contributor]] = None
-    penciler: Optional[List[Contributor]] = None
+    penciler: Optional[List[Contributor]] = Field(None, validation_alias=AliasChoices("penciler", "penciller"))
     colorist: Optional[List[Contributor]] = None
     inker: Optional[List[Contributor]] = None
     contributor: Optional[List[Contributor]] = None
@@ -103,9 +104,9 @@ class Metadata(BaseModel):
     currentPage: Optional[int] = None
     numberOfPages: Optional[int] = None
 
-    @field_validator("author", "translator", "editor", "artist", "illustrator", "letterer", 
-                     "penciler", "colorist", "inker", "contributor", "publisher", "imprint", 
-                     mode='before')
+    @field_validator("author", "translator", "editor", "artist", "coverArtist", "illustrator", 
+                     "letterer", "penciler", "colorist", "inker", "contributor", "publisher", 
+                     "imprint", mode='before')
     @classmethod
     def standardize_contributors(cls, v):
         if v is None:
@@ -128,6 +129,25 @@ class Metadata(BaseModel):
             else:
                 result.append(Contributor(name=str(item)))
         return result
+
+    @model_validator(mode='after')
+    def conflate_cover_artists(self) -> 'Metadata':
+        """Move contributors with 'CoverArtist' role from artist to coverArtist list."""
+        if self.artist:
+            non_cover = []
+            moved = []
+            for c in self.artist:
+                if c.role and c.role.lower() == "coverartist":
+                    moved.append(c)
+                else:
+                    non_cover.append(c)
+            
+            if moved:
+                self.artist = non_cover if non_cover else None
+                if self.coverArtist is None:
+                    self.coverArtist = []
+                self.coverArtist.extend(moved)
+        return self
 
 class Publication(BaseModel):
     model_config = ConfigDict(extra='allow')
