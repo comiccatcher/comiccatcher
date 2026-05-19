@@ -511,7 +511,8 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
             role_map = {
                 "author": primary_author_label, "artist": "Artist", "penciler": "Penciller", 
                 "inker": "Inker", "colorist": "Colorist", "letterer": "Letterer", 
-                "editor": "Editor", "publisher": "Publisher", "imprint": "Imprint"
+                "coverArtist": "Cover Artist", "editor": "Editor", "contributor": "Contributor", 
+                "publisher": "Publisher", "imprint": "Imprint"
             }
             for attr, label in role_map.items():
                 val = getattr(m, attr, None)

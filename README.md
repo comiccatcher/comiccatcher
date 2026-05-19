@@ -32,10 +32,16 @@
 *  **Metadata:** Uses in-file metadata for display and organization.
 *  **Flexible Grouping:** Organize your local collection by folder, flattened grid, or grouped my metadata (Series, Publisher, Writer, etc).
 
-### 🛸 Other
-* **Advanced Keyboard Support** Highly controllable with keyboard only.
-* **Trackpad and Touchscreen Support** Comic reader supports pinch-zoom on trackpad and touchscreen, and panning with trackpad.
+### 💬 Dedicated Comic Reader
+* **Comic-First Reader** Not a re-fitted e-book reader.  Designed for reading comics on monitors and laptops.
+* **Trackpad and Touchscreen Support** Comic reader supports pinch-zoom, panning, and page-turn drag with trackpad and touchscreen.  (Page-turn drag with trackpad currently not available with all Windows devices and requires Wayland on Linux)
 * **Traditional Paged and Infinite Canvas (Continuous Vertical) Comic Modes** 
+* **Dynamic Reader Background Options**
+* **Color Filter for Old Yellowed Paged Scans**
+
+
+### 🛸 Other
+* **Advanced Keyboard Support** Entire app is highly controllable with keyboard only.
 
 ---
 
@@ -76,7 +82,8 @@
 ### 💡 Tips
   * Use `H` or `Ctrl+H` throughout the app for keyboard help.
   * Right-click on thumnbails for a quick details popup.
-
+  * Right-click on anywhere in the reader view for many options.
+  * Trackpad config wizard available in reader menu.
 
 ## 🗺️ Roadmap
 

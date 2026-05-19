@@ -256,7 +256,8 @@ class LocalDetailView(BaseDetailView, HelpPopoverMixin):
             "Inker": meta.get("inker"),
             "Colorist": meta.get("colorist"),
             "Letterer": meta.get("letterer"),
-            "Editor": meta.get("editor")
+            "Editor": meta.get("editor"),
+            "Cover Artist": meta.get("cover_artist")
         }
         # Filter out empty roles
         roles = {k: v for k, v in roles.items() if v}

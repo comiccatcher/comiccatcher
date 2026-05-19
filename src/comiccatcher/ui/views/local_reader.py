@@ -126,6 +126,14 @@ class LocalReaderView(BaseReaderView):
         cache_path = await self._ensure_cached(idx, self._pages[idx].name)
         if not cache_path:
             return None
+            
+        if self._filter_deyellow:
+            data = await self._apply_image_filters_async(cache_path)
+            if data:
+                pm = QPixmap()
+                if pm.loadFromData(data):
+                    return pm
+                    
         pm = QPixmap(str(cache_path))
         return pm if not pm.isNull() else None
 

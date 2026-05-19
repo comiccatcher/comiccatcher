@@ -27,18 +27,23 @@ def format_artist_credits(roles: Dict[str, str]) -> List[str]:
     i = roles.get("Inker")
     c = roles.get("Colorist")
     
+    # Simple check for same contributors
     if p and p == i:
+        # If Penciller == Inker, we promote the label to 'Artist'
         if c == p:
             final_creds.append(f"Artist: {p}")
         else:
             final_creds.append(f"Artist: {p}")
             if c: final_creds.append(f"Colorist: {c}")
     else:
-        if p: final_creds.append(f"Artist: {p}" if "Artist" in roles and not roles.get("Penciller") else f"Penciller: {p}")
+        if p:
+            # If the source had a specific 'Artist' role, or it's just a Penciller
+            label = "Artist" if "Artist" in roles and not roles.get("Penciller") else "Penciller"
+            final_creds.append(f"{label}: {p}")
         if i: final_creds.append(f"Inker: {i}")
         if c: final_creds.append(f"Colorist: {c}")
         
-    for role in ["Letterer"]:
+    for role in ["Letterer", "Cover Artist", "Editor", "Contributor"]:
         if role in roles: final_creds.append(f"{role}: {roles[role]}")
         
     return final_creds

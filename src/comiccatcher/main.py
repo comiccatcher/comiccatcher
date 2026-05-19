@@ -178,6 +178,14 @@ def main():
     app.setApplicationDisplayName("ComicCatcher")
     app.setDesktopFileName("comiccatcher")
 
+    # Force Windows to recognize this script as its own app (so it uses our icon instead of the Python logo)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('comiccatcher.app.1.0')
+        except Exception:
+            pass
+
     # Set Application Icon (window decorations + alt-tab)
     icon_path = Path(__file__).parent / "resources" / "app.png"
     if icon_path.exists():

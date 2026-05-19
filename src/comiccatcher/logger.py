@@ -17,6 +17,7 @@ CATEGORIES = {
     "reader": "comiccatcher.reader", # Reader Engine
     "cont": "comiccatcher.cont",     # Continuous Reader Engine
     "input": "comiccatcher.input",   # Touchpad & Mouse Events
+    "phys": "comiccatcher.phys",     # Kinetic Physics & Inertia
     "ui": "comiccatcher.ui",         # Generic Widgets
 }
 
