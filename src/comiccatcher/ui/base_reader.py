@@ -100,6 +100,7 @@ _LAYOUT_CYCLE = [PageLayout.SINGLE, PageLayout.DOUBLE, PageLayout.AUTO]
 class TrackpadConstants:
     PINCH_COOLDOWN_MS = 250         # ms to ignore wheel events after a pinch ends
     GESTURE_RESET_MS = 300          # ms of inactivity to assume a new gesture started
+    POLL_INTERVAL_MS = 30           # ms interval for polling windows trackpad helper
     
     INCREMENTAL_SENSITIVITY = 0.8   # Zoom multiplier for incremental delta systems
     INCREMENTAL_DEADZONE = 0.001    # Min delta to trigger incremental zoom
@@ -136,6 +137,7 @@ class OverscrollConstants:
     SNAP_BACK_MS = 250              # Duration of the snap-back animation
     SNAP_EASING = QEasingCurve.Type.OutQuad
     PULL_THRESHOLD = 150            # Distance past edge to trigger a page turn
+    EDGE_TOLERANCE = 10             # Pixel slop when determining if gesture started at the physical boundary
 
 
 # Background mode
@@ -375,15 +377,17 @@ class HelpPopover(QFrame):
         self._add_row("M", "Show Reader Settings Menu")
         self._add_row("Home / End", "First / Last Page")
         self._add_row("[ / ]", "Previous / Next Book (Flow sensitive)")
+        self._add_row("Swipe / Drag", "Page-turn (2-finger or mouse drag)")
         self._add_row("F / F11", "Toggle Fullscreen")
         self._add_row("Esc", "Exit Reader")
         
         self._add_section("ZOOM & PAN")
         self._add_row("Ctrl + Wheel", "Dynamic Zoom")
+        self._add_row("Pinch", "Trackpad dynamic zoom")
         self._add_row("+ / -", "Step Zoom")
         self._add_row("0", "Reset Zoom (Fit Page)")
         self._add_row("Double Click", "Cycle Zoom Levels")
-        self._add_row("Click + Drag", "Pan when Zoomed In")
+        self._add_row("Drag", "Pan when Zoomed In (mouse/2-finger)")
         
         self._add_section("FLOW & LAYOUT")
         self._add_row("R", "Cycle Reading Flow (LtR > RtL > Cont)")
@@ -889,6 +893,11 @@ class BaseReaderView(QWidget):
                         QTimer.singleShot(0, lambda: self.trackpad_helper.init_hwnd(int(self.window().winId())) if self.trackpad_helper else None)
                     except ImportError:
                         pass
+
+        self._windows_trackpad_poll_timer = QTimer(self)
+        self._windows_trackpad_poll_timer.setInterval(TrackpadConstants.POLL_INTERVAL_MS)
+        self._windows_trackpad_poll_timer.timeout.connect(self._on_windows_trackpad_poll)
+        self._trackpad_is_down = False
 
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -1620,6 +1629,53 @@ class BaseReaderView(QWidget):
         # which bypass our custom trackpad logic.
         return True
 
+    def _on_windows_trackpad_poll(self):
+        if getattr(self, '_is_closing', False) or not getattr(self, 'trackpad_helper', None):
+            self._windows_trackpad_poll_timer.stop()
+            return
+            
+        if self.trackpad_helper.is_finger_down() == 0:
+            self._windows_trackpad_poll_timer.stop()
+            if getattr(self, '_trackpad_is_down', False):
+                self._trackpad_is_down = False
+                input_logger.debug("WHEEL RAW: Polled finger state is 0. Triggering ScrollEnd.")
+                self._finalize_scroll_gesture()
+
+    def _finalize_scroll_gesture(self):
+        momentum_enabled = self.config_manager.get_reader_trackpad_momentum() if self.config_manager else False
+        if momentum_enabled:
+            if abs(self._custom_scroll_velocity_y) > KineticConstants.MIN_VELOCITY_PPS or abs(self._custom_scroll_velocity_x) > KineticConstants.MIN_VELOCITY_PPS:
+                if not getattr(self, '_kinetic_timer', None) or not self._kinetic_timer.isActive():
+                    phys_logger.debug(f"KINETIC: Starting trackpad momentum. VelY={self._custom_scroll_velocity_y:.1f} VelX={self._custom_scroll_velocity_x:.1f}")
+                    self._kinetic_timer.start()
+
+        threshold = UIConstants.scale(OverscrollConstants.PULL_THRESHOLD)
+        basic_emulation = self.config_manager.get_reader_trackpad_basic_emulation() if self.config_manager else False
+        can_pull = not basic_emulation
+        
+        # Pan Lock: Prevent accidental page turns if the gesture started in the middle of a pannable page
+        if can_pull and getattr(self, '_gesture_start_h_val', None) is not None:
+            hbar = self.view.horizontalScrollBar()
+            if hbar.maximum() > hbar.minimum():
+                edge_tolerance = UIConstants.scale(OverscrollConstants.EDGE_TOLERANCE)
+                if self._overscroll_x <= -threshold and self._gesture_start_h_val > hbar.minimum() + edge_tolerance:
+                    can_pull = False
+                elif self._overscroll_x >= threshold and self._gesture_start_h_val < hbar.maximum() - edge_tolerance:
+                    can_pull = False
+
+        if can_pull and self._effective_layout() != PageLayout.CONTINUOUS:
+            if self._overscroll_x <= -threshold:
+                self._prev()
+                return True
+            elif self._overscroll_x >= threshold:
+                self._next()
+                return True
+        
+        if not getattr(self, '_kinetic_timer', None) or not self._kinetic_timer.isActive():
+            self._start_snap_back()
+            
+        return True
+
     # ------------------------------------------------------------------ #
     # Event handling                                                       #
     # ------------------------------------------------------------------ #
@@ -1678,12 +1734,32 @@ class BaseReaderView(QWidget):
             dx = event.angleDelta().x()
             phase = event.phase()
             
-            # Use Windows helper to force ScrollEnd if fingers lifted but we are still receiving fake momentum events
-            if self.trackpad_helper and phase == Qt.ScrollPhase.NoScrollPhase:
-                if self.trackpad_helper.is_finger_down() == 0:
-                    phase = Qt.ScrollPhase.ScrollEnd
+            helper_state = ""
+            finger_down = -1
+            if getattr(self, 'trackpad_helper', None):
+                finger_down = self.trackpad_helper.is_finger_down()
+                if finger_down == 1:
+                    helper_state = " [Helper: down]"
+                elif finger_down == 0:
+                    helper_state = " [Helper: lift]"
+                else:
+                    helper_state = " [Helper: unk]"
 
-            input_logger.debug(f"WHEEL RAW: dy={dy} dx={dx} phase={phase.name} pinching={self._is_pinching}")
+            input_logger.debug(f"WHEEL RAW: dy={dy} dx={dx} phase={phase.name} pinching={self._is_pinching}{helper_state}")
+
+            # Instantly swallow Windows ghost momentum events and trigger finalization
+            if getattr(self, 'trackpad_helper', None) and phase == Qt.ScrollPhase.NoScrollPhase:
+                if finger_down == 0:
+                    if getattr(self, '_trackpad_is_down', False):
+                        self._trackpad_is_down = False
+                        return self._finalize_scroll_gesture()
+                    else:
+                        return True
+                else:
+                    if not getattr(self, '_trackpad_is_down', False):
+                        self._gesture_start_h_val = float(self.view.horizontalScrollBar().value())
+                    self._trackpad_is_down = True
+                    self._windows_trackpad_poll_timer.start()
 
             if self._is_pinching:
                 return True
@@ -1697,8 +1773,6 @@ class BaseReaderView(QWidget):
                 return True
 
             # Detect high-res trackpad vs standard mouse wheel
-            phase = event.phase()
-            
             # Qt6 often synthesizes pixelDelta for standard mouse wheels. 
             # A true standard mouse wheel scroll event has NoScrollPhase, dx=0, and dy as a multiple of 120.
             is_standard_wheel = (phase == Qt.ScrollPhase.NoScrollPhase) and (dx == 0) and (dy != 0 and dy % 120 == 0)
@@ -1713,6 +1787,11 @@ class BaseReaderView(QWidget):
             
             if is_trackpad:
                 self._last_trackpad_time = now_sec
+                
+                # Silently swallow all native driver momentum events to allow internal physics to take over
+                if phase == Qt.ScrollPhase.ScrollMomentum:
+                    return True
+
                 has_pixel = not event.pixelDelta().isNull()
                 vbar = self.view.verticalScrollBar()
                 hbar = self.view.horizontalScrollBar()
@@ -1735,6 +1814,7 @@ class BaseReaderView(QWidget):
                 self._last_wheel_time = now_sec
 
                 if phase == Qt.ScrollPhase.ScrollBegin:
+                    self._gesture_start_h_val = float(hbar.value())
                     self._kinetic_timer.stop()
                     self._custom_scroll_velocity_y = 0.0
                     self._custom_scroll_velocity_x = 0.0
@@ -1762,27 +1842,8 @@ class BaseReaderView(QWidget):
                 self._custom_scroll_velocity_y = (self._custom_scroll_velocity_y * (1.0 - weight)) + (inst_vel_y * weight)
                 self._custom_scroll_velocity_x = (self._custom_scroll_velocity_x * (1.0 - weight)) + (inst_vel_x * weight)
 
-                momentum_enabled = self.config_manager.get_reader_trackpad_momentum() if self.config_manager else False
-                if momentum_enabled:
-                    if phase in (Qt.ScrollPhase.ScrollEnd, Qt.ScrollPhase.ScrollMomentum):
-                        if abs(self._custom_scroll_velocity_y) > KineticConstants.MIN_VELOCITY_PPS or abs(self._custom_scroll_velocity_x) > KineticConstants.MIN_VELOCITY_PPS:
-                            phys_logger.debug(f"KINETIC: Starting trackpad momentum. VelY={self._custom_scroll_velocity_y:.1f} VelX={self._custom_scroll_velocity_x:.1f}")
-                            self._kinetic_timer.start()
-
                 if phase == Qt.ScrollPhase.ScrollEnd:
-                    threshold = UIConstants.scale(OverscrollConstants.PULL_THRESHOLD)
-                    basic_emulation = self.config_manager.get_reader_trackpad_basic_emulation() if self.config_manager else False
-                    can_pull = not basic_emulation
-                    if can_pull and self._effective_layout() != PageLayout.CONTINUOUS:
-                        if self._overscroll_x <= -threshold:
-                            self._prev()
-                            return True
-                        elif self._overscroll_x >= threshold:
-                            self._next()
-                            return True
-                    
-                    if not self._kinetic_timer.isActive():
-                        self._start_snap_back()
+                    return self._finalize_scroll_gesture()
 
                 return True
 

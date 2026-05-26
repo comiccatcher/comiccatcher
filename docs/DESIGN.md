@@ -27,7 +27,6 @@
 17. [Navigation & History](#17-navigation--history)
 18. [Performance & Optimization](#18-performance--optimization)
 19. [Testing](#19-testing)
-20. [Known Issues & Future Enhancements](#20-known-issues--future-enhancements)
 
 ---
 
@@ -158,10 +157,10 @@ tests/
 
 ui_flet_archive/             Archived legacy Flet implementation (reference only)
 scripts/                     Developer diagnostics and E2E helpers
+pyproject.toml               Project metadata, package settings, and dependencies (PEP 621)
+requirements-dev.txt         Development environment dependencies
+pytest.ini                   pytest configuration (auto-asyncio mode)
 DESIGN.md                    This document
-requirements.txt             Production dependencies
-requirements-dev.txt         Development dependencies
-pytest.ini                   pytest config (asyncio_mode = auto)
 ```
 
 ---
@@ -238,6 +237,10 @@ Async directory scanner with comicbox integration for metadata extraction.
 ### `LocalLibraryDB` (`api/local_db.py`)
 
 SQLite database for library metadata and reading progress.
+
+- **Thread-safe Lock:** Implements a reentrant lock (`threading.RLock`) to ensure safe data access between Qt main thread components and async operations executing via `asyncio.to_thread`.
+- **Database Migrations:** Manages dynamic schema upgrades via SQLite `PRAGMA user_version` tracking.
+  - *Version 1 to 2 Migration:* Automatically alters the `comics` table to append key metadata fields—specifically `manga`, `notes`, `imprint`, `genre`, and `web`—handling duplicate column checks gracefully for backward compatibility.
 
 ---
 
@@ -456,6 +459,9 @@ A context-aware overlay that displays a legend of keyboard shortcuts relevant to
 
 Modern "thin-bar" design language with 4px progress bars and themed scrollbars. Supports Light, Dark, OLED, Blue, and Light Blue presets.
 
+- **Dynamic Vector Icon Recoloring:** Rather than maintaining duplicate colored icon assets, `ThemeManager.get_icon()` parses SVG vector icons at runtime using regular expressions. It dynamically replaces raw SVG `stroke` and `fill` attributes with target theme hex color strings (e.g. `brand_primary`, `content_secondary`) before constructing `QPixmap` and caching them to avoid redundant processing on subsequent frames.
+- **Universal DPI Scaling:** Scaled layout constants (margins, fonts, padding, dimensions) are dynamically calculated based on screen logical Dots Per Inch (DPI). These are central tokens accessed globally via `UIConstants` (wrapped by a scaling function `UIConstants.scale`).
+
 ---
 
 ## 12. Multi-Select & Selection Mode
@@ -552,9 +558,3 @@ The `ImageManager` manages a three-tier cache to minimize latency:
 ## 19. Testing
 
 See TESTING.md
-
----
-
-## 20. Known Issues & Future Enhancements
-
-(No content available in the previous version; placeholder retained.)

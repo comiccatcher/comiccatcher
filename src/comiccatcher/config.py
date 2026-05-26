@@ -215,7 +215,7 @@ class ConfigManager:
         if "reader_trackpad_momentum" in self.settings:
             return self.settings["reader_trackpad_momentum"]
         import sys
-        if sys.platform in ("darwin", "win32"):
+        if sys.platform == "win32":
             return False
         return True
 
