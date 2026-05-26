@@ -41,10 +41,16 @@ def run_pyinstaller(icon_path):
         "--icon", str(icon_path),
         "--additional-hooks-dir", str(PACKAGING_DIR),
         "--collect-submodules", "comiccatcher",
-        "--collect-all", "comicbox",
+        "--collect-all", "comicbox"
+    ]
+    
+    if platform.system().lower() == "windows":
+        cmd.extend(["--collect-all", "windows_trackpad_helper"])
+        
+    cmd.extend([
         "--add-data", f"src/comiccatcher/resources{os.pathsep}comiccatcher/resources",
         "src/comiccatcher/main.py"
-    ]
+    ])
     run(cmd)
 
 def build_linux():
