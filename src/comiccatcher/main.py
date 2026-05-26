@@ -143,7 +143,8 @@ async def async_main(args):
 
     # Create an event that we'll wait on until the app quits
     exit_event = asyncio.Event()
-    QApplication.instance().aboutToQuit.connect(exit_event.set)
+    loop = asyncio.get_running_loop()
+    QApplication.instance().aboutToQuit.connect(lambda: loop.call_soon_threadsafe(exit_event.set))
     
     if args.timeout > 0:
         log.info(f"Application will exit in {args.timeout} seconds...")

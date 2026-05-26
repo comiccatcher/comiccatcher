@@ -268,17 +268,17 @@ class TrackpadWizardDialog(QDialog):
         momentum_enabled = False
         
         if self.windows_helper_active:
-            msg = "<b>Precision Trackpad Detected (Windows Helper)!</b><br><br>We successfully bypassed Qt's limitations and are reading native touch state.<br><br>"
+            msg = "<b>Precision Trackpad Detected (Windows Helper)</b><br><br>We successfully bypassed Qt's limitations and are reading native touch state.<br><br>"
             momentum_enabled = True
             basic_emulation = False
         elif saw_momentum:
-            msg = "<b>Native Momentum Detected!</b><br><br>Your trackpad provides native physics.<br><br>"
-            momentum_enabled = False
+            msg = "<b>Native Momentum Detected</b><br><br>We will use application physics engine.<br><br>"
+            momentum_enabled = True
         elif saw_end:
-            msg = "<b>Clean Gesture Detected!</b><br><br>We will simulate missing momentum.<br><br>"
+            msg = "<b>Clean Gesture Detected</b><br><br>We will simulate missing momentum.<br><br>"
             momentum_enabled = True
         else:
-            msg = "<b>Basic Emulation Detected!</b><br><br>Your driver acts like a basic mechanical wheel.<br><br>"
+            msg = "<b>Basic Emulation Detected</b><br><br>Your driver acts like a basic mechanical wheel.<br><br>"
             msg += "<i>NOTE: Certain features will be disabled for 2-finger trackpad actions.</i><br><br>"
             momentum_enabled = not fake_momentum
             

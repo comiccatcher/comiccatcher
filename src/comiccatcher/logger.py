@@ -74,7 +74,7 @@ def setup_logging(debug_spec=""):
     try:
         log_dir = get_app_data_dir()
         log_file = log_dir / "comiccatcher.log"
-        file_handler = logging.FileHandler(str(log_file), mode='a', encoding='utf-8')
+        file_handler = logging.FileHandler(str(log_file), mode='w', encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
         root_logger.addHandler(file_handler)
