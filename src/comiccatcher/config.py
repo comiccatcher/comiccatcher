@@ -233,6 +233,13 @@ class ConfigManager:
         self.settings["reader_trackpad_basic_emulation"] = enabled
         self.save_settings()
 
+    def get_reader_trackpad_windows_helper(self) -> bool:
+        return self.settings.get("reader_trackpad_windows_helper", False)
+
+    def set_reader_trackpad_windows_helper(self, enabled: bool):
+        self.settings["reader_trackpad_windows_helper"] = enabled
+        self.save_settings()
+
     def get_ui_scale(self) -> float:
         return self.settings.get("ui_scale", 1.0)
 

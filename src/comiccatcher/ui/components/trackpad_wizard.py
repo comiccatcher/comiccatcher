@@ -38,6 +38,20 @@ class TrackpadWizardDialog(QDialog):
         
         self.recorded_events = [] # (time, dx, dy, phase)
         
+        self.trackpad_helper = None
+        self.windows_helper_active = False
+        import sys
+        if sys.platform == 'win32':
+            try:
+                import windows_trackpad_helper
+                self.trackpad_helper = windows_trackpad_helper.TrackpadHelper()
+                # Ensure the window handle is created
+                hwnd = int(self.winId())
+                self.trackpad_helper.init_hwnd(hwnd)
+            except ImportError:
+                pass
+
+        
         # Debounce timer for mechanical wheels that don't send ScrollEnd
         self.eval_timer = QTimer(self)
         self.eval_timer.setSingleShot(True)
@@ -166,6 +180,12 @@ class TrackpadWizardDialog(QDialog):
         if obj is self.capture_frame and event.type() == QEvent.Type.Wheel:
             phase = event.phase()
             
+            if self.trackpad_helper:
+                finger_state = self.trackpad_helper.is_finger_down()
+                if finger_state in (0, 1):
+                    self.windows_helper_active = True
+
+            
             dx = event.pixelDelta().x() if not event.pixelDelta().isNull() else event.angleDelta().x()
             dy = event.pixelDelta().y() if not event.pixelDelta().isNull() else event.angleDelta().y()
             self.recorded_events.append((time.time(), dx, dy, phase))
@@ -205,6 +225,12 @@ class TrackpadWizardDialog(QDialog):
             self._finalize_settings(self.saw_momentum, self.saw_end, False)
             return
             
+        if self.windows_helper_active:
+            # Windows trackpad helper successfully tracked finger state! 
+            # We can skip the fake momentum question because we natively detect lifts.
+            self._finalize_settings(False, False, False, fake_momentum=self.saw_update)
+            return
+            
         # We have NO clear ending. Ask user to confirm fake momentum.
         self.awaiting_feedback = True
         
@@ -241,7 +267,11 @@ class TrackpadWizardDialog(QDialog):
         
         momentum_enabled = False
         
-        if saw_momentum:
+        if self.windows_helper_active:
+            msg = "<b>Precision Trackpad Detected (Windows Helper)!</b><br><br>We successfully bypassed Qt's limitations and are reading native touch state.<br><br>"
+            momentum_enabled = True
+            basic_emulation = False
+        elif saw_momentum:
             msg = "<b>Native Momentum Detected!</b><br><br>Your trackpad provides native physics.<br><br>"
             momentum_enabled = False
         elif saw_end:
@@ -262,6 +292,9 @@ class TrackpadWizardDialog(QDialog):
         if self.config_manager:
             self.config_manager.set_reader_trackpad_momentum(momentum_enabled)
             self.config_manager.set_reader_trackpad_basic_emulation(basic_emulation)
+            if hasattr(self.config_manager, 'set_reader_trackpad_windows_helper'):
+                self.config_manager.set_reader_trackpad_windows_helper(self.windows_helper_active)
+
             
         self.reapply_theme()
         self.status_label.setText(msg)
@@ -276,3 +309,8 @@ class TrackpadWizardDialog(QDialog):
                 border-radius: {UIConstants.scale(10)}px;
             }}
         """)
+
+    def closeEvent(self, event):
+        if getattr(self, 'trackpad_helper', None):
+            self.trackpad_helper.shutdown()
+        super().closeEvent(event)

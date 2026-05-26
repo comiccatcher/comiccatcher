@@ -878,6 +878,18 @@ class BaseReaderView(QWidget):
         self._kinetic_timer.setInterval(KineticConstants.TICK_MS)
         self._kinetic_timer.timeout.connect(self._on_kinetic_tick)
 
+        self.trackpad_helper = None
+        if self.config_manager and hasattr(self.config_manager, 'get_reader_trackpad_windows_helper'):
+            if self.config_manager.get_reader_trackpad_windows_helper():
+                import sys
+                if sys.platform == 'win32':
+                    try:
+                        import windows_trackpad_helper
+                        self.trackpad_helper = windows_trackpad_helper.TrackpadHelper()
+                        QTimer.singleShot(0, lambda: self.trackpad_helper.init_hwnd(int(self.window().winId())) if self.trackpad_helper else None)
+                    except ImportError:
+                        pass
+
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -1665,6 +1677,12 @@ class BaseReaderView(QWidget):
             dy = event.angleDelta().y()
             dx = event.angleDelta().x()
             phase = event.phase()
+            
+            # Use Windows helper to force ScrollEnd if fingers lifted but we are still receiving fake momentum events
+            if self.trackpad_helper and phase == Qt.ScrollPhase.NoScrollPhase:
+                if self.trackpad_helper.is_finger_down() == 0:
+                    phase = Qt.ScrollPhase.ScrollEnd
+
             input_logger.debug(f"WHEEL RAW: dy={dy} dx={dx} phase={phase.name} pinching={self._is_pinching}")
 
             if self._is_pinching:
@@ -2471,6 +2489,8 @@ class BaseReaderView(QWidget):
 
     def closeEvent(self, event: QCloseEvent):
         self._is_closing = True
+        if getattr(self, 'trackpad_helper', None):
+            self.trackpad_helper.shutdown()
         try:
             self.view.verticalScrollBar().valueChanged.disconnect(self._on_vscroll_changed)
         except Exception:

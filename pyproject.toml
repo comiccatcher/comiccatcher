@@ -25,6 +25,7 @@ dependencies = [
     "rarfile>=4.2",
     "py7zr>=1.1.0",
     "PyMuPDF>=1.24.0",
+    "windows-trackpad-helper; sys_platform == 'win32'",
 ]
 
 [project.scripts]
