@@ -7,12 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       build_linux:
-        description: 'Build Linux AppImage'
+        description: 'Build Linux Packages (AppImage & DEB)'
         required: true
         type: boolean
         default: true
       build_windows:
-        description: 'Build Windows EXE'
+        description: 'Build Windows Packages (EXE & MSI)'
         required: true
         type: boolean
         default: true
@@ -88,18 +88,25 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libfuse2 curl
-      - name: Build AppImage
+      - name: Build Linux Packages
         run: python packaging/build.py --linux
-      - name: Upload Artifact
+      - name: Upload AppImage Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ComicCatcher-Linux
+          name: ComicCatcher-Linux-AppImage
           path: dist/ComicCatcher-x86_64.AppImage
+      - name: Upload DEB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComicCatcher-Linux-DEB
+          path: dist/comiccatcher-amd64.deb
       - name: Upload to Release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ComicCatcher-x86_64.AppImage
+          files: |
+            dist/ComicCatcher-x86_64.AppImage
+            dist/comiccatcher-amd64.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -116,18 +123,40 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller Pillow .
-      - name: Build EXE
+      - name: Build EXE Folder
         run: python packaging/build.py --windows
-      - name: Upload Artifact
+      - name: Get Version
+        id: get_version
+        shell: bash
+        run: |
+          VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from comiccatcher import __version__; print(__version__)")
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+      - name: Harvest folder files using WiX Heat
+        run: |
+          heat dir dist/ComicCatcher -cg ComicCatcherComponents -dr INSTALLFOLDER -scom -sreg -sfrag -srd -gg -out packaging/dist_files.wxs
+      - name: Compile WiX Installer
+        run: |
+          candle -dProductVersion="${{ env.VERSION }}" packaging/installer.wxs packaging/dist_files.wxs
+      - name: Link and Build MSI
+        run: |
+          light -ext WixUIExtension -b dist/ComicCatcher installer.wixobj dist_files.wixobj -o dist/ComicCatcher-${{ env.VERSION }}.msi
+      - name: Upload MSI Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ComicCatcher-Windows
+          name: ComicCatcher-Windows-MSI
+          path: dist/ComicCatcher-${{ env.VERSION }}.msi
+      - name: Upload EXE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComicCatcher-Windows-EXE
           path: dist/ComicCatcher.exe
       - name: Upload to Release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/ComicCatcher.exe
+          files: |
+            dist/ComicCatcher-${{ env.VERSION }}.msi
+            dist/ComicCatcher.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

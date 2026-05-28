@@ -27,22 +27,31 @@ def clean_build():
         if p.exists():
             if p.is_dir(): shutil.rmtree(p)
             else: p.unlink()
+    license_rtf = PACKAGING_DIR / "LICENSE.rtf"
+    if license_rtf.exists():
+        license_rtf.unlink()
 
-def run_pyinstaller(icon_path):
-    # Core boilerplate using --onefile for a clean distribution.
+def run_pyinstaller(icon_path, onedir=False):
+    # Core boilerplate using PyInstaller for a clean distribution.
     # We use --collect-all for comicbox and --additional-hooks-dir for custom hooks 
     # to ensure standalone builds work correctly with internal comicbox dependencies.
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm",
         "--windowed",
-        "--onefile",
+    ]
+    if onedir:
+        cmd.append("--onedir")
+    else:
+        cmd.append("--onefile")
+        
+    cmd.extend([
         "--name", APP_NAME,
         "--icon", str(icon_path),
         "--additional-hooks-dir", str(PACKAGING_DIR),
         "--collect-submodules", "comiccatcher",
         "--collect-all", "comicbox"
-    ]
+    ])
     
     if platform.system().lower() == "windows":
         cmd.extend(["--collect-all", "windows_trackpad_helper"])
@@ -53,15 +62,78 @@ def run_pyinstaller(icon_path):
     ])
     run(cmd)
 
+def build_deb(icon_png):
+    log("Packaging Debian package (.deb)...")
+    deb_dir = PROJECT_ROOT / "build/deb_stage"
+    if deb_dir.exists():
+        shutil.rmtree(deb_dir)
+        
+    (deb_dir / "DEBIAN").mkdir(parents=True)
+    (deb_dir / "opt/comiccatcher").mkdir(parents=True)
+    (deb_dir / "usr/bin").mkdir(parents=True)
+    (deb_dir / "usr/share/applications").mkdir(parents=True)
+    (deb_dir / "usr/share/pixmaps").mkdir(parents=True)
+    
+    # 1. Copy one-folder files
+    src_folder = DIST_DIR / APP_NAME
+    dest_folder = deb_dir / "opt/comiccatcher"
+    for item in src_folder.iterdir():
+        if item.is_dir():
+            shutil.copytree(item, dest_folder / item.name)
+        else:
+            shutil.copy(item, dest_folder / item.name)
+            
+    # 2. Copy metadata & icon
+    shutil.copy(icon_png, deb_dir / "usr/share/pixmaps/comiccatcher.png")
+    shutil.copy(PACKAGING_DIR / "linux/comiccatcher.desktop", deb_dir / "usr/share/applications/comiccatcher.desktop")
+    
+    # 3. Create launcher script
+    launcher = deb_dir / "usr/bin/comiccatcher"
+    launcher.write_text("#!/bin/sh\nexec /opt/comiccatcher/ComicCatcher \"$@\"\n")
+    launcher.chmod(0o755)
+    
+    # 4. Create control file
+    version = "0.7.1"
+    try:
+        init_path = PROJECT_ROOT / "src/comiccatcher/__init__.py"
+        for line in init_path.read_text(encoding='utf-8').splitlines():
+            if line.startswith("__version__"):
+                version = line.split("=")[1].strip().strip('"').strip("'")
+                break
+    except Exception:
+        pass
+        
+    control_content = f"""Package: comiccatcher
+Version: {version}
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: ComicCatcher Developers <info@comiccatcher.org>
+Description: OPDS Comic Reader and Downloader
+ A desktop OPDS 2.0/1.2 browser and comic downloader/streamer/reader.
+"""
+    (deb_dir / "DEBIAN/control").write_text(control_content, encoding='utf-8')
+    
+    # 5. Run dpkg-deb
+    run(["dpkg-deb", "--build", str(deb_dir), str(DIST_DIR / f"{APP_NAME.lower()}-amd64.deb")])
+    shutil.rmtree(deb_dir)
+    log(f"Debian packaging complete: {DIST_DIR}/{APP_NAME.lower()}-amd64.deb")
+
 def build_linux():
-    log("Building Linux AppImage (via PyInstaller)...")
+    log("Building Linux Targets (via PyInstaller)...")
     clean_build()
-    
-    # 1. Run PyInstaller to get a standalone binary
     icon_png = PROJECT_ROOT / "src/comiccatcher/resources/app_256.png"
-    run_pyinstaller(icon_png)
     
-    # 2. Wrap the binary in an AppImage structure
+    # 1. Build unpacked folder layout first
+    run_pyinstaller(icon_png, onedir=True)
+    
+    # 2. Package into DEB
+    build_deb(icon_png)
+    
+    # 3. Build standalone single-file layout
+    run_pyinstaller(icon_png, onedir=False)
+    
+    # 4. Wrap the binary in an AppImage structure
     appdir = PROJECT_ROOT / "AppDir"
     if appdir.exists(): shutil.rmtree(appdir)
     appdir.mkdir()
@@ -79,7 +151,7 @@ def build_linux():
         f.write(f'#!/bin/sh\nexec "$(dirname "$0")/usr/bin/{APP_NAME}" "$@"\n')
     (appdir / "AppRun").chmod(0o755)
 
-    # 3. Pack with appimagetool
+    # 5. Pack with appimagetool
     appimagetool = PACKAGING_DIR / "appimagetool"
     if not appimagetool.exists():
         url = "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
@@ -93,9 +165,34 @@ def build_linux():
     shutil.rmtree(appdir)
     log(f"Linux build complete: {DIST_DIR}/{APP_NAME}-x86_64.AppImage")
 
+def generate_license_rtf():
+    license_txt_path = PROJECT_ROOT / "LICENSE"
+    license_rtf_path = PACKAGING_DIR / "LICENSE.rtf"
+    if not license_txt_path.exists():
+        log("LICENSE file not found, skipping RTF generation")
+        return
+    
+    text = license_txt_path.read_text(encoding="utf-8")
+    
+    # Escape RTF special characters
+    escaped = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+    
+    # Format newlines as RTF paragraph breaks
+    rtf_paragraphs = []
+    for line in escaped.splitlines():
+        rtf_paragraphs.append(line + "\\par")
+        
+    rtf_content = "{\\rtf1\\ansi\\deff0\n{\\fonttbl{\\f0\\fnil\\fcharset0 Arial;}}\n\\f0\\fs20\n" + "\n".join(rtf_paragraphs) + "\n}"
+    
+    license_rtf_path.write_text(rtf_content, encoding="ascii", errors="ignore")
+    log("Generated packaging/LICENSE.rtf from LICENSE")
+
 def build_windows():
-    log("Building Windows EXE (via PyInstaller)...")
+    log("Building Windows Targets (via PyInstaller)...")
     clean_build()
+    
+    # Generate the license RTF for the WiX installer UI
+    generate_license_rtf()
     
     from PIL import Image
     
@@ -105,10 +202,17 @@ def build_windows():
     
     icon_ico = build_dir / "comiccatcher.ico"
     img = Image.open(PROJECT_ROOT / "src/comiccatcher/resources/app_256.png")
-    img.save(icon_ico, format='ICO', sizes=[(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)])
+    # Set bitmap_format=True to write standard raw BMP format inside the ICO file (instead of PNG compression).
+    # Windows Installer's legacy extraction does not support PNG-compressed icons (which is default for 256x256 in Pillow).
+    img.save(icon_ico, format='ICO', bitmap_format=True, sizes=[(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)])
     
-    run_pyinstaller(icon_ico)
-    log(f"Windows build complete: {DIST_DIR}/{APP_NAME}.exe")
+    # 1. Build unpacked folder layout (for WiX MSI packaging)
+    run_pyinstaller(icon_ico, onedir=True)
+    
+    # 2. Build standalone single-file layout
+    run_pyinstaller(icon_ico, onedir=False)
+    
+    log(f"Windows build complete: both {DIST_DIR}/{APP_NAME} folder and {DIST_DIR}/{APP_NAME}.exe created.")
 
 def build_macos():
     log("Building macOS DMG (via PyInstaller)...")

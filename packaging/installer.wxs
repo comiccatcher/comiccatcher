@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <?ifndef ProductVersion?>
+        <?define ProductVersion="0.7.1"?>
+    <?endif?>
+    <Product Id="*" Name="ComicCatcher v$(var.ProductVersion)" Language="1033" Version="$(var.ProductVersion)" Manufacturer="ComicCatcher" UpgradeCode="a9f23ab8-d890-4c28-98e6-e91b5c46e6a1">
+        <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+
+        <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+        <MediaTemplate EmbedCab="yes" />
+
+        <Icon Id="AppIcon.ico" SourceFile="build/comiccatcher.ico"/>
+        <Property Id="ARPPRODUCTICON" Value="AppIcon.ico" />
+
+        <!-- Directory Structure -->
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFilesFolder">
+                <Directory Id="INSTALLFOLDER" Name="ComicCatcher" />
+            </Directory>
+            <Directory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="ComicCatcher"/>
+            </Directory>
+            <Directory Id="DesktopFolder" Name="Desktop" />
+        </Directory>
+
+        <!-- Shortcut Component -->
+        <DirectoryRef Id="ApplicationProgramsFolder">
+            <Component Id="ApplicationShortcut" Guid="7d193d25-9b2f-4889-8d76-e170942e6a12">
+                <Shortcut Id="ApplicationStartMenuShortcut" 
+                          Name="ComicCatcher" 
+                          Description="OPDS Comic Reader and Downloader"
+                          Target="[INSTALLFOLDER]ComicCatcher.exe"
+                          WorkingDirectory="INSTALLFOLDER"
+                          Icon="AppIcon.ico"/>
+                <RemoveFolder Id="CleanUpShortcuts" On="uninstall"/>
+                <RegistryValue Root="HKCU" Key="Software\ComicCatcher" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+            </Component>
+        </DirectoryRef>
+
+        <DirectoryRef Id="DesktopFolder">
+            <Component Id="ApplicationShortcutDesktop" Guid="d62b9a7c-5c12-4ebf-8181-e270942e6a23">
+                <Shortcut Id="ApplicationDesktopShortcut"
+                          Name="ComicCatcher"
+                          Description="OPDS Comic Reader and Downloader"
+                          Target="[INSTALLFOLDER]ComicCatcher.exe"
+                          WorkingDirectory="INSTALLFOLDER"
+                          Icon="AppIcon.ico"/>
+                <RegistryValue Root="HKCU" Key="Software\ComicCatcher" Name="desktop_shortcut" Type="integer" Value="1" KeyPath="yes"/>
+            </Component>
+        </DirectoryRef>
+
+        <!-- Features -->
+        <Feature Id="ProductFeature" Title="ComicCatcher" Level="1">
+            <ComponentGroupRef Id="ComicCatcherComponents" />
+            <ComponentRef Id="ApplicationShortcut" />
+            <ComponentRef Id="ApplicationShortcutDesktop" />
+        </Feature>
+
+        <!-- UI Configuration -->
+        <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+        <WixVariable Id="WixUILicenseRtf" Value="packaging/LICENSE.rtf" />
+        <UIRef Id="WixUI_InstallDir" />
+    </Product>
+</Wix>
