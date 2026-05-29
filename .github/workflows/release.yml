@@ -88,6 +88,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libfuse2 curl
+      - name: Get Version
+        id: get_version
+        run: |
+          VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from comiccatcher import __version__; print(__version__)")
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
       - name: Build Linux Packages
         run: python packaging/build.py --linux
       - name: Upload AppImage Artifact
@@ -109,6 +114,31 @@ jobs:
             dist/comiccatcher-amd64.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Import GPG Key for Signing
+        if: github.event_name == 'push'
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          git_user_signingkey: true
+          git_commit_gpgsign: true
+      - name: Deploy to static APT Repository
+        if: github.event_name == 'push'
+        env:
+          APT_REPO_PAT: ${{ secrets.APT_REPO_PAT }}
+          GPG_KEY_EMAIL: beville@gmail.com
+        run: |
+          git clone https://${{ secrets.APT_REPO_PAT }}@github.com/comiccatcher/comiccatcher-apt.git apt-repo
+          mkdir -p apt-repo/pool/main/c/comiccatcher
+          cp dist/comiccatcher-amd64.deb apt-repo/pool/main/c/comiccatcher/
+          cp packaging/update_apt_repo.py apt-repo/
+          cd apt-repo
+          python update_apt_repo.py "$GPG_KEY_EMAIL"
+          rm update_apt_repo.py
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add .
+          git commit -m "Automated update: ComicCatcher v${{ env.VERSION }} (APT Release)" || exit 0
+          git push origin main
 
   build-windows:
     if: github.event_name == 'push' || github.event.inputs.build_windows == 'true'
@@ -159,6 +189,19 @@ jobs:
             dist/ComicCatcher.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Placeholder: Publish to Windows Package Manager (WinGet)
+      # Uncomment the step below once your WinGet package submission is approved.
+      # You will need to add WINGET_TOKEN to your GitHub repository secrets.
+      # WINGET_TOKEN must be a Personal Access Token (PAT) with 'public_repo' scope.
+      # - name: Publish to WinGet
+      #   if: github.event_name == 'push'
+      #   uses: vedantmgoyal2009/winget-releaser@v2
+      #   with:
+      #     identifier: ComicCatcher.ComicCatcher  # Replace with your actual WinGet package identifier
+      #     installers-regex: '.*\.msi$'
+      #     token: ${{ secrets.WINGET_TOKEN }}
+
 
   build-macos:
     if: github.event_name == 'push' || github.event.inputs.build_macos == 'true'

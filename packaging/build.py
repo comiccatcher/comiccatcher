@@ -62,6 +62,27 @@ def run_pyinstaller(icon_path, onedir=False):
     ])
     run(cmd)
 
+def deduplicate_with_symlinks(target_internal_dir):
+    """Finds duplicate libraries inside subfolders of _internal and replaces them with relative symlinks."""
+    log(f"Deduplicating files in {target_internal_dir} using relative symbolic links...")
+    root_files = {}
+    for entry in target_internal_dir.iterdir():
+        if entry.is_file() and not entry.is_symlink():
+            root_files[entry.name] = entry
+            
+    for root, dirs, files in os.walk(target_internal_dir):
+        if Path(root) == target_internal_dir:
+            continue
+        for f in files:
+            file_path = Path(root) / f
+            if f in root_files and not file_path.is_symlink():
+                root_file_path = root_files[f]
+                if file_path.stat().st_size == root_file_path.stat().st_size:
+                    rel_depth = len(Path(root).relative_to(target_internal_dir).parts)
+                    rel_target = ("../" * rel_depth) + f
+                    file_path.unlink()
+                    file_path.symlink_to(rel_target)
+
 def build_deb(icon_png):
     log("Packaging Debian package (.deb)...")
     deb_dir = PROJECT_ROOT / "build/deb_stage"
@@ -83,6 +104,22 @@ def build_deb(icon_png):
         else:
             shutil.copy(item, dest_folder / item.name)
             
+    # Deduplicate redundant library files in _internal folder using relative symlinks
+    internal_dir = dest_folder / "_internal"
+    if internal_dir.exists():
+        deduplicate_with_symlinks(internal_dir)
+
+    # Strip debugging symbols from all binary shared objects and the main executable to reduce file size dramatically
+    log(f"Stripping debugging symbols from binaries in {dest_folder}...")
+    for root, _, files in os.walk(dest_folder):
+        for f in files:
+            file_path = Path(root) / f
+            if file_path.suffix == ".so" or (file_path.name == "ComicCatcher" and not file_path.is_symlink()):
+                try:
+                    subprocess.run(["strip", "--strip-unneeded", str(file_path)], check=False, capture_output=True)
+                except Exception:
+                    pass
+
     # 2. Copy metadata & icon
     shutil.copy(icon_png, deb_dir / "usr/share/pixmaps/comiccatcher.png")
     shutil.copy(PACKAGING_DIR / "linux/comiccatcher.desktop", deb_dir / "usr/share/applications/comiccatcher.desktop")
@@ -115,8 +152,7 @@ Description: OPDS Comic Reader and Downloader
     (deb_dir / "DEBIAN/control").write_text(control_content, encoding='utf-8')
     
     # 5. Run dpkg-deb
-    run(["dpkg-deb", "--build", str(deb_dir), str(DIST_DIR / f"{APP_NAME.lower()}-amd64.deb")])
-    shutil.rmtree(deb_dir)
+    run(["dpkg-deb", "-Zxz", "-z9", "--build", str(deb_dir), str(DIST_DIR / f"{APP_NAME.lower()}-amd64.deb")])
     log(f"Debian packaging complete: {DIST_DIR}/{APP_NAME.lower()}-amd64.deb")
 
 def build_linux():
@@ -130,17 +166,13 @@ def build_linux():
     # 2. Package into DEB
     build_deb(icon_png)
     
-    # 3. Build standalone single-file layout
-    run_pyinstaller(icon_png, onedir=False)
-    
-    # 4. Wrap the binary in an AppImage structure
+    # 3. Wrap the stripped, deduplicated binary folder in an AppImage structure
     appdir = PROJECT_ROOT / "AppDir"
     if appdir.exists(): shutil.rmtree(appdir)
     appdir.mkdir()
-    (appdir / "usr/bin").mkdir(parents=True)
     
-    # Copy the PyInstaller binary
-    shutil.copy(DIST_DIR / APP_NAME, appdir / "usr/bin" / APP_NAME)
+    # Copy the pre-built, stripped, deduplicated folder directly to AppDir/usr/bin
+    shutil.copytree(PROJECT_ROOT / "build/deb_stage/opt/comiccatcher", appdir / "usr/bin")
     
     # Metadata
     shutil.copy(PACKAGING_DIR / "linux/comiccatcher.desktop", appdir / "comiccatcher.desktop")
@@ -151,7 +183,7 @@ def build_linux():
         f.write(f'#!/bin/sh\nexec "$(dirname "$0")/usr/bin/{APP_NAME}" "$@"\n')
     (appdir / "AppRun").chmod(0o755)
 
-    # 5. Pack with appimagetool
+    # 4. Pack with appimagetool
     appimagetool = PACKAGING_DIR / "appimagetool"
     if not appimagetool.exists():
         url = "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
@@ -162,7 +194,12 @@ def build_linux():
     env["ARCH"] = "x86_64"
     run([str(appimagetool), "-n", str(appdir), str(DIST_DIR / f"{APP_NAME}-x86_64.AppImage")], env=env)
     
+    # Clean up temporary staging directories
     shutil.rmtree(appdir)
+    deb_stage = PROJECT_ROOT / "build/deb_stage"
+    if deb_stage.exists():
+        shutil.rmtree(deb_stage)
+        
     log(f"Linux build complete: {DIST_DIR}/{APP_NAME}-x86_64.AppImage")
 
 def generate_license_rtf():
