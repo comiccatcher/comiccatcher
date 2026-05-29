@@ -91,7 +91,7 @@ class OPDS2Client:
                 raise OPDSClientError("Invalid feed format. Failed as JSON and XML.") from e
 
         try:
-            return OPDSFeed(**data)
+            feed = OPDSFeed(**data)
         except ValidationError as e:
             logger.error(f"Schema validation error for feed at {url}: {e}")
             server_msg = data.get("message") if isinstance(data, dict) else None
@@ -99,6 +99,45 @@ class OPDS2Client:
             if server_msg:
                 msg = f"Server Error: {server_msg} ({e})"
             raise OPDSClientError(msg, server_message=server_msg) from e
+
+        # Eagerly fetch and resolve any OpenSearch XML links in OPDS 2.0 JSON feeds
+        search_osdd_links = []
+        if feed.links:
+            for link in feed.links:
+                rel = link.rel
+                rels = [rel] if isinstance(rel, str) else (rel or [])
+                if "search" in rels and link.type == "application/opensearchdescription+xml" and link.href:
+                    search_osdd_links.append(link.href)
+
+        if search_osdd_links:
+            import xml.etree.ElementTree as ET
+            import urllib.parse
+            from comiccatcher.models.opds import Link as OPDSLink
+
+            for osdd_href in search_osdd_links:
+                try:
+                    abs_href = urllib.parse.urljoin(url, osdd_href)
+                    logger.debug(f"OPDS 2.0: Eagerly fetching OSDD: {abs_href}")
+                    osdd_resp = await self.api.get(abs_href, headers={"Accept": "application/xml, text/xml, */*"})
+                    if osdd_resp.status_code == 200:
+                        fixed_text = osdd_resp.text.replace("&", "&amp;").replace("&amp;amp;", "&amp;")
+                        osdd_root = ET.fromstring(fixed_text)
+
+                        def _strip_ns(tag):
+                            return tag.split("}")[-1] if "}" in tag else tag
+
+                        for os_child in osdd_root:
+                            os_tag = _strip_ns(os_child.tag)
+                            if os_tag == "Url":
+                                tmpl = os_child.get("template")
+                                if tmpl:
+                                    tmpl = urllib.parse.urljoin(abs_href, tmpl)
+                                    type_val = os_child.get("type") or "application/atom+xml"
+                                    feed.links.append(OPDSLink(rel="search", href=tmpl, type=type_val, templated=True))
+                except Exception as e:
+                    logger.warning(f"OPDS 2.0: Failed to resolve search template from OSDD at {osdd_href}: {e}")
+
+        return feed
 
     async def get_publication(self, url: str, force_refresh: bool = False) -> Publication:
         if not force_refresh and url in self._cache:
