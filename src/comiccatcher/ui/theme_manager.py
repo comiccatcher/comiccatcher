@@ -1286,4 +1286,6 @@ class ThemeManager:
         palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.BrightText, QColor(theme['brand_primary']))
         palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Highlight, QColor(theme['brand_primary']))
         palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+        palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.Link, QColor(theme['brand_primary']))
+        palette.setColor(QPalette.ColorGroup.All, QPalette.ColorRole.LinkVisited, QColor(theme['brand_primary']))
         app.setPalette(palette)

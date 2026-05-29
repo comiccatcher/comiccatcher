@@ -121,7 +121,8 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
                                     tmpl = os_child.get("template")
                                     if tmpl:
                                         tmpl = urllib.parse.urljoin(source_url, tmpl)
-                                        links.append(Link(rel="search", href=tmpl, type="application/atom+xml", templated=True))
+                                        type_val = os_child.get("type") or "application/atom+xml"
+                                        links.append(Link(rel="search", href=tmpl, type=type_val, templated=True))
                                 elif os_tag == "Image":
                                     img_href = os_child.text
                                     if img_href:
@@ -192,6 +193,12 @@ async def parse_opds12(xml_text: str, api_client: APIClient, source_url: str) ->
                     
                     if entry_summary:
                         entry_summary = entry_summary.strip()
+                        # Clean up protocol-relative and Gutenberg-style mutilated links
+                        if "//" in entry_summary:
+                            import re
+                            entry_summary = re.sub(r'https?:<a\s+href="(?://|https?://)', '<a href="https://', entry_summary)
+                            entry_summary = re.sub(r'href="//', 'href="https://', entry_summary)
+                            entry_summary = re.sub(r'>//', '>https://', entry_summary)
                         break
 
             entry_authors = []

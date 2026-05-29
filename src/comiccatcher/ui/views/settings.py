@@ -20,6 +20,8 @@ from comiccatcher.ui.views.feed_management import FeedManagementView
 
 from comiccatcher.ui.views.base_browser import BaseBrowserView
 
+GITHUB_PROJECT_URL = "https://github.com/comiccatcher/comiccatcher"
+
 class SettingsView(BaseBrowserView):
     theme_changed = pyqtSignal()
     library_reset = pyqtSignal()
@@ -166,6 +168,16 @@ class SettingsView(BaseBrowserView):
         v_label.setStyleSheet(f"font-size: {UIConstants.FONT_SIZE_DETAIL_SUBTITLE}px;")
         text_layout.addWidget(v_label)
         text_layout.addWidget(QLabel("A comic browser/streamer/downloader/reader for OPDS feeds"))
+        link_layout = QHBoxLayout()
+        link_layout.setContentsMargins(0, 0, 0, 0)
+        link_layout.setSpacing(s(5))
+        self.gh_icon_label = QLabel()
+        link_layout.addWidget(self.gh_icon_label)
+        self.gh_label = QLabel()
+        self.gh_label.setOpenExternalLinks(True)
+        link_layout.addWidget(self.gh_label)
+        link_layout.addStretch()
+        text_layout.addLayout(link_layout)
         about_header.addLayout(text_layout)
         about_header.addStretch()
         self.about_layout.addLayout(about_header)
@@ -188,6 +200,11 @@ class SettingsView(BaseBrowserView):
         
         # Propagation to sub-widgets
         self.feed_management.reapply_theme()
+        
+        # Dynamically set link with theme-appropriate color and icon
+        self.gh_label.setText(f'<a href="{GITHUB_PROJECT_URL}" style="color: {theme["brand_primary"]}; text-decoration: none;">Project Home on GitHub</a>')
+        icon_pixmap = ThemeManager.get_icon("globe", "brand_primary").pixmap(s(16), s(16))
+        self.gh_icon_label.setPixmap(icon_pixmap)
 
         self.container.setStyleSheet(f"""
             QWidget#settings_container {{

@@ -10,6 +10,13 @@ from comiccatcher.logger import get_logger
 
 logger = get_logger("api.feed_reconciler")
 
+# Named constants for search link MIME type/relation detection
+SEARCH_RELATION = "search"
+OPENSEARCH_MIME_SUBSTRING = "opensearchdescription"
+ATOM_XML_MIME = "application/atom+xml"
+XML_MIME_SUBSTRING = "xml"
+JSON_MIME_SUBSTRING = "json"
+
 # Threshold for choosing GRID layout over RIBBON for results sets
 # MOVED TO UI LAYER
 
@@ -270,13 +277,23 @@ class FeedReconciler:
         # 7. Detect Search Template
         search_template = None
         if feed.links:
+            best_link = None
             for link in feed.links:
                 rel = link.rel
                 rels = [rel] if isinstance(rel, str) else (rel or [])
-                if "search" in rels:
-                    # Resolve to absolute URL
-                    search_template = urllib.parse.urljoin(base_url, link.href)
-                    break
+                if SEARCH_RELATION in rels:
+                    type_str = link.type or ""
+                    # Skip OpenSearch Description Documents since they are descriptors, not templates
+                    if OPENSEARCH_MIME_SUBSTRING in type_str:
+                        continue
+                    if ATOM_XML_MIME in type_str or XML_MIME_SUBSTRING in type_str or JSON_MIME_SUBSTRING in type_str:
+                        best_link = link
+                        break
+                    elif not best_link:
+                        best_link = link
+            if best_link:
+                search_template = urllib.parse.urljoin(base_url, best_link.href)
+
 
         # 8. Final Layout Assignment and Main Section Detection
         temp_page = FeedPage(
