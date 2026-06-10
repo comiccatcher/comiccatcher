@@ -230,7 +230,14 @@ class FeedDetailView(BaseDetailView, HelpPopoverMixin):
         if pub.links:
             for link in pub.links:
                 rels = [link.rel] if isinstance(link.rel, str) else (link.rel or [])
-                if any(r in rels for r in ["http://librarysimplified.org/terms/rel/state", "http://www.cantook.com/api/progression", "http://readium.org/rel/progression"]):
+                if any(r in rels for r in [
+                    "http://librarysimplified.org/terms/rel/state",
+                    "http://www.cantook.com/api/progression",
+                    "http://readium.org/rel/progression",
+                    "http://readium.org/progression",
+                    "http://opds-spec.org/rel/progression",
+                    "http://opds-spec.org/progression"
+                ]):
                     prog_url = urljoin(base_url, link.href)
                     break
         
