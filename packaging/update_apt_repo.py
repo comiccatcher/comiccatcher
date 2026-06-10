@@ -193,6 +193,7 @@ def update_repo(gpg_key_email=None):
         # Create detached signature (Release.gpg)
         subprocess.run([
             "gpg", "--batch", "--yes", "--armor",
+            "--pinentry-mode", "loopback",
             "--local-user", gpg_key_email,
             "--detach-sign", "--output", str(RELEASE_DIR / "Release.gpg"),
             str(RELEASE_DIR / "Release")
@@ -200,6 +201,7 @@ def update_repo(gpg_key_email=None):
         # Create inline signature (InRelease)
         subprocess.run([
             "gpg", "--batch", "--yes", "--armor",
+            "--pinentry-mode", "loopback",
             "--local-user", gpg_key_email,
             "--clearsign", "--output", str(RELEASE_DIR / "InRelease"),
             str(RELEASE_DIR / "Release")
