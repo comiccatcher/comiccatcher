@@ -166,7 +166,7 @@ jobs:
           heat dir dist/ComicCatcher -cg ComicCatcherComponents -dr INSTALLFOLDER -scom -sreg -sfrag -srd -gg -out packaging/dist_files.wxs
       - name: Compile WiX Installer
         run: |
-          candle -dProductVersion="${{ env.VERSION }}" packaging/installer.wxs packaging/dist_files.wxs
+          candle -arch x64 -dProductVersion="${{ env.VERSION }}" packaging/installer.wxs packaging/dist_files.wxs
       - name: Link and Build MSI
         run: |
           light -ext WixUIExtension -b dist/ComicCatcher installer.wixobj dist_files.wixobj -o dist/ComicCatcher-${{ env.VERSION }}.msi
