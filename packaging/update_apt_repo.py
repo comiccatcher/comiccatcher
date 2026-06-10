@@ -20,7 +20,6 @@ REP_DESC = "ComicCatcher APT Repository"
 
 # Named constants for GPG batch signing
 GPG_PINENTRY_MODE = "loopback"
-GPG_PASSPHRASE = ""
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
@@ -198,7 +197,6 @@ def update_repo(gpg_key_email=None):
         subprocess.run([
             "gpg", "--batch", "--yes", "--armor",
             "--pinentry-mode", GPG_PINENTRY_MODE,
-            "--passphrase", GPG_PASSPHRASE,
             "--local-user", gpg_key_email,
             "--detach-sign", "--output", str(RELEASE_DIR / "Release.gpg"),
             str(RELEASE_DIR / "Release")
@@ -207,7 +205,6 @@ def update_repo(gpg_key_email=None):
         subprocess.run([
             "gpg", "--batch", "--yes", "--armor",
             "--pinentry-mode", GPG_PINENTRY_MODE,
-            "--passphrase", GPG_PASSPHRASE,
             "--local-user", gpg_key_email,
             "--clearsign", "--output", str(RELEASE_DIR / "InRelease"),
             str(RELEASE_DIR / "Release")

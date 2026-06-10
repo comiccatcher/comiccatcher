@@ -24,7 +24,7 @@ def read_comicbox_dict(path: Path) -> Dict[str, Any]:
     try:
         from comicbox.box import Comicbox  # type: ignore
         from comicbox.config import get_config
-        config = get_config({"comicbox": {"compute_page_count": True}}, path=path)
+        config = get_config({"comicbox": {"compute": {"page_count": True}}}, path=path)
     except ImportError as e:
         return {"_comicbox_status": "missing", "_comicbox_error": str(e)}
 
@@ -63,7 +63,7 @@ def read_comicbox_dict_and_cover(path: Path) -> Tuple[Dict[str, Any], Optional[b
     try:
         from comicbox.box import Comicbox  # type: ignore
         from comicbox.config import get_config
-        config = get_config({"comicbox": {"compute_page_count": True}}, path=path)
+        config = get_config({"comicbox": {"compute": {"page_count": True}}}, path=path)
     except ImportError as e:
         return {"_comicbox_status": "missing", "_comicbox_error": str(e)}, None
 

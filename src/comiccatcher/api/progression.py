@@ -5,9 +5,13 @@ import asyncio
 from comiccatcher.api.client import APIClient
 from typing import Optional, Dict, List
 from datetime import datetime, timezone
+from http import HTTPStatus
 from comiccatcher.logger import get_logger
 
-logger = get_logger("api.progression")
+logger = get_logger("net.progression")
+
+FORMAT_LOCATOR = "locator"
+FORMAT_FLAT = "flat"
 
 class ProgressionSync:
     SYNC_DEBOUNCE_SEC = 1.0
@@ -16,20 +20,28 @@ class ProgressionSync:
         self.api = api_client
         self.device_id = device_id
         self._tasks: Dict[str, asyncio.Task] = {}
+        self._formats: Dict[str, str] = {}
         
     async def get_progression(self, endpoint: str) -> Optional[Dict]:
         try:
             resp = await self.api.get(endpoint)
-            if resp.status_code == 200:
-                return resp.json()
-            elif resp.status_code != 404:
+            if resp.status_code == HTTPStatus.OK:
+                data = resp.json()
+                logger.debug(f"Fetched progression from {endpoint}: {data}")
+                if data:
+                    if "locator" in data:
+                        self._formats[endpoint] = FORMAT_LOCATOR
+                    elif "progression" in data:
+                        self._formats[endpoint] = FORMAT_FLAT
+                return data
+            elif resp.status_code != HTTPStatus.NOT_FOUND:
                 logger.warning(f"Unexpected status fetching progression from {endpoint}: {resp.status_code}")
             return None
         except Exception as e:
             logger.error(f"Error fetching progression from {endpoint}: {e}")
             return None
             
-    async def update_progression(self, endpoint: str, fraction: float, title: str = None, href: str = None, position: int = None, content_type: str = None):
+    async def update_progression(self, endpoint: str, fraction: float, title: str = None, href: str = None, position: int = None, content_type: str = None, rel: str = None):
         """
         Sync progression based on the Readium Locator object specification 
         (used by Codex and LibrarySimplified).
@@ -54,32 +66,78 @@ class ProgressionSync:
             short_id = self.device_id[:8]
             device_name = f"ComicCatcher PyQt6 ({short_id})"
             
-            data = {
-                "modified": now_iso,
-                "device": {
-                    "id": f"urn:uuid:{self.device_id}",
-                    "name": device_name
-                },
-                "locator": {
-                    "locations": {
-                        "progression": fraction,
-                        "totalProgression": fraction,  # Spec-compliant (Stump)
-                        "total_progression": fraction  # Compatibility (Codex/Legacy)
+            def build_payload(fmt: str) -> Dict:
+                if fmt == FORMAT_FLAT:
+                    payload = {
+                        "modified": now_iso,
+                        "device": {
+                            "id": f"urn:uuid:{self.device_id}",
+                            "name": device_name
+                        },
+                        "progression": fraction
                     }
-                }
-            }
-            
-            if position is not None:
-                data["locator"]["locations"]["position"] = position
-            if title:
-                data["locator"]["title"] = title
-            if href:
-                data["locator"]["href"] = href
-            if content_type:
-                data["locator"]["type"] = content_type
-            
-            resp = await self.api.put(endpoint, json=data)
-            if resp.status_code not in [200, 201, 204]:
+                    if position is not None:
+                        payload["position"] = position
+                    if title:
+                        payload["title"] = title
+                    return payload
+                else:
+                    payload = {
+                        "modified": now_iso,
+                        "device": {
+                            "id": f"urn:uuid:{self.device_id}",
+                            "name": device_name
+                        },
+                        "locator": {
+                            "locations": {
+                                "progression": fraction,
+                                "totalProgression": fraction,
+                                "total_progression": fraction
+                            }
+                        }
+                    }
+                    if position is not None:
+                        payload["locator"]["locations"]["position"] = position
+                    if title:
+                        payload["locator"]["title"] = title
+                    if href:
+                        payload["locator"]["href"] = href
+                    if content_type:
+                        payload["locator"]["type"] = content_type
+                    return payload
+
+            # Initialize format from relation link if not cached
+            if endpoint not in self._formats and rel:
+                if rel == "http://opds-spec.org/progression":
+                    self._formats[endpoint] = FORMAT_FLAT
+                else:
+                    self._formats[endpoint] = FORMAT_LOCATOR
+
+            fmt = self._formats.get(endpoint)
+            if fmt is None:
+                # Try legacy locator format first
+                data = build_payload(FORMAT_LOCATOR)
+                logger.debug(f"Syncing progression to {endpoint} using guess FORMAT_LOCATOR format. Payload: {data}")
+                resp = await self.api.put(endpoint, json=data)
+                logger.debug(f"Sync response from {endpoint}: Status={resp.status_code}, Body={resp.text}")
+                if resp.status_code == HTTPStatus.BAD_REQUEST:
+                    # Fallback to flat format
+                    logger.info(f"Locator format rejected with 400. Falling back to flat format for {endpoint}.")
+                    fmt = FORMAT_FLAT
+                    self._formats[endpoint] = FORMAT_FLAT
+                    data = build_payload(FORMAT_FLAT)
+                    logger.debug(f"Syncing progression to {endpoint} using fallback FORMAT_FLAT format. Payload: {data}")
+                    resp = await self.api.put(endpoint, json=data)
+                    logger.debug(f"Sync response from {endpoint}: Status={resp.status_code}, Body={resp.text}")
+                elif resp.status_code in [HTTPStatus.OK, HTTPStatus.CREATED, HTTPStatus.NO_CONTENT, HTTPStatus.CONFLICT]:
+                    self._formats[endpoint] = FORMAT_LOCATOR
+            else:
+                data = build_payload(fmt)
+                logger.debug(f"Syncing progression to {endpoint} using cached {fmt} format. Payload: {data}")
+                resp = await self.api.put(endpoint, json=data)
+                logger.debug(f"Sync response from {endpoint}: Status={resp.status_code}, Body={resp.text}")
+
+            if resp.status_code not in [HTTPStatus.OK, HTTPStatus.CREATED, HTTPStatus.NO_CONTENT, HTTPStatus.CONFLICT]:
                 body = resp.text
                 logger.error(
                     f"Failed to sync progression to {endpoint}. "

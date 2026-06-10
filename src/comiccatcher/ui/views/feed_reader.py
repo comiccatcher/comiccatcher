@@ -39,6 +39,7 @@ class FeedReaderView(BaseReaderView):
         self.image_manager = image_manager
         self.progression_sync: Optional[ProgressionSync] = None
         self.progression_url: Optional[str] = None
+        self.progression_rel: Optional[str] = None
 
         self._current_pub: Optional[Publication] = None
         self._manifest_url: Optional[str] = None
@@ -122,7 +123,7 @@ class FeedReaderView(BaseReaderView):
             return
         item = self._reading_order[idx]
         href = item.get("href", "")
-        pct  = 1.0 if idx == self._total - 1 else idx / self._total
+        pct = idx / (self._total - 1) if self._total > 1 else 0.0
         asyncio.create_task(self.progression_sync.update_progression(
             self.progression_url,
             fraction=pct,
@@ -130,6 +131,7 @@ class FeedReaderView(BaseReaderView):
             href=href,
             position=idx + 1,
             content_type=item.get("type", "image/jpeg"),
+            rel=self.progression_rel,
         ))
 
     # ------------------------------------------------------------------ #
@@ -149,23 +151,28 @@ class FeedReaderView(BaseReaderView):
         self.progression_sync = ProgressionSync(
             self.api_client, self.config_manager.get_device_id()
         )
-        self.progression_url = self._discover_progression_url(pub.links)
+        res = self._discover_progression_url(pub.links)
+        self.progression_url = res[0] if res else None
+        self.progression_rel = res[1] if res else None
         asyncio.create_task(self._fetch_and_load(self._load_token))
 
-    def _discover_progression_url(self, links) -> Optional[str]:
+    def _discover_progression_url(self, links) -> Optional[tuple[str, str]]:
         _PROG_RELS = {
             "http://opds-spec.org/rel/progression",
+            "http://opds-spec.org/progression",
             "http://readium.org/rel/progression",
+            "http://readium.org/progression",
             "http://librarysimplified.org/terms/rel/state",
             "http://www.cantook.com/api/progression",
         }
         for link in (links or []):
             rel  = getattr(link, "rel", None) or (link.get("rel") if isinstance(link, dict) else None)
             rels = [rel] if isinstance(rel, str) else (rel or [])
-            if any(r in _PROG_RELS for r in rels):
-                href = getattr(link, "href", None) or (link.get("href") if isinstance(link, dict) else None)
-                if href:
-                    return urljoin(self.api_client.profile.get_base_url(), href)
+            for r in rels:
+                if r in _PROG_RELS:
+                    href = getattr(link, "href", None) or (link.get("href") if isinstance(link, dict) else None)
+                    if href:
+                        return urljoin(self.api_client.profile.get_base_url(), href), r
         return None
 
     async def _fetch_and_load(self, token: int):
@@ -184,9 +191,10 @@ class FeedReaderView(BaseReaderView):
                     self._reading_order = data["readingOrder"]
 
                 # Progression link may live in the manifest itself
-                prog = self._discover_progression_url(data.get("links", []))
-                if prog:
-                    self.progression_url = prog
+                res = self._discover_progression_url(data.get("links", []))
+                if res:
+                    self.progression_url = res[0]
+                    self.progression_rel = res[1]
 
             if token != self._load_token:
                 return
