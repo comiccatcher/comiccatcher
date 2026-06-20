@@ -13,6 +13,38 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 DIST_DIR = PROJECT_ROOT / "dist"
 PACKAGING_DIR = PROJECT_ROOT / "packaging"
 
+EXCLUDED_MODULES = [
+    # Large optional dependencies of comicbox 4.0.0 not needed by comiccatcher
+    "numpy",
+    "scipy",
+    "PyWavelets",
+    "pywavelets",
+    "cryptography",
+    "keyring",
+    "imagehash",
+    "SecretStorage",
+    "jeepney",
+    # Unused large PyQt6 components
+    "PyQt6.QtWebEngineWidgets",
+    "PyQt6.QtWebEngineCore",
+    "PyQt6.QtWebEngine",
+    "PyQt6.QtQuick",
+    "PyQt6.QtQuickWidgets",
+    "PyQt6.QtQml",
+    "PyQt6.QtPdf",
+    "PyQt6.QtPdfWidgets",
+    "PyQt6.QtMultimedia",
+    "PyQt6.QtMultimediaWidgets",
+    "PyQt6.QtPositioning",
+    "PyQt6.QtSensors",
+    "PyQt6.QtNfc",
+    "PyQt6.QtBluetooth",
+    "PyQt6.QtSerialPort",
+    "PyQt6.QtSql",
+    "PyQt6.QtTest",
+    "PyQt6.QtXml",
+]
+
 def log(msg):
     print(f"[*] {msg}")
 
@@ -55,6 +87,9 @@ def run_pyinstaller(icon_path, onedir=False):
     
     if platform.system().lower() == "windows":
         cmd.extend(["--collect-all", "windows_trackpad_helper"])
+        
+    for mod in EXCLUDED_MODULES:
+        cmd.extend(["--exclude-module", mod])
         
     cmd.extend([
         "--add-data", f"src/comiccatcher/resources{os.pathsep}comiccatcher/resources",
